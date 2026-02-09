@@ -221,8 +221,13 @@ async def setup_tutorial():
                     break
             continue
         
-        # Copy file to storage
-        dest_path = files_dir / filename
+        # Create document ID first (before copying)
+        from uuid import uuid4
+        doc_id = str(uuid4())
+        
+        # Copy file to storage with document ID as name
+        file_ext = src_path.suffix
+        dest_path = files_dir / f"{doc_id}{file_ext}"
         shutil.copy2(src_path, dest_path)
         
         try:
@@ -237,12 +242,9 @@ async def setup_tutorial():
             
             content = result.content
             
-            # Create document ID
-            from uuid import uuid4
+            # Import datetime and DocumentMetadata
             from datetime import datetime
             from uu_backend.models.document import DocumentMetadata
-            
-            doc_id = str(uuid4())
             
             # Chunk document using chunker
             chunker = get_chunker()
@@ -262,6 +264,7 @@ async def setup_tutorial():
                     extra={
                         "word_count": len(content.split()) if content else 0,
                         "source": "tutorial",
+                        "file_path": str(dest_path),
                     },
                 ),
                 created_at=datetime.utcnow(),
