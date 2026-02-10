@@ -125,6 +125,7 @@ async def delete_label(label_id: str):
 @router.post("/labels/suggest", response_model=LabelSuggestionResponse)
 async def suggest_labels(request: LabelSuggestionRequest = LabelSuggestionRequest()):
     """Analyze documents and suggest new label types."""
+    print(f"📥 Received label suggestion request: {request.model_dump()}")
     service = get_label_suggestion_service()
     
     try:

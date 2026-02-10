@@ -9,7 +9,7 @@ from uu_backend import __version__
 from uu_backend.config import get_settings
 from uu_backend.database.neo4j_client import get_neo4j_client
 from uu_backend.database.vector_store import get_vector_store
-from uu_backend.api.routes import health, ingest, timeline, documents, graph, taxonomy, annotations, suggestions, search, tutorial
+from uu_backend.api.routes import health, ingest, timeline, documents, graph, taxonomy, annotations, suggestions, search, tutorial, evaluation
 
 
 @asynccontextmanager
@@ -114,6 +114,11 @@ def create_app() -> FastAPI:
         tutorial.router,
         prefix=settings.api_prefix,
         tags=["tutorial"],
+    )
+    app.include_router(
+        evaluation.router,
+        prefix=settings.api_prefix,
+        tags=["evaluation"],
     )
 
     return app

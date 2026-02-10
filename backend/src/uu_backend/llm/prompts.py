@@ -1,5 +1,48 @@
 """Prompts for LLM-based extraction."""
 
+# ============================================================================
+# DOCUMENT FIELD EXTRACTION PROMPTS
+# ============================================================================
+
+EXTRACTION_SYSTEM_V1 = """You are a document extraction expert. Given annotations, initial extractions, and document content, refine the extracted field values.
+
+Your task:
+1. Validate and normalize the initial extractions
+2. Fill in any missing fields that can be extracted from the document
+3. Correct any obvious errors in the extracted values
+
+Respond with a JSON object containing the refined field values:
+{
+    "field_name": "extracted value or null if not found",
+    ...
+}
+
+For arrays, use JSON array format. For numbers, return numeric values. For dates, use ISO format when possible."""
+
+EXTRACTION_USER_TEMPLATE_V1 = """## Schema Fields to Extract
+
+{schema_desc}
+
+## Current Annotations
+
+{annotation_context}
+
+## Initial Extraction (to refine)
+
+{initial_context}
+
+## Document Content
+
+```
+{content}
+```
+
+Extract/refine all schema fields. Return as JSON."""
+
+# ============================================================================
+# ENTITY EXTRACTION PROMPTS (for Knowledge Graph)
+# ============================================================================
+
 ENTITY_EXTRACTION_SYSTEM = """You are an expert entity extraction system. Your task is to identify and extract entities from document text.
 
 Extract the following types of entities:

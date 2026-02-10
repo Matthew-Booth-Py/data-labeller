@@ -1,0 +1,44 @@
+{
+  "name": "Auto Repair Claim",
+  "description": "Insurance claim form for auto repairs with itemized costs",
+  "schema_fields": [
+    {
+      "name": "claim_number",
+      "type": "string",
+      "description": "Unique claim identifier",
+      "required": true
+    },
+    {
+      "name": "claim_items",
+      "type": "array",
+      "description": "List of claimed items with descriptions and costs",
+      "items": {
+        "name": "item",
+        "type": "object",
+        "properties": {
+          "item_name": {
+            "name": "item_name",
+            "type": "string",
+            "description": "Name of the damaged item (e.g., Front Bumper, Hood)"
+          },
+          "description": {
+            "name": "description",
+            "type": "string",
+            "description": "Description of damage or work needed"
+          },
+          "estimated_cost": {
+            "name": "estimated_cost",
+            "type": "number",
+            "description": "Cost in dollars"
+          }
+        }
+      }
+    },
+    {
+      "name": "total_estimate",
+      "type": "number",
+      "description": "Total estimated cost from all items",
+      "required": true
+    }
+  ]
+}
