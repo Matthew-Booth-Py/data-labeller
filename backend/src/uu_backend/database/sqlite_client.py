@@ -139,6 +139,16 @@ class SQLiteClient:
                 )
             """)
 
+            # Add row_index, group_id, and metadata columns if they don't exist (migration)
+            cursor.execute("PRAGMA table_info(annotations)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'row_index' not in columns:
+                cursor.execute("ALTER TABLE annotations ADD COLUMN row_index INTEGER")
+            if 'group_id' not in columns:
+                cursor.execute("ALTER TABLE annotations ADD COLUMN group_id TEXT")
+            if 'metadata' not in columns:
+                cursor.execute("ALTER TABLE annotations ADD COLUMN metadata TEXT")
+
             # Annotation indexes
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_annotations_document
@@ -147,6 +157,10 @@ class SQLiteClient:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_annotations_label
                 ON annotations(label_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_annotations_group
+                ON annotations(group_id)
             """)
 
             # Feedback table for ML training
@@ -714,9 +728,10 @@ class SQLiteClient:
                     key_text, key_start, key_end,
                     value_text, value_start, value_end,
                     entity_type, normalized_value,
+                    row_index, group_id, metadata,
                     created_by, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     annotation_id,
@@ -739,6 +754,9 @@ class SQLiteClient:
                     data.value_end,
                     data.entity_type,
                     data.normalized_value,
+                    data.row_index,
+                    data.group_id,
+                    json.dumps(data.metadata) if data.metadata else None,
                     data.created_by,
                     now.isoformat(),
                 ),
@@ -768,6 +786,9 @@ class SQLiteClient:
             value_end=data.value_end,
             entity_type=data.entity_type,
             normalized_value=data.normalized_value,
+            row_index=data.row_index,
+            group_id=data.group_id,
+            metadata=data.metadata,
             created_by=data.created_by,
             created_at=now,
         )
@@ -889,6 +910,17 @@ class SQLiteClient:
 
     def _row_to_annotation(self, row: sqlite3.Row) -> Annotation:
         """Convert a database row to an Annotation model."""
+        # Check if row_index, group_id, and metadata columns exist in the row
+        row_keys = row.keys()
+        
+        # Parse metadata JSON if present
+        metadata = None
+        if "metadata" in row_keys and row["metadata"]:
+            try:
+                metadata = json.loads(row["metadata"])
+            except (json.JSONDecodeError, TypeError):
+                metadata = None
+        
         return Annotation(
             id=row["id"],
             document_id=row["document_id"],
@@ -912,6 +944,9 @@ class SQLiteClient:
             value_end=row["value_end"],
             entity_type=row["entity_type"],
             normalized_value=row["normalized_value"],
+            row_index=row["row_index"] if "row_index" in row_keys else None,
+            group_id=row["group_id"] if "group_id" in row_keys else None,
+            metadata=metadata,
             created_by=row["created_by"],
             created_at=datetime.fromisoformat(row["created_at"]),
         )
@@ -1458,6 +1493,14 @@ class SQLiteClient:
             evaluated_at=datetime.fromisoformat(row["evaluated_at"]),
             notes=row["notes"],
         )
+
+    def delete_evaluation(self, evaluation_id: str) -> bool:
+        """Delete an evaluation by ID."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM evaluations WHERE id = ?", (evaluation_id,))
+            conn.commit()
+            return cursor.rowcount > 0
 
     def list_evaluations(
         self,

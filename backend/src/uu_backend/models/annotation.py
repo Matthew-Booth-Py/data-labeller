@@ -145,6 +145,13 @@ class Annotation(BaseModel):
     entity_type: Optional[str] = Field(None, description="Entity type")
     normalized_value: Optional[str] = Field(None, description="Normalized value")
 
+    # Table/Array grouping
+    row_index: Optional[int] = Field(None, description="Row index for table data (0-based)")
+    group_id: Optional[str] = Field(None, description="Group ID to link related annotations (e.g., same table row)")
+
+    # Structured metadata (for key-value pairs, custom fields, etc.)
+    metadata: Optional[dict[str, Any]] = Field(None, description="Structured metadata (e.g., {'key': 'claim_item', 'value': 'Labor'})")
+
     # Metadata
     created_by: Optional[str] = Field(None, description="Creator")
     created_at: datetime = Field(..., description="Creation timestamp")
@@ -179,6 +186,13 @@ class AnnotationCreate(BaseModel):
     # Entity fields
     entity_type: Optional[str] = None
     normalized_value: Optional[str] = None
+
+    # Table/Array grouping
+    row_index: Optional[int] = Field(None, description="Row index for table data (0-based)")
+    group_id: Optional[str] = Field(None, description="Group ID to link related annotations")
+
+    # Structured metadata
+    metadata: Optional[dict[str, Any]] = Field(None, description="Structured metadata (e.g., {'key': 'claim_item', 'value': 'Labor'})")
 
     created_by: Optional[str] = None
 

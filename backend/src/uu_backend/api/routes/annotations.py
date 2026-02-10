@@ -31,6 +31,7 @@ from uu_backend.models.label_suggestion import (
     LabelSuggestionResponse,
 )
 from uu_backend.services.label_suggestion_service import get_label_suggestion_service
+from uu_backend.services.schema_based_suggestion_service import get_schema_based_suggestion_service
 
 router = APIRouter()
 
@@ -188,6 +189,47 @@ async def reject_label_suggestion(suggestion_id: str):
     # For now, this is a no-op on the backend
     # Could be extended to store rejection feedback for ML training
     return {"status": "success", "message": "Suggestion rejected", "id": suggestion_id}
+
+
+# ============================================================================
+# Schema-Based Annotation Suggestions
+# ============================================================================
+
+
+@router.post("/documents/{document_id}/suggest-annotations")
+async def suggest_annotations_from_schema(
+    document_id: str,
+    auto_accept: bool = Query(False, description="Automatically create annotations from suggestions")
+):
+    """
+    Suggest annotations for a document based on its schema fields.
+    
+    Uses OpenAI structured output to:
+    1. Extract data according to the document type's schema
+    2. Identify text spans where each value was found
+    3. Return annotation suggestions with exact character positions
+    
+    If auto_accept=true, automatically creates the annotations.
+    
+    Prerequisites:
+    - Document must be classified
+    - Document type must have schema fields
+    - Labels must exist for the schema fields
+    """
+    service = get_schema_based_suggestion_service()
+    
+    try:
+        response = service.suggest_annotations(
+            document_id=document_id,
+            auto_accept=auto_accept
+        )
+        return response
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Suggestion failed: {str(e)}")
 
 
 # ============================================================================

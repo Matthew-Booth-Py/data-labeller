@@ -28,6 +28,7 @@ class EvaluationService:
         document_id: str,
         prompt_version_id: Optional[str] = None,
         use_llm_refinement: bool = True,
+        use_structured_output: bool = False,
         evaluated_by: Optional[str] = None,
         notes: Optional[str] = None,
     ) -> ExtractionEvaluation:
@@ -37,7 +38,8 @@ class EvaluationService:
         Args:
             document_id: Document to evaluate
             prompt_version_id: Prompt version to use (None = active version)
-            use_llm_refinement: Whether to use LLM refinement
+            use_llm_refinement: Whether to use LLM refinement (annotation-based only)
+            use_structured_output: Use OpenAI structured output (bypasses annotations)
             evaluated_by: User running the evaluation
             notes: Optional notes
 
@@ -74,11 +76,17 @@ class EvaluationService:
 
         # Run extraction
         start_time = time.time()
-        extraction_result = self.extraction_service.extract_from_annotations(
-            document_id=document_id, 
-            use_llm_refinement=use_llm_refinement,
-            prompt_version_id=prompt_version_id
-        )
+        if use_structured_output:
+            extraction_result = self.extraction_service.extract_structured(
+                document_id=document_id,
+                prompt_version_id=prompt_version_id
+            )
+        else:
+            extraction_result = self.extraction_service.extract_from_annotations(
+                document_id=document_id, 
+                use_llm_refinement=use_llm_refinement,
+                prompt_version_id=prompt_version_id
+            )
         extraction_time_ms = int((time.time() - start_time) * 1000)
 
         # Build extracted values map
@@ -130,13 +138,19 @@ class EvaluationService:
         """Build ground truth values from annotations."""
         ground_truth = {}
 
-        # Group annotations by label
+        # Group annotations by label and sort by document position
         annotations_by_label = {}
         for ann in annotations:
             label_name = ann.label_name or "unknown"
             if label_name not in annotations_by_label:
                 annotations_by_label[label_name] = []
             annotations_by_label[label_name].append(ann)
+        
+        # Sort each label's annotations by start_offset (document order)
+        for label_name in annotations_by_label:
+            annotations_by_label[label_name].sort(
+                key=lambda a: a.start_offset if a.start_offset is not None else 0
+            )
 
         # Map to schema fields
         for field in schema_fields:
@@ -186,8 +200,37 @@ class EvaluationService:
         
         properties = field.items.properties
         
-        # Group annotations by property
-        items_data = {}
+        # Check if we have metadata-based key-value annotations
+        # These are annotations with metadata={'key': 'prop_name'} and text contains the value
+        # We need to match annotations for THIS field specifically
+        field_name_lower = field.name.lower().replace("_", " ")
+        metadata_annotations = []
+        
+        for label_name, anns in annotations_by_label.items():
+            label_lower = label_name.lower().replace("_", " ")
+            # Check if this label matches our field
+            if label_lower == field_name_lower or field_name_lower in label_lower or label_lower in field_name_lower:
+                for ann in anns:
+                    if ann.metadata and 'key' in ann.metadata:
+                        metadata_annotations.append(ann)
+        
+        # Debug logging
+        print(f"[DEBUG] Field: {field.name}")
+        print(f"[DEBUG] Total annotations by label: {sum(len(anns) for anns in annotations_by_label.values())}")
+        print(f"[DEBUG] Metadata annotations found: {len(metadata_annotations)}")
+        for ann in metadata_annotations[:5]:  # Show first 5
+            print(f"[DEBUG]   - key={ann.metadata.get('key')}, text={ann.text[:50] if ann.text else None}")
+        
+        # If we have metadata-based annotations, use those exclusively
+        if metadata_annotations:
+            result = self._build_from_key_value_pairs(metadata_annotations, properties)
+            print(f"[DEBUG] Built {len(result)} rows from key-value pairs")
+            return result
+        
+        # Otherwise, fall back to the old label-based approach
+        # First pass: collect all annotations with their properties
+        property_annotations = {}  # {prop_name: [annotations]}
+        
         for prop_name, prop_schema in properties.items():
             # Expected label name is field_name + property_name (e.g., claim_items_item_name)
             expected_label = f"{field.name}_{prop_name}"
@@ -205,34 +248,224 @@ class EvaluationService:
                     label_lower == prop_name_lower or
                     prop_name_lower in label_lower):
                     
-                    if prop_name not in items_data:
-                        items_data[prop_name] = []
+                    property_annotations[prop_name] = anns
+                    break
+        
+        if not property_annotations:
+            return []
+        
+        # Second pass: group annotations by group_id (preferred), row_index, or position
+        rows_data = {}  # {row_key: {prop_name: value}}
+        
+        # Count how many annotations have group_id or row_index set
+        total_anns = sum(len(anns) for anns in property_annotations.values())
+        anns_with_group_id = sum(
+            1 for anns in property_annotations.values() 
+            for ann in anns if ann.group_id is not None
+        )
+        anns_with_row_index = sum(
+            1 for anns in property_annotations.values() 
+            for ann in anns if ann.row_index is not None
+        )
+        
+        # Only use group_id/row_index if MOST annotations have it (>50%)
+        # This prevents one stray annotation from breaking the entire grouping
+        use_group_id = anns_with_group_id > (total_anns * 0.5)
+        use_row_index = anns_with_row_index > (total_anns * 0.5)
+        
+        if use_group_id:
+            # Use group_id for grouping (best - explicit row linking)
+            for prop_name, anns in property_annotations.items():
+                prop_schema = properties[prop_name]
+                for ann in anns:
+                    group_key = ann.group_id if ann.group_id is not None else f"ungrouped-{ann.id}"
                     
-                    # Parse each annotation value
-                    for ann in anns:
+                    if group_key not in rows_data:
+                        rows_data[group_key] = {}
+                    
+                    value = self._parse_value(
+                        ann.normalized_value or ann.text,
+                        prop_schema.type.value if hasattr(prop_schema, 'type') else 'string'
+                    )
+                    rows_data[group_key][prop_name] = value
+        elif use_row_index:
+            # Use row_index for grouping (fallback)
+            for prop_name, anns in property_annotations.items():
+                prop_schema = properties[prop_name]
+                for ann in anns:
+                    row_idx = ann.row_index if ann.row_index is not None else -1
+                    
+                    if row_idx not in rows_data:
+                        rows_data[row_idx] = {}
+                    
+                    value = self._parse_value(
+                        ann.normalized_value or ann.text,
+                        prop_schema.type.value if hasattr(prop_schema, 'type') else 'string'
+                    )
+                    rows_data[row_idx][prop_name] = value
+        else:
+            # Fallback: assume annotations are in document order and group by index
+            # This assumes each property has the same number of annotations in the same order
+            max_count = max(len(anns) for anns in property_annotations.values())
+            
+            for row_idx in range(max_count):
+                rows_data[row_idx] = {}
+                
+                for prop_name, anns in property_annotations.items():
+                    if row_idx < len(anns):
+                        prop_schema = properties[prop_name]
+                        ann = anns[row_idx]
+                        
                         value = self._parse_value(
                             ann.normalized_value or ann.text,
                             prop_schema.type.value if hasattr(prop_schema, 'type') else 'string'
                         )
-                        items_data[prop_name].append(value)
+                        rows_data[row_idx][prop_name] = value
         
-        # Build array of objects from collected data
-        # Assume all properties have the same number of items
-        if not items_data:
+        # Build array of objects from rows_data, sorted by row_index
+        if not rows_data:
             return []
         
-        max_items = max(len(values) for values in items_data.values())
         result = []
-        
-        for i in range(max_items):
-            item = {}
-            for prop_name in properties.keys():
-                if prop_name in items_data and i < len(items_data[prop_name]):
-                    item[prop_name] = items_data[prop_name][i]
+        for row_idx in sorted(rows_data.keys()):
+            item = rows_data[row_idx]
             if item:  # Only add if we have at least one property
                 result.append(item)
         
         return result
+
+    def _build_from_key_value_pairs(
+        self, annotations: list, properties: dict
+    ) -> list[dict]:
+        """Build ground truth from metadata-based key-value pair annotations."""
+        # Group annotations by group_id or document order
+        # Each key-value pair is self-contained with metadata={'key': 'prop_name'} and text contains the value
+        
+        print(f"[DEBUG] _build_from_key_value_pairs called with {len(annotations)} annotations")
+        
+        # Collect all key-value pairs with their grouping info
+        kv_pairs = []
+        for ann in annotations:
+            if not ann.metadata or 'key' not in ann.metadata:
+                continue
+            
+            key = ann.metadata['key']
+            value = ann.text  # The actual value is in the text field
+            
+            print(f"[DEBUG] Processing: key={key}, value={value}, offset={ann.start_offset}")
+            
+            # Determine which property this belongs to
+            prop_schema = None
+            for prop_name, schema in properties.items():
+                if prop_name == key or prop_name.lower() == key.lower():
+                    prop_schema = schema
+                    break
+            
+            if not prop_schema:
+                continue  # Skip if key doesn't match any property
+            
+            kv_pairs.append({
+                'key': key,
+                'value': value,
+                'group_id': ann.group_id,
+                'row_index': ann.row_index,
+                'start_offset': ann.start_offset or 0,
+                'prop_schema': prop_schema,
+            })
+        
+        if not kv_pairs:
+            print("[DEBUG] No kv_pairs found!")
+            return []
+        
+        print(f"[DEBUG] Collected {len(kv_pairs)} kv_pairs")
+        
+        # Group by group_id if most have it, otherwise by row_index, otherwise by proximity
+        has_group_id = sum(1 for kv in kv_pairs if kv['group_id'] is not None)
+        has_row_index = sum(1 for kv in kv_pairs if kv['row_index'] is not None)
+        
+        print(f"[DEBUG] has_group_id={has_group_id}, has_row_index={has_row_index}, total={len(kv_pairs)}")
+        
+        rows_data = {}  # {row_key: {prop_name: value}}
+        
+        if has_group_id > len(kv_pairs) * 0.5:
+            # Group by group_id
+            for kv in kv_pairs:
+                group_key = kv['group_id'] if kv['group_id'] else f"ungrouped-{kv['start_offset']}"
+                if group_key not in rows_data:
+                    rows_data[group_key] = {}
+                
+                parsed_value = self._parse_value(
+                    kv['value'],
+                    kv['prop_schema'].type.value if hasattr(kv['prop_schema'], 'type') else 'string'
+                )
+                rows_data[group_key][kv['key']] = parsed_value
+        
+        elif has_row_index > len(kv_pairs) * 0.5:
+            # Group by row_index
+            for kv in kv_pairs:
+                row_idx = kv['row_index'] if kv['row_index'] is not None else -1
+                if row_idx not in rows_data:
+                    rows_data[row_idx] = {}
+                
+                parsed_value = self._parse_value(
+                    kv['value'],
+                    kv['prop_schema'].type.value if hasattr(kv['prop_schema'], 'type') else 'string'
+                )
+                rows_data[row_idx][kv['key']] = parsed_value
+        
+        else:
+            # Group by detecting when we see a duplicate key (indicates new row)
+            # Sort by start_offset to process in document order
+            kv_pairs.sort(key=lambda x: x['start_offset'])
+            
+            current_row = {}
+            row_idx = 0
+            seen_keys = set()
+            
+            for kv in kv_pairs:
+                key = kv['key']
+                
+                # If we've seen this key before in the current row, start a new row
+                if key in seen_keys:
+                    # Save the current row
+                    if current_row:
+                        rows_data[row_idx] = current_row
+                        row_idx += 1
+                    # Start new row
+                    current_row = {}
+                    seen_keys = set()
+                
+                # Add this key-value pair to the current row
+                parsed_value = self._parse_value(
+                    kv['value'],
+                    kv['prop_schema'].type.value if hasattr(kv['prop_schema'], 'type') else 'string'
+                )
+                current_row[key] = parsed_value
+                seen_keys.add(key)
+            
+            # Add the last row
+            if current_row:
+                rows_data[row_idx] = current_row
+        
+        # Convert to list of dicts
+        result = []
+        for row_key in sorted(rows_data.keys()):
+            item = rows_data[row_key]
+            if item:
+                result.append(item)
+        
+        return result
+
+    def _is_placeholder_value(self, value: Any) -> bool:
+        """Check if a value is a placeholder (TBD, N/A, etc.) that shouldn't be evaluated."""
+        if value is None:
+            return False
+        
+        value_str = str(value).strip().upper()
+        placeholders = ['TBD', 'N/A', 'NA', 'UNKNOWN', 'PENDING', 'TBA', 'TO BE DETERMINED', 
+                       'NOT AVAILABLE', 'NOT APPLICABLE', '--', '---', 'NULL']
+        
+        return value_str in placeholders
 
     def _parse_value(self, value: str, field_type: str) -> Any:
         """Parse a string value according to field type."""
@@ -267,12 +500,17 @@ class EvaluationService:
         extracted_normalized = self._normalize_value(extracted_value)
         ground_truth_normalized = self._normalize_value(ground_truth_value)
 
-        # Check if correct
+        # Check if correct and calculate R² for numerical fields
         is_correct = False
+        r2_score = None
+        
         if is_present and is_extracted:
             # For complex structures (arrays of objects), use deep comparison
             if isinstance(extracted_value, list) and isinstance(ground_truth_value, list):
                 is_correct = self._compare_arrays(extracted_value, ground_truth_value)
+                
+                # Calculate R² for arrays of objects with numerical fields
+                r2_score = self._calculate_r2_for_array(extracted_value, ground_truth_value)
             else:
                 is_correct = extracted_normalized == ground_truth_normalized
 
@@ -283,18 +521,199 @@ class EvaluationService:
             is_correct=is_correct,
             is_present=is_present,
             is_extracted=is_extracted,
+            r2_score=r2_score,
         )
 
     def _compare_arrays(self, extracted: list, ground_truth: list) -> bool:
-        """Compare two arrays, handling nested objects."""
-        if len(extracted) != len(ground_truth):
+        """
+        Compare two arrays, handling nested objects.
+        For arrays of objects, use item-by-item comparison with partial credit.
+        """
+        # If both are empty, they match
+        if not extracted and not ground_truth:
+            return True
+        
+        # If one is empty and the other isn't, they don't match
+        if not extracted or not ground_truth:
             return False
         
-        # Normalize and compare
+        # For arrays of objects, compare item-by-item after sorting by primary key
+        if isinstance(extracted[0], dict) and isinstance(ground_truth[0], dict):
+            # Find primary key
+            primary_keys = ['id', 'name', 'item', 'item_name', 'claim_item', 'title', 'key']
+            sort_key = None
+            
+            for key in primary_keys:
+                if all(key in item for item in extracted) and all(key in item for item in ground_truth):
+                    sort_key = key
+                    break
+            
+            # Sort both arrays by primary key
+            if sort_key:
+                extracted_sorted = sorted(extracted, key=lambda x: str(x.get(sort_key, '')).lower())
+                ground_truth_sorted = sorted(ground_truth, key=lambda x: str(x.get(sort_key, '')).lower())
+            else:
+                extracted_sorted = extracted
+                ground_truth_sorted = ground_truth
+            
+            # Compare items by matching on primary key
+            # This allows partial credit even when lengths differ
+            matching_items = 0
+            evaluable_items = 0  # Items that should be evaluated (not placeholders)
+            
+            if sort_key:
+                # Match by primary key
+                extracted_map = {str(item.get(sort_key, '')).lower(): item for item in extracted_sorted}
+                ground_truth_map = {str(item.get(sort_key, '')).lower(): item for item in ground_truth_sorted}
+                
+                # Check all keys from both maps
+                all_keys = set(extracted_map.keys()) | set(ground_truth_map.keys())
+                
+                for key in all_keys:
+                    ext_item = extracted_map.get(key)
+                    gt_item = ground_truth_map.get(key)
+                    
+                    # Check if ground truth item has placeholder values
+                    if gt_item:
+                        has_placeholder = any(self._is_placeholder_value(v) for v in gt_item.values())
+                        if has_placeholder:
+                            # Skip items with placeholder values - they shouldn't be evaluated
+                            continue
+                    
+                    evaluable_items += 1
+                    
+                    if ext_item and gt_item:
+                        # Both exist - compare them
+                        ext_normalized = self._normalize_value(ext_item)
+                        gt_normalized = self._normalize_value(gt_item)
+                        
+                        if ext_normalized == gt_normalized:
+                            matching_items += 1
+                    elif not ext_item and not gt_item:
+                        # Neither exists - this shouldn't happen but count as match
+                        matching_items += 1
+            else:
+                # No primary key - compare by position
+                for ext_item, gt_item in zip(extracted_sorted, ground_truth_sorted):
+                    # Check if ground truth item has placeholder values
+                    if isinstance(gt_item, dict):
+                        has_placeholder = any(self._is_placeholder_value(v) for v in gt_item.values())
+                        if has_placeholder:
+                            continue
+                    
+                    evaluable_items += 1
+                    ext_normalized = self._normalize_value(ext_item)
+                    gt_normalized = self._normalize_value(gt_item)
+                    
+                    if ext_normalized == gt_normalized:
+                        matching_items += 1
+            
+            # Consider it correct if at least 80% of evaluable items match exactly
+            # This gives partial credit for mostly-correct arrays
+            # Use evaluable_items instead of total_items to exclude placeholders
+            match_ratio = matching_items / evaluable_items if evaluable_items > 0 else 1.0
+            return match_ratio >= 0.8
+        
+        # For simple arrays, use exact comparison after normalization
         extracted_normalized = self._normalize_value(extracted)
         ground_truth_normalized = self._normalize_value(ground_truth)
         
         return extracted_normalized == ground_truth_normalized
+
+    def _calculate_r2_for_array(self, extracted: list, ground_truth: list) -> Optional[float]:
+        """
+        Calculate R² score for arrays of objects with numerical fields.
+        Returns R² score for numerical fields, or None if no numerical fields found.
+        """
+        if not extracted or not ground_truth:
+            return None
+        
+        # Only works for arrays of objects
+        if not (isinstance(extracted[0], dict) and isinstance(ground_truth[0], dict)):
+            return None
+        
+        # Find primary key for matching
+        primary_keys = ['id', 'name', 'item', 'item_name', 'claim_item', 'title', 'key']
+        sort_key = None
+        
+        for key in primary_keys:
+            if all(key in item for item in extracted) and all(key in item for item in ground_truth):
+                sort_key = key
+                break
+        
+        if not sort_key:
+            return None
+        
+        # Create maps by primary key
+        extracted_map = {str(item[sort_key]).lower(): item for item in extracted}
+        ground_truth_map = {str(item[sort_key]).lower(): item for item in ground_truth}
+        
+        # Find common keys (items present in both)
+        common_keys = set(extracted_map.keys()) & set(ground_truth_map.keys())
+        
+        if not common_keys:
+            return None
+        
+        # Collect all numerical field values
+        y_true_all = []
+        y_pred_all = []
+        
+        for key in common_keys:
+            ext_item = extracted_map[key]
+            gt_item = ground_truth_map[key]
+            
+            # Find numerical fields
+            for field_name in gt_item.keys():
+                if field_name == sort_key:
+                    continue
+                
+                gt_value = gt_item.get(field_name)
+                ext_value = ext_item.get(field_name)
+                
+                # Check if both values are numerical
+                try:
+                    gt_num = float(gt_value) if gt_value is not None else None
+                    ext_num = float(ext_value) if ext_value is not None else None
+                    
+                    if gt_num is not None and ext_num is not None:
+                        y_true_all.append(gt_num)
+                        y_pred_all.append(ext_num)
+                except (ValueError, TypeError):
+                    # Not a numerical field, skip
+                    continue
+        
+        # Need at least 2 data points to calculate R²
+        if len(y_true_all) < 2:
+            return None
+        
+        # Calculate R² score
+        # R² = 1 - (SS_res / SS_tot)
+        # SS_res = sum of squared residuals
+        # SS_tot = total sum of squares
+        
+        import numpy as np
+        
+        y_true = np.array(y_true_all)
+        y_pred = np.array(y_pred_all)
+        
+        # Mean of ground truth
+        y_mean = np.mean(y_true)
+        
+        # Total sum of squares
+        ss_tot = np.sum((y_true - y_mean) ** 2)
+        
+        # Residual sum of squares
+        ss_res = np.sum((y_true - y_pred) ** 2)
+        
+        # R² score
+        if ss_tot == 0:
+            # If all ground truth values are the same, R² is undefined
+            # Return 1.0 if predictions match, 0.0 otherwise
+            return 1.0 if ss_res == 0 else 0.0
+        
+        r2 = 1 - (ss_res / ss_tot)
+        
+        return float(r2)
 
     def _normalize_value(self, value: Any) -> Any:
         """Normalize value for comparison."""
@@ -315,13 +734,45 @@ class EvaluationService:
         if isinstance(value, list):
             # If list contains dicts, sort by a consistent key or convert to tuple
             if value and isinstance(value[0], dict):
-                # Sort list of dicts by their normalized representation
-                return sorted([
-                    tuple(sorted((k, self._normalize_value(v)) for k, v in item.items()))
-                    for item in value
-                ])
+                # Try to find a primary key field to sort by (common patterns)
+                primary_keys = ['id', 'name', 'item', 'item_name', 'claim_item', 'title', 'key']
+                sort_key = None
+                
+                # Find the first primary key that exists in all items
+                for key in primary_keys:
+                    if all(key in item for item in value):
+                        sort_key = key
+                        break
+                
+                # If we found a primary key, sort by it and normalize each item
+                if sort_key:
+                    sorted_items = sorted(value, key=lambda x: str(self._normalize_value(x.get(sort_key, ''))))
+                    return [
+                        {k: self._normalize_value(v) for k in sorted(item.keys()) for v in [item[k]]}
+                        for item in sorted_items
+                    ]
+                else:
+                    # Fallback: sort by the full tuple representation
+                    # Convert to strings to handle mixed types
+                    try:
+                        return sorted([
+                            tuple(sorted((k, self._normalize_value(v)) for k, v in item.items()))
+                            for item in value
+                        ])
+                    except TypeError:
+                        # If comparison fails due to mixed types, convert tuples to strings
+                        return sorted([
+                            tuple(sorted((k, self._normalize_value(v)) for k, v in item.items()))
+                            for item in value
+                        ], key=lambda x: str(x))
             # For simple lists, normalize and sort
-            return sorted([self._normalize_value(v) for v in value])
+            # Convert to strings for sorting to avoid type comparison issues
+            normalized = [self._normalize_value(v) for v in value]
+            try:
+                return sorted(normalized)
+            except TypeError:
+                # If values are mixed types, convert to strings for comparison
+                return sorted(normalized, key=lambda x: str(x))
 
         # For numbers, convert to float
         if isinstance(value, (int, float)):
@@ -374,6 +825,75 @@ class EvaluationService:
             f1_score=f1_score,
             field_evaluations=field_evaluations,
         )
+
+    def evaluate_project(
+        self,
+        document_type_id: str,
+        prompt_version_id: Optional[str] = None,
+        use_llm_refinement: bool = True,
+        use_structured_output: bool = False,
+        evaluated_by: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> list[ExtractionEvaluation]:
+        """
+        Evaluate all labeled documents in a project (document type).
+
+        Args:
+            document_type_id: Document type to evaluate
+            prompt_version_id: Prompt version to use (None = active version)
+            use_llm_refinement: Whether to use LLM refinement (annotation-based only)
+            use_structured_output: Use OpenAI structured output (bypasses annotations)
+            evaluated_by: User running the evaluation
+            notes: Optional notes
+
+        Returns:
+            List of ExtractionEvaluation results for each document
+        """
+        # Get all document IDs with this document type
+        document_ids = self.sqlite_client.get_documents_by_type(document_type_id)
+        
+        if not document_ids:
+            raise ValueError(f"No documents found for document type {document_type_id}")
+
+        evaluations = []
+        errors = []
+
+        for document_id in document_ids:
+            try:
+                # Check if document has annotations
+                annotations = self.sqlite_client.list_annotations(
+                    document_id=document_id
+                )
+                if not annotations:
+                    print(f"Skipping document {document_id} - no annotations")
+                    continue  # Skip documents without annotations
+
+                # Run evaluation for this document
+                evaluation = self.evaluate_extraction(
+                    document_id=document_id,
+                    prompt_version_id=prompt_version_id,
+                    use_llm_refinement=use_llm_refinement,
+                    use_structured_output=use_structured_output,
+                    evaluated_by=evaluated_by,
+                    notes=notes,
+                )
+                evaluations.append(evaluation)
+                print(f"✓ Evaluated document {document_id}")
+            except Exception as e:
+                print(f"✗ Failed to evaluate document {document_id}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                errors.append({
+                    "document_id": document_id,
+                    "error": str(e)
+                })
+
+        if not evaluations and errors:
+            raise ValueError(
+                f"Failed to evaluate any documents. Errors: {errors}"
+            )
+
+        return evaluations
 
 
 # Singleton instance
