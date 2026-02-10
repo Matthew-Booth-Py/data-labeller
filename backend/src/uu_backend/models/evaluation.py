@@ -1,7 +1,7 @@
 """Evaluation models for extraction quality assessment."""
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -176,3 +176,96 @@ class PromptComparisonResponse(BaseModel):
 
     comparisons: list[EvaluationSummary]
     document_type_id: Optional[str] = None
+
+
+class BenchmarkDatasetDocumentCreate(BaseModel):
+    """Request model for adding a document to a benchmark dataset."""
+
+    document_id: str = Field(..., description="Document ID")
+    split: Literal["train", "validation", "test"] = Field(
+        "test", description="Dataset split assignment"
+    )
+    tags: list[str] = Field(default_factory=list, description="Optional tags")
+    doc_subtype: Optional[str] = Field(None, description="Optional subtype (e.g. vendor_invoice)")
+
+
+class BenchmarkDatasetCreate(BaseModel):
+    """Request model for creating a benchmark dataset."""
+
+    name: str = Field(..., min_length=1, max_length=120)
+    document_type_id: str = Field(..., description="Document type this benchmark targets")
+    description: Optional[str] = None
+    created_by: Optional[str] = None
+    documents: list[BenchmarkDatasetDocumentCreate] = Field(default_factory=list)
+
+
+class BenchmarkDatasetDocument(BaseModel):
+    """A benchmark dataset document assignment."""
+
+    document_id: str
+    split: Literal["train", "validation", "test"]
+    tags: list[str] = Field(default_factory=list)
+    doc_subtype: Optional[str] = None
+
+
+class BenchmarkDataset(BaseModel):
+    """Benchmark dataset with split assignments."""
+
+    id: str
+    name: str
+    document_type_id: str
+    description: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: datetime
+    documents: list[BenchmarkDatasetDocument] = Field(default_factory=list)
+
+
+class BenchmarkRunCreate(BaseModel):
+    """Request model for running benchmark evaluation."""
+
+    dataset_id: str = Field(..., description="Benchmark dataset ID")
+    prompt_version_id: Optional[str] = Field(None, description="Prompt version to evaluate")
+    baseline_run_id: Optional[str] = Field(None, description="Benchmark run to compare against")
+    use_llm_refinement: bool = True
+    use_structured_output: bool = False
+    evaluated_by: Optional[str] = None
+    notes: Optional[str] = None
+    required_field_gates: dict[str, dict[str, float]] = Field(
+        default_factory=dict,
+        description="Per-field quality gates, e.g. {'invoice_total': {'min_f1': 0.9, 'min_recall': 0.95}}",
+    )
+
+
+class BenchmarkGateResult(BaseModel):
+    """Pass/fail result for a quality gate."""
+
+    field_name: str
+    min_f1: Optional[float] = None
+    min_recall: Optional[float] = None
+    actual_f1: float
+    actual_recall: float
+    passed: bool
+
+
+class BenchmarkRunResult(BaseModel):
+    """Stored benchmark run result."""
+
+    id: str
+    dataset_id: str
+    document_type_id: str
+    prompt_version_id: Optional[str] = None
+    baseline_run_id: Optional[str] = None
+    total_documents: int
+    successful_documents: int
+    failed_documents: int
+    overall_metrics: dict[str, float]
+    split_metrics: dict[str, dict[str, float]]
+    subtype_scorecards: dict[str, dict[str, dict[str, float]]]
+    confidence_intervals: dict[str, dict[str, float]]
+    drift_delta: Optional[dict[str, float]] = None
+    gate_results: list[BenchmarkGateResult] = Field(default_factory=list)
+    passed_gates: bool = True
+    errors: list[dict[str, str]] = Field(default_factory=list)
+    evaluated_by: Optional[str] = None
+    created_at: datetime
+    notes: Optional[str] = None

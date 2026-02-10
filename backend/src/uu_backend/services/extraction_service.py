@@ -1,6 +1,7 @@
 """Extraction service for converting annotations into structured data."""
 
 import json
+import logging
 import re
 from datetime import datetime
 from typing import Any, Optional
@@ -12,6 +13,8 @@ from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.models.taxonomy import ExtractedField, ExtractionResult, SchemaField
 from uu_backend.services.schema_generator import generate_pydantic_schema, schema_to_json_schema
+
+logger = logging.getLogger(__name__)
 
 
 class ExtractionService:
@@ -221,8 +224,24 @@ If a field cannot be found, return null. Do not make up data."""
         
         # Use LLM to refine if enabled and we have some annotations
         if use_llm_refinement and annotations:
+            logger.info(
+                "Starting extraction refinement",
+                extra={
+                    "document_id": document_id,
+                    "prompt_version_id": prompt_version_id,
+                    "mode": "annotation_refinement",
+                },
+            )
             extracted_fields = self._refine_with_llm(
                 document, doc_type.schema_fields, annotations, extracted_fields, prompt_version_id
+            )
+            logger.info(
+                "Completed extraction refinement",
+                extra={
+                    "document_id": document_id,
+                    "prompt_version_id": prompt_version_id,
+                    "mode": "annotation_refinement",
+                },
             )
         
         result = ExtractionResult(
@@ -303,6 +322,7 @@ If a field cannot be found, return null. Do not make up data."""
         prompt_version_id: Optional[str] = None
     ) -> list[ExtractedField]:
         """Use LLM to refine and fill in missing extracted fields."""
+        sqlite_client = get_sqlite_client()
         
         # Build context from annotations
         annotation_context = "\n".join([

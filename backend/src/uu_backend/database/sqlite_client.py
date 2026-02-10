@@ -279,6 +279,82 @@ class SQLiteClient:
                 ON extractions(document_id)
             """)
 
+            # Benchmark datasets and runs for regression tracking
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS benchmark_datasets (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    document_type_id TEXT NOT NULL,
+                    description TEXT,
+                    created_by TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (document_type_id) REFERENCES document_types(id) ON DELETE CASCADE
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_benchmark_datasets_type
+                ON benchmark_datasets(document_type_id)
+            """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS benchmark_dataset_documents (
+                    id TEXT PRIMARY KEY,
+                    dataset_id TEXT NOT NULL,
+                    document_id TEXT NOT NULL,
+                    split TEXT NOT NULL DEFAULT 'test',
+                    tags TEXT,
+                    doc_subtype TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (dataset_id) REFERENCES benchmark_datasets(id) ON DELETE CASCADE,
+                    UNIQUE(dataset_id, document_id)
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_benchmark_docs_dataset
+                ON benchmark_dataset_documents(dataset_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_benchmark_docs_split
+                ON benchmark_dataset_documents(split)
+            """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS benchmark_runs (
+                    id TEXT PRIMARY KEY,
+                    dataset_id TEXT NOT NULL,
+                    document_type_id TEXT NOT NULL,
+                    prompt_version_id TEXT,
+                    baseline_run_id TEXT,
+                    total_documents INTEGER NOT NULL,
+                    successful_documents INTEGER NOT NULL,
+                    failed_documents INTEGER NOT NULL,
+                    overall_metrics TEXT NOT NULL,
+                    split_metrics TEXT NOT NULL,
+                    subtype_scorecards TEXT NOT NULL,
+                    confidence_intervals TEXT NOT NULL,
+                    drift_delta TEXT,
+                    gate_results TEXT,
+                    passed_gates INTEGER NOT NULL DEFAULT 1,
+                    errors TEXT,
+                    use_llm_refinement INTEGER NOT NULL DEFAULT 1,
+                    use_structured_output INTEGER NOT NULL DEFAULT 0,
+                    evaluated_by TEXT,
+                    notes TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (dataset_id) REFERENCES benchmark_datasets(id) ON DELETE CASCADE,
+                    FOREIGN KEY (prompt_version_id) REFERENCES prompt_versions(id) ON DELETE SET NULL,
+                    FOREIGN KEY (baseline_run_id) REFERENCES benchmark_runs(id) ON DELETE SET NULL
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_benchmark_runs_dataset
+                ON benchmark_runs(dataset_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_benchmark_runs_created_at
+                ON benchmark_runs(created_at)
+            """)
+
             conn.commit()
 
     # Document Type CRUD Operations
@@ -1682,6 +1758,221 @@ class SQLiteClient:
             })
         
         return results[0] if len(results) == 1 else results
+
+    # Benchmark dataset / run operations
+
+    def create_benchmark_dataset(self, data: dict) -> dict:
+        """Create a benchmark dataset."""
+        now = datetime.utcnow()
+        dataset_id = str(uuid4())
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO benchmark_datasets
+                (id, name, document_type_id, description, created_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    dataset_id,
+                    data["name"],
+                    data["document_type_id"],
+                    data.get("description"),
+                    data.get("created_by"),
+                    now.isoformat(),
+                ),
+            )
+            conn.commit()
+
+        return {
+            "id": dataset_id,
+            "name": data["name"],
+            "document_type_id": data["document_type_id"],
+            "description": data.get("description"),
+            "created_by": data.get("created_by"),
+            "created_at": now,
+        }
+
+    def add_benchmark_dataset_document(
+        self,
+        dataset_id: str,
+        document_id: str,
+        split: str = "test",
+        tags: Optional[list[str]] = None,
+        doc_subtype: Optional[str] = None,
+    ) -> dict:
+        """Add or update a document in a benchmark dataset."""
+        now = datetime.utcnow()
+        entry_id = str(uuid4())
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO benchmark_dataset_documents
+                (id, dataset_id, document_id, split, tags, doc_subtype, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(dataset_id, document_id) DO UPDATE SET
+                    split = excluded.split,
+                    tags = excluded.tags,
+                    doc_subtype = excluded.doc_subtype
+                """,
+                (
+                    entry_id,
+                    dataset_id,
+                    document_id,
+                    split,
+                    json.dumps(tags or []),
+                    doc_subtype,
+                    now.isoformat(),
+                ),
+            )
+            conn.commit()
+
+        return {
+            "document_id": document_id,
+            "split": split,
+            "tags": tags or [],
+            "doc_subtype": doc_subtype,
+        }
+
+    def list_benchmark_datasets(self, document_type_id: Optional[str] = None) -> list[dict]:
+        """List benchmark datasets."""
+        query = "SELECT * FROM benchmark_datasets"
+        params: list = []
+        if document_type_id:
+            query += " WHERE document_type_id = ?"
+            params.append(document_type_id)
+        query += " ORDER BY created_at DESC"
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+        return [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "document_type_id": row["document_type_id"],
+                "description": row["description"],
+                "created_by": row["created_by"],
+                "created_at": datetime.fromisoformat(row["created_at"]),
+            }
+            for row in rows
+        ]
+
+    def get_benchmark_dataset(self, dataset_id: str) -> Optional[dict]:
+        """Get benchmark dataset and assigned documents."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM benchmark_datasets WHERE id = ?", (dataset_id,))
+            dataset_row = cursor.fetchone()
+            if not dataset_row:
+                return None
+
+            cursor.execute(
+                """
+                SELECT document_id, split, tags, doc_subtype
+                FROM benchmark_dataset_documents
+                WHERE dataset_id = ?
+                ORDER BY created_at ASC
+                """,
+                (dataset_id,),
+            )
+            doc_rows = cursor.fetchall()
+
+        documents = [
+            {
+                "document_id": row["document_id"],
+                "split": row["split"],
+                "tags": json.loads(row["tags"]) if row["tags"] else [],
+                "doc_subtype": row["doc_subtype"],
+            }
+            for row in doc_rows
+        ]
+        return {
+            "id": dataset_row["id"],
+            "name": dataset_row["name"],
+            "document_type_id": dataset_row["document_type_id"],
+            "description": dataset_row["description"],
+            "created_by": dataset_row["created_by"],
+            "created_at": datetime.fromisoformat(dataset_row["created_at"]),
+            "documents": documents,
+        }
+
+    def save_benchmark_run(self, run: dict) -> None:
+        """Persist a benchmark run."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO benchmark_runs
+                (id, dataset_id, document_type_id, prompt_version_id, baseline_run_id,
+                 total_documents, successful_documents, failed_documents,
+                 overall_metrics, split_metrics, subtype_scorecards, confidence_intervals,
+                 drift_delta, gate_results, passed_gates, errors,
+                 use_llm_refinement, use_structured_output, evaluated_by, notes, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run["id"],
+                    run["dataset_id"],
+                    run["document_type_id"],
+                    run.get("prompt_version_id"),
+                    run.get("baseline_run_id"),
+                    run["total_documents"],
+                    run["successful_documents"],
+                    run["failed_documents"],
+                    json.dumps(run["overall_metrics"]),
+                    json.dumps(run["split_metrics"]),
+                    json.dumps(run["subtype_scorecards"]),
+                    json.dumps(run["confidence_intervals"]),
+                    json.dumps(run["drift_delta"]) if run.get("drift_delta") else None,
+                    json.dumps(run.get("gate_results", [])),
+                    1 if run.get("passed_gates", True) else 0,
+                    json.dumps(run.get("errors", [])),
+                    1 if run.get("use_llm_refinement", True) else 0,
+                    1 if run.get("use_structured_output", False) else 0,
+                    run.get("evaluated_by"),
+                    run.get("notes"),
+                    run["created_at"].isoformat(),
+                ),
+            )
+            conn.commit()
+
+    def get_benchmark_run(self, run_id: str) -> Optional[dict]:
+        """Get benchmark run by ID."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM benchmark_runs WHERE id = ?", (run_id,))
+            row = cursor.fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "id": row["id"],
+            "dataset_id": row["dataset_id"],
+            "document_type_id": row["document_type_id"],
+            "prompt_version_id": row["prompt_version_id"],
+            "baseline_run_id": row["baseline_run_id"],
+            "total_documents": row["total_documents"],
+            "successful_documents": row["successful_documents"],
+            "failed_documents": row["failed_documents"],
+            "overall_metrics": json.loads(row["overall_metrics"]),
+            "split_metrics": json.loads(row["split_metrics"]),
+            "subtype_scorecards": json.loads(row["subtype_scorecards"]),
+            "confidence_intervals": json.loads(row["confidence_intervals"]),
+            "drift_delta": json.loads(row["drift_delta"]) if row["drift_delta"] else None,
+            "gate_results": json.loads(row["gate_results"]) if row["gate_results"] else [],
+            "passed_gates": bool(row["passed_gates"]),
+            "errors": json.loads(row["errors"]) if row["errors"] else [],
+            "use_llm_refinement": bool(row["use_llm_refinement"]),
+            "use_structured_output": bool(row["use_structured_output"]),
+            "evaluated_by": row["evaluated_by"],
+            "notes": row["notes"],
+            "created_at": datetime.fromisoformat(row["created_at"]),
+        }
 
 
 # Singleton instance
