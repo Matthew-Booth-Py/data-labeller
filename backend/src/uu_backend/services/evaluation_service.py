@@ -1,5 +1,6 @@
 """Service for evaluating extraction quality against ground truth."""
 
+import math
 import time
 from datetime import datetime
 from typing import Any, Optional
@@ -8,6 +9,8 @@ from uuid import uuid4
 from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.models.evaluation import (
+    BenchmarkGateResult,
+    BenchmarkRunResult,
     ExtractionEvaluation,
     ExtractionEvaluationMetrics,
     FieldEvaluation,
@@ -894,6 +897,213 @@ class EvaluationService:
             )
 
         return evaluations
+
+    def evaluate_benchmark(
+        self,
+        dataset_id: str,
+        prompt_version_id: Optional[str] = None,
+        baseline_run_id: Optional[str] = None,
+        use_llm_refinement: bool = True,
+        use_structured_output: bool = False,
+        evaluated_by: Optional[str] = None,
+        notes: Optional[str] = None,
+        required_field_gates: Optional[dict[str, dict[str, float]]] = None,
+    ) -> BenchmarkRunResult:
+        """Run benchmark evaluation over a dataset split and persist run summary."""
+        dataset = self.sqlite_client.get_benchmark_dataset(dataset_id)
+        if not dataset:
+            raise ValueError(f"Benchmark dataset {dataset_id} not found")
+        if not dataset["documents"]:
+            raise ValueError(f"Benchmark dataset {dataset_id} has no documents")
+
+        evaluations: list[ExtractionEvaluation] = []
+        split_evaluations: dict[str, list[ExtractionEvaluation]] = {}
+        subtype_evaluations: dict[str, list[ExtractionEvaluation]] = {}
+        errors: list[dict[str, str]] = []
+
+        for assignment in dataset["documents"]:
+            document_id = assignment["document_id"]
+            split = assignment.get("split") or "test"
+            subtype = assignment.get("doc_subtype") or "unknown"
+            try:
+                evaluation = self.evaluate_extraction(
+                    document_id=document_id,
+                    prompt_version_id=prompt_version_id,
+                    use_llm_refinement=use_llm_refinement,
+                    use_structured_output=use_structured_output,
+                    evaluated_by=evaluated_by,
+                    notes=notes,
+                )
+                evaluations.append(evaluation)
+                split_evaluations.setdefault(split, []).append(evaluation)
+                subtype_evaluations.setdefault(subtype, []).append(evaluation)
+            except Exception as exc:
+                errors.append({"document_id": document_id, "error": str(exc)})
+
+        if not evaluations:
+            raise ValueError(
+                f"Benchmark evaluation failed for all documents in dataset {dataset_id}: {errors}"
+            )
+
+        overall_metrics = self._aggregate_eval_metrics(evaluations)
+        split_metrics = {
+            split: self._aggregate_eval_metrics(eval_list)
+            for split, eval_list in split_evaluations.items()
+        }
+        subtype_scorecards = {
+            subtype: self._aggregate_field_scorecard(eval_list)
+            for subtype, eval_list in subtype_evaluations.items()
+        }
+        confidence_intervals = self._compute_metric_confidence_intervals(evaluations)
+        gate_results = self._evaluate_quality_gates(evaluations, required_field_gates or {})
+        passed_gates = all(g.passed for g in gate_results)
+
+        drift_delta = None
+        if baseline_run_id:
+            baseline = self.sqlite_client.get_benchmark_run(baseline_run_id)
+            if baseline:
+                drift_delta = {
+                    metric: overall_metrics[metric] - baseline["overall_metrics"].get(metric, 0.0)
+                    for metric in ("accuracy", "precision", "recall", "f1_score")
+                }
+
+        run = BenchmarkRunResult(
+            id=str(uuid4()),
+            dataset_id=dataset_id,
+            document_type_id=dataset["document_type_id"],
+            prompt_version_id=prompt_version_id,
+            baseline_run_id=baseline_run_id,
+            total_documents=len(dataset["documents"]),
+            successful_documents=len(evaluations),
+            failed_documents=len(errors),
+            overall_metrics=overall_metrics,
+            split_metrics=split_metrics,
+            subtype_scorecards=subtype_scorecards,
+            confidence_intervals=confidence_intervals,
+            drift_delta=drift_delta,
+            gate_results=gate_results,
+            passed_gates=passed_gates,
+            errors=errors,
+            evaluated_by=evaluated_by,
+            created_at=datetime.utcnow(),
+            notes=notes,
+        )
+
+        self.sqlite_client.save_benchmark_run(
+            {
+                **run.model_dump(),
+                "created_at": run.created_at,
+                "use_llm_refinement": use_llm_refinement,
+                "use_structured_output": use_structured_output,
+            }
+        )
+        return run
+
+    def _aggregate_eval_metrics(self, evaluations: list[ExtractionEvaluation]) -> dict[str, float]:
+        """Aggregate top-level metrics over multiple evaluations."""
+        total = len(evaluations)
+        if total == 0:
+            return {"accuracy": 0.0, "precision": 0.0, "recall": 0.0, "f1_score": 0.0}
+        return {
+            "accuracy": sum(e.metrics.accuracy for e in evaluations) / total,
+            "precision": sum(e.metrics.precision for e in evaluations) / total,
+            "recall": sum(e.metrics.recall for e in evaluations) / total,
+            "f1_score": sum(e.metrics.f1_score for e in evaluations) / total,
+        }
+
+    def _aggregate_field_scorecard(
+        self, evaluations: list[ExtractionEvaluation]
+    ) -> dict[str, dict[str, float]]:
+        """Build per-field scorecard for a group of evaluations."""
+        stats: dict[str, dict[str, int]] = {}
+        for evaluation in evaluations:
+            for field_eval in evaluation.metrics.field_evaluations:
+                field_stats = stats.setdefault(
+                    field_eval.field_name,
+                    {"correct": 0, "present": 0, "extracted": 0, "total": 0},
+                )
+                field_stats["total"] += 1
+                if field_eval.is_correct:
+                    field_stats["correct"] += 1
+                if field_eval.is_present:
+                    field_stats["present"] += 1
+                if field_eval.is_extracted:
+                    field_stats["extracted"] += 1
+
+        scorecard: dict[str, dict[str, float]] = {}
+        for field_name, field_stats in stats.items():
+            precision = (
+                field_stats["correct"] / field_stats["extracted"]
+                if field_stats["extracted"] > 0
+                else 0.0
+            )
+            recall = (
+                field_stats["correct"] / field_stats["present"]
+                if field_stats["present"] > 0
+                else 0.0
+            )
+            f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+            scorecard[field_name] = {
+                "accuracy": field_stats["correct"] / field_stats["total"] if field_stats["total"] > 0 else 0.0,
+                "precision": precision,
+                "recall": recall,
+                "f1_score": f1,
+            }
+        return scorecard
+
+    def _compute_metric_confidence_intervals(
+        self, evaluations: list[ExtractionEvaluation]
+    ) -> dict[str, dict[str, float]]:
+        """Compute approximate 95% CI for top-level metrics over runs."""
+        intervals = {}
+        metric_names = ("accuracy", "precision", "recall", "f1_score")
+        n = len(evaluations)
+        for metric in metric_names:
+            values = [getattr(e.metrics, metric) for e in evaluations]
+            mean = sum(values) / n
+            if n < 2:
+                intervals[metric] = {"mean": mean, "lower_95": mean, "upper_95": mean}
+                continue
+            variance = sum((v - mean) ** 2 for v in values) / (n - 1)
+            stderr = math.sqrt(variance / n)
+            margin = 1.96 * stderr
+            intervals[metric] = {
+                "mean": mean,
+                "lower_95": max(0.0, mean - margin),
+                "upper_95": min(1.0, mean + margin),
+            }
+        return intervals
+
+    def _evaluate_quality_gates(
+        self,
+        evaluations: list[ExtractionEvaluation],
+        required_field_gates: dict[str, dict[str, float]],
+    ) -> list[BenchmarkGateResult]:
+        """Evaluate pass/fail gates for required fields."""
+        field_scorecard = self._aggregate_field_scorecard(evaluations)
+        results: list[BenchmarkGateResult] = []
+        for field_name, thresholds in required_field_gates.items():
+            actual = field_scorecard.get(
+                field_name, {"f1_score": 0.0, "recall": 0.0}
+            )
+            min_f1 = thresholds.get("min_f1")
+            min_recall = thresholds.get("min_recall")
+            passed = True
+            if min_f1 is not None and actual["f1_score"] < min_f1:
+                passed = False
+            if min_recall is not None and actual["recall"] < min_recall:
+                passed = False
+            results.append(
+                BenchmarkGateResult(
+                    field_name=field_name,
+                    min_f1=min_f1,
+                    min_recall=min_recall,
+                    actual_f1=actual["f1_score"],
+                    actual_recall=actual["recall"],
+                    passed=passed,
+                )
+            )
+        return results
 
 
 # Singleton instance
