@@ -23,7 +23,8 @@ class ExtractionService:
     def extract_from_annotations(
         self, 
         document_id: str,
-        use_llm_refinement: bool = True
+        use_llm_refinement: bool = True,
+        prompt_version_id: Optional[str] = None
     ) -> ExtractionResult:
         """
         Extract structured data from a document's annotations.
@@ -82,7 +83,7 @@ class ExtractionService:
         # Use LLM to refine if enabled and we have some annotations
         if use_llm_refinement and annotations:
             extracted_fields = self._refine_with_llm(
-                document, doc_type.schema_fields, annotations, extracted_fields
+                document, doc_type.schema_fields, annotations, extracted_fields, prompt_version_id
             )
         
         result = ExtractionResult(
@@ -159,7 +160,8 @@ class ExtractionService:
         document,
         schema_fields: list[SchemaField],
         annotations,
-        initial_fields: list[ExtractedField]
+        initial_fields: list[ExtractedField],
+        prompt_version_id: Optional[str] = None
     ) -> list[ExtractedField]:
         """Use LLM to refine and fill in missing extracted fields."""
         
@@ -187,40 +189,29 @@ class ExtractionService:
         if len(content) > 6000:
             content = content[:3000] + "\n...[truncated]...\n" + content[-3000:]
         
-        system_prompt = """You are a document extraction expert. Given annotations, initial extractions, and document content, refine the extracted field values.
-
-Your task:
-1. Validate and normalize the initial extractions
-2. Fill in any missing fields that can be extracted from the document
-3. Correct any obvious errors in the extracted values
-
-Respond with a JSON object containing the refined field values:
-{
-    "field_name": "extracted value or null if not found",
-    ...
-}
-
-For arrays, use JSON array format. For numbers, return numeric values. For dates, use ISO format when possible."""
-
-        user_prompt = f"""## Schema Fields to Extract
-
-{schema_desc}
-
-## Current Annotations
-
-{annotation_context}
-
-## Initial Extraction (to refine)
-
-{initial_context if initial_context else "No initial extraction - all fields need extraction"}
-
-## Document Content
-
-```
-{content}
-```
-
-Extract/refine all schema fields. Return as JSON."""
+        # Get prompt version if specified, otherwise use default
+        system_prompt = None
+        user_prompt_template = None
+        
+        if prompt_version_id:
+            prompt_version = sqlite_client.get_prompt_version(prompt_version_id)
+            if prompt_version:
+                system_prompt = prompt_version.system_prompt
+                user_prompt_template = prompt_version.user_prompt_template
+        
+        # Fall back to default prompts
+        if not system_prompt:
+            from uu_backend.llm.prompts import EXTRACTION_SYSTEM_V1, EXTRACTION_USER_TEMPLATE_V1
+            system_prompt = EXTRACTION_SYSTEM_V1
+            user_prompt_template = EXTRACTION_USER_TEMPLATE_V1
+        
+        # Format user prompt with context
+        user_prompt = user_prompt_template.format(
+            schema_desc=schema_desc,
+            annotation_context=annotation_context,
+            initial_context=initial_context if initial_context else "No initial extraction - all fields need extraction",
+            content=content
+        )
 
         print(f"\n{'='*60}")
         print("EXTRACTION REFINEMENT")

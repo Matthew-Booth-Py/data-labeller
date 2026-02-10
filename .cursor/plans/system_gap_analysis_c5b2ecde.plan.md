@@ -225,3 +225,121 @@ Before implementation, clarify the relationship between:
 - Annotating "invoice_number" directly fills the schema
 - Simpler but less flexible
 
+## Core Capabilities & Evaluation Loop
+
+The system has three key capabilities that form a continuous improvement cycle:
+
+### 1. Document Classification
+
+- **What**: Automatically classify documents by type (e.g., Invoice, Claim Form, Contract)
+- **How**: LLM-based classification with confidence scores
+- **Output**: Document type assignment
+
+### 2. Form Extraction via Schema
+
+- **What**: Extract specific fields from documents based on document type
+- **How**: Use schema definitions + LLM to extract structured data
+- **Output**: JSON with field values (e.g., `{"invoice_number": "INV-12345", "total": 1500}`)
+
+### 3. Data Labeller Tool (AI-Accelerated)
+
+- **What**: Manual annotation tool with AI suggestions to create validation datasets
+- **How**: Human labels text spans, AI suggests labels, feedback loop trains ML model
+- **Output**: Ground truth annotations (validation dataset)
+
+### The Evaluation Feedback Loop
+
+```mermaid
+flowchart TB
+    subgraph capability3 [3. Data Labeller]
+        Label[Human Labels Documents]
+        Validate[Creates Validation Dataset]
+    end
+    
+    subgraph capability2 [2. Form Extraction]
+        Extract[LLM Extracts Fields]
+        Prompt[Extraction Prompt]
+    end
+    
+    subgraph evaluation [Evaluation System]
+        Compare[Compare Extraction vs Ground Truth]
+        Metrics[Calculate Metrics: F1, Precision, Recall]
+        Track[Track Prompt Performance Over Time]
+    end
+    
+    Label --> Validate
+    Validate --> Compare
+    Extract --> Compare
+    Compare --> Metrics
+    Metrics --> Track
+    Track --> Prompt
+    Prompt --> Extract
+    
+    style evaluation fill:#e1f5e1
+```
+
+
+
+**Key Insight**: Because we have capabilities #2 (extraction) and #3 (labelling), we can:
+
+1. Use the **Data Labeller** (#3) to create a ground truth validation dataset
+2. Run **Form Extraction** (#2) on the same documents
+3. **Compare** extraction results against ground truth annotations
+4. **Evaluate** prompt performance (F1, precision, recall)
+5. **Iterate** on prompts and re-evaluate to see which versions perform better
+6. **Monitor** extraction quality over time as prompts/models change
+
+This creates a continuous improvement loop where:
+
+- Manual labeling creates the benchmark
+- Automated extraction is measured against it
+- Prompt engineering is data-driven, not guesswork
+- Changes can be A/B tested with real metrics
+
+### Implementation Requirements for Evaluation Loop
+
+To enable this evaluation loop, we need:
+
+#### Backend Components
+
+1. **Extraction Evaluation Endpoint** (`POST /api/extraction/evaluate`)
+  - Input: Document ID, extraction results, ground truth annotations
+  - Output: Metrics (F1, precision, recall, field-level accuracy)
+2. **Prompt Version Tracking**
+  - Store prompt versions with timestamps
+  - Link evaluation runs to specific prompt versions
+  - Compare performance across prompt iterations
+3. **Evaluation History Storage**
+  - Database table: `extraction_evaluations`
+  - Fields: `id`, `document_id`, `prompt_version`, `metrics`, `timestamp`
+  - Aggregate metrics across document sets
+
+#### Frontend Components
+
+1. **Evaluation Dashboard** (new page: `/evaluation`)
+  - Show extraction accuracy metrics over time
+  - Compare prompt versions side-by-side
+  - Filter by document type, date range, prompt version
+2. **Per-Document Evaluation View**
+  - Show extracted values vs ground truth
+  - Highlight mismatches (false positives/negatives)
+  - Allow re-labeling if ground truth was wrong
+3. **Prompt Experiment UI**
+  - Create/edit extraction prompts
+  - Run evaluation on test set
+  - See immediate feedback on prompt changes
+
+#### Workflow Integration
+
+1. **Labeling → Evaluation**
+  - Mark documents as "validation set"
+  - Auto-run extraction evaluation when labeling is complete
+2. **Extraction → Feedback**
+  - Show confidence scores on extracted fields
+  - Allow users to correct extractions (becomes training data)
+  - Re-run evaluation after corrections
+3. **Continuous Monitoring**
+  - Dashboard shows extraction quality trends
+  - Alerts when accuracy drops below threshold
+  - Suggests documents that need re-labeling
+

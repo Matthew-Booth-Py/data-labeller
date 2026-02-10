@@ -87,12 +87,21 @@ class LabelSuggestionService:
         vector_store = get_vector_store()
         all_doc_summaries = vector_store.get_all_documents()
         
+        print(f"\n{'='*60}")
+        print("LABEL SUGGESTION REQUEST")
+        print(f"{'='*60}")
+        print(f"Total documents in vector store: {len(all_doc_summaries)}")
+        print(f"Document IDs filter: {request.document_ids}")
+        print(f"Sample size: {request.sample_size}")
+        
         # Filter by document_ids if provided (for project-specific suggestions)
         if request.document_ids:
             all_doc_summaries = [
                 doc for doc in all_doc_summaries 
                 if doc.id in request.document_ids
             ]
+            print(f"After filtering: {len(all_doc_summaries)} documents")
+            print(f"Filtered document names: {[doc.filename for doc in all_doc_summaries]}")
         
         if not all_doc_summaries:
             return LabelSuggestionResponse(
@@ -103,6 +112,8 @@ class LabelSuggestionService:
         
         # Sample document summaries
         sample_summaries = all_doc_summaries[:request.sample_size]
+        print(f"Analyzing documents: {[doc.filename for doc in sample_summaries]}")
+        print(f"{'='*60}\n")
         
         # Get existing labels to avoid duplicates
         existing_labels = []

@@ -201,6 +201,64 @@ class SQLiteClient:
                     FOREIGN KEY (document_type_id) REFERENCES document_types(id) ON DELETE CASCADE
                 )
             """)
+
+            # Prompt versions table for tracking extraction prompts
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS prompt_versions (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    document_type_id TEXT,
+                    system_prompt TEXT NOT NULL,
+                    user_prompt_template TEXT,
+                    description TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 0,
+                    created_by TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (document_type_id) REFERENCES document_types(id) ON DELETE CASCADE
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_prompt_versions_type
+                ON prompt_versions(document_type_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_prompt_versions_active
+                ON prompt_versions(is_active)
+            """)
+
+            # Evaluations table for extraction quality metrics
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS evaluations (
+                    id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL,
+                    document_type_id TEXT NOT NULL,
+                    prompt_version_id TEXT,
+                    metrics TEXT NOT NULL,
+                    extraction_time_ms INTEGER,
+                    evaluated_by TEXT,
+                    evaluated_at TEXT NOT NULL,
+                    notes TEXT,
+                    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+                    FOREIGN KEY (document_type_id) REFERENCES document_types(id) ON DELETE CASCADE,
+                    FOREIGN KEY (prompt_version_id) REFERENCES prompt_versions(id) ON DELETE SET NULL
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_evaluations_document
+                ON evaluations(document_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_evaluations_type
+                ON evaluations(document_type_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_evaluations_prompt
+                ON evaluations(prompt_version_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_evaluations_date
+                ON evaluations(evaluated_at)
+            """)
             
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_extractions_document
@@ -1138,6 +1196,449 @@ class SQLiteClient:
             )
             conn.commit()
             return cursor.rowcount > 0
+
+    # Prompt Version CRUD Operations
+
+    def create_prompt_version(self, prompt_version) -> str:
+        """Create a new prompt version."""
+        from uu_backend.models.evaluation import PromptVersion
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # If setting as active, deactivate others for this document type
+            if prompt_version.is_active:
+                cursor.execute(
+                    """
+                    UPDATE prompt_versions 
+                    SET is_active = 0 
+                    WHERE document_type_id IS ? OR (document_type_id IS NULL AND ? IS NULL)
+                    """,
+                    (prompt_version.document_type_id, prompt_version.document_type_id)
+                )
+            
+            cursor.execute(
+                """
+                INSERT INTO prompt_versions 
+                (id, name, document_type_id, system_prompt, user_prompt_template, 
+                 description, is_active, created_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    prompt_version.id,
+                    prompt_version.name,
+                    prompt_version.document_type_id,
+                    prompt_version.system_prompt,
+                    prompt_version.user_prompt_template,
+                    prompt_version.description,
+                    1 if prompt_version.is_active else 0,
+                    prompt_version.created_by,
+                    prompt_version.created_at.isoformat(),
+                ),
+            )
+            conn.commit()
+            return prompt_version.id
+
+    def get_prompt_version(self, version_id: str):
+        """Get a prompt version by ID."""
+        from uu_backend.models.evaluation import PromptVersion
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM prompt_versions WHERE id = ?",
+                (version_id,)
+            )
+            row = cursor.fetchone()
+        
+        if not row:
+            return None
+        
+        return PromptVersion(
+            id=row["id"],
+            name=row["name"],
+            document_type_id=row["document_type_id"],
+            system_prompt=row["system_prompt"],
+            user_prompt_template=row["user_prompt_template"],
+            description=row["description"],
+            is_active=bool(row["is_active"]),
+            created_by=row["created_by"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    def get_active_prompt_version(self, document_type_id: Optional[str] = None):
+        """Get the active prompt version for a document type."""
+        from uu_backend.models.evaluation import PromptVersion
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT * FROM prompt_versions 
+                WHERE is_active = 1 
+                AND (document_type_id = ? OR (document_type_id IS NULL AND ? IS NULL))
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (document_type_id, document_type_id)
+            )
+            row = cursor.fetchone()
+        
+        if not row:
+            return None
+        
+        return PromptVersion(
+            id=row["id"],
+            name=row["name"],
+            document_type_id=row["document_type_id"],
+            system_prompt=row["system_prompt"],
+            user_prompt_template=row["user_prompt_template"],
+            description=row["description"],
+            is_active=bool(row["is_active"]),
+            created_by=row["created_by"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    def list_prompt_versions(
+        self, 
+        document_type_id: Optional[str] = None,
+        is_active: Optional[bool] = None
+    ) -> list:
+        """List prompt versions with optional filters."""
+        from uu_backend.models.evaluation import PromptVersion
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            query = "SELECT * FROM prompt_versions WHERE 1=1"
+            params = []
+            
+            if document_type_id is not None:
+                query += " AND (document_type_id = ? OR document_type_id IS NULL)"
+                params.append(document_type_id)
+            
+            if is_active is not None:
+                query += " AND is_active = ?"
+                params.append(1 if is_active else 0)
+            
+            query += " ORDER BY created_at DESC"
+            
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+        
+        return [
+            PromptVersion(
+                id=row["id"],
+                name=row["name"],
+                document_type_id=row["document_type_id"],
+                system_prompt=row["system_prompt"],
+                user_prompt_template=row["user_prompt_template"],
+                description=row["description"],
+                is_active=bool(row["is_active"]),
+                created_by=row["created_by"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+            for row in rows
+        ]
+
+    def update_prompt_version(self, version_id: str, updates: dict) -> bool:
+        """Update a prompt version."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # If setting as active, deactivate others
+            if updates.get("is_active"):
+                # Get current version to know document_type_id
+                cursor.execute("SELECT document_type_id FROM prompt_versions WHERE id = ?", (version_id,))
+                row = cursor.fetchone()
+                if row:
+                    doc_type_id = row["document_type_id"]
+                    cursor.execute(
+                        """
+                        UPDATE prompt_versions 
+                        SET is_active = 0 
+                        WHERE id != ? AND (document_type_id IS ? OR (document_type_id IS NULL AND ? IS NULL))
+                        """,
+                        (version_id, doc_type_id, doc_type_id)
+                    )
+            
+            # Build update query
+            set_clauses = []
+            params = []
+            
+            for key, value in updates.items():
+                if key == "is_active":
+                    set_clauses.append("is_active = ?")
+                    params.append(1 if value else 0)
+                else:
+                    set_clauses.append(f"{key} = ?")
+                    params.append(value)
+            
+            if not set_clauses:
+                return False
+            
+            params.append(version_id)
+            query = f"UPDATE prompt_versions SET {', '.join(set_clauses)} WHERE id = ?"
+            
+            cursor.execute(query, params)
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def delete_prompt_version(self, version_id: str) -> bool:
+        """Delete a prompt version."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM prompt_versions WHERE id = ?", (version_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    # Evaluation CRUD Operations
+
+    def save_evaluation(self, evaluation) -> None:
+        """Save an evaluation result."""
+        from uu_backend.models.evaluation import ExtractionEvaluation
+        
+        # Serialize metrics to JSON
+        metrics_json = evaluation.metrics.model_dump_json()
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO evaluations 
+                (id, document_id, document_type_id, prompt_version_id, metrics, 
+                 extraction_time_ms, evaluated_by, evaluated_at, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    evaluation.id,
+                    evaluation.document_id,
+                    evaluation.document_type_id,
+                    evaluation.prompt_version_id,
+                    metrics_json,
+                    evaluation.extraction_time_ms,
+                    evaluation.evaluated_by,
+                    evaluation.evaluated_at.isoformat(),
+                    evaluation.notes,
+                ),
+            )
+            conn.commit()
+
+    def get_evaluation(self, evaluation_id: str):
+        """Get an evaluation by ID."""
+        from uu_backend.models.evaluation import ExtractionEvaluation, ExtractionEvaluationMetrics
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT e.*, pv.name as prompt_version_name
+                FROM evaluations e
+                LEFT JOIN prompt_versions pv ON e.prompt_version_id = pv.id
+                WHERE e.id = ?
+                """,
+                (evaluation_id,)
+            )
+            row = cursor.fetchone()
+        
+        if not row:
+            return None
+        
+        metrics = ExtractionEvaluationMetrics.model_validate_json(row["metrics"])
+        
+        return ExtractionEvaluation(
+            id=row["id"],
+            document_id=row["document_id"],
+            document_type_id=row["document_type_id"],
+            prompt_version_id=row["prompt_version_id"],
+            prompt_version_name=row["prompt_version_name"],
+            metrics=metrics,
+            extraction_time_ms=row["extraction_time_ms"],
+            evaluated_by=row["evaluated_by"],
+            evaluated_at=datetime.fromisoformat(row["evaluated_at"]),
+            notes=row["notes"],
+        )
+
+    def list_evaluations(
+        self,
+        document_id: Optional[str] = None,
+        document_type_id: Optional[str] = None,
+        prompt_version_id: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[list, int]:
+        """List evaluations with optional filters."""
+        from uu_backend.models.evaluation import ExtractionEvaluation, ExtractionEvaluationMetrics
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Build query
+            query = """
+                SELECT e.*, pv.name as prompt_version_name
+                FROM evaluations e
+                LEFT JOIN prompt_versions pv ON e.prompt_version_id = pv.id
+                WHERE 1=1
+            """
+            params = []
+            
+            if document_id:
+                query += " AND e.document_id = ?"
+                params.append(document_id)
+            
+            if document_type_id:
+                query += " AND e.document_type_id = ?"
+                params.append(document_type_id)
+            
+            if prompt_version_id:
+                query += " AND e.prompt_version_id = ?"
+                params.append(prompt_version_id)
+            
+            # Get total count
+            count_query = query.replace("e.*, pv.name as prompt_version_name", "COUNT(*)")
+            cursor.execute(count_query, params)
+            total = cursor.fetchone()[0]
+            
+            # Get results with pagination
+            query += " ORDER BY e.evaluated_at DESC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+            
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+        
+        evaluations = []
+        for row in rows:
+            metrics = ExtractionEvaluationMetrics.model_validate_json(row["metrics"])
+            evaluations.append(
+                ExtractionEvaluation(
+                    id=row["id"],
+                    document_id=row["document_id"],
+                    document_type_id=row["document_type_id"],
+                    prompt_version_id=row["prompt_version_id"],
+                    prompt_version_name=row["prompt_version_name"],
+                    metrics=metrics,
+                    extraction_time_ms=row["extraction_time_ms"],
+                    evaluated_by=row["evaluated_by"],
+                    evaluated_at=datetime.fromisoformat(row["evaluated_at"]),
+                    notes=row["notes"],
+                )
+            )
+        
+        return evaluations, total
+
+    def get_evaluation_summary(
+        self,
+        prompt_version_id: Optional[str] = None,
+        document_type_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Get aggregated evaluation metrics."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            query = """
+                SELECT 
+                    COUNT(*) as total_evaluations,
+                    e.prompt_version_id,
+                    pv.name as prompt_version_name,
+                    e.document_type_id,
+                    MIN(e.evaluated_at) as earliest_evaluation,
+                    MAX(e.evaluated_at) as latest_evaluation,
+                    e.metrics
+                FROM evaluations e
+                LEFT JOIN prompt_versions pv ON e.prompt_version_id = pv.id
+                WHERE 1=1
+            """
+            params = []
+            
+            if prompt_version_id:
+                query += " AND e.prompt_version_id = ?"
+                params.append(prompt_version_id)
+            
+            if document_type_id:
+                query += " AND e.document_type_id = ?"
+                params.append(document_type_id)
+            
+            query += " GROUP BY e.prompt_version_id, e.document_type_id"
+            
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+        
+        if not rows:
+            return None
+        
+        # Aggregate metrics across evaluations
+        from uu_backend.models.evaluation import ExtractionEvaluationMetrics
+        
+        results = []
+        for row in rows:
+            # Get all evaluations for this group
+            eval_query = """
+                SELECT metrics FROM evaluations 
+                WHERE prompt_version_id IS ? AND document_type_id = ?
+            """
+            cursor.execute(eval_query, (row["prompt_version_id"], row["document_type_id"]))
+            eval_rows = cursor.fetchall()
+            
+            # Calculate averages
+            total = len(eval_rows)
+            sum_accuracy = 0.0
+            sum_precision = 0.0
+            sum_recall = 0.0
+            sum_f1 = 0.0
+            field_stats = {}
+            
+            for eval_row in eval_rows:
+                metrics = ExtractionEvaluationMetrics.model_validate_json(eval_row["metrics"])
+                sum_accuracy += metrics.accuracy
+                sum_precision += metrics.precision
+                sum_recall += metrics.recall
+                sum_f1 += metrics.f1_score
+                
+                # Aggregate field-level stats
+                for field_eval in metrics.field_evaluations:
+                    if field_eval.field_name not in field_stats:
+                        field_stats[field_eval.field_name] = {
+                            "correct": 0,
+                            "total": 0,
+                            "present": 0,
+                            "extracted": 0,
+                        }
+                    stats = field_stats[field_eval.field_name]
+                    stats["total"] += 1
+                    if field_eval.is_correct:
+                        stats["correct"] += 1
+                    if field_eval.is_present:
+                        stats["present"] += 1
+                    if field_eval.is_extracted:
+                        stats["extracted"] += 1
+            
+            # Calculate field-level metrics
+            field_performance = {}
+            for field_name, stats in field_stats.items():
+                accuracy = stats["correct"] / stats["total"] if stats["total"] > 0 else 0.0
+                precision = stats["correct"] / stats["extracted"] if stats["extracted"] > 0 else 0.0
+                recall = stats["correct"] / stats["present"] if stats["present"] > 0 else 0.0
+                field_performance[field_name] = {
+                    "accuracy": accuracy,
+                    "precision": precision,
+                    "recall": recall,
+                }
+            
+            results.append({
+                "prompt_version_id": row["prompt_version_id"],
+                "prompt_version_name": row["prompt_version_name"],
+                "document_type_id": row["document_type_id"],
+                "total_evaluations": total,
+                "avg_accuracy": sum_accuracy / total,
+                "avg_precision": sum_precision / total,
+                "avg_recall": sum_recall / total,
+                "avg_f1_score": sum_f1 / total,
+                "field_performance": field_performance,
+                "earliest_evaluation": row["earliest_evaluation"],
+                "latest_evaluation": row["latest_evaluation"],
+            })
+        
+        return results[0] if len(results) == 1 else results
 
 
 # Singleton instance
