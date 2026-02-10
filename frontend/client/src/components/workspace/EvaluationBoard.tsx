@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 
@@ -34,6 +35,7 @@ interface FieldEvaluation {
   is_present: boolean;
   is_extracted: boolean;
   r2_score?: number;
+  comparison_score?: number;
 }
 
 interface Evaluation {
@@ -55,6 +57,12 @@ interface Evaluation {
   evaluated_at: string;
 }
 
+interface PromptVersion {
+  id: string;
+  name: string;
+  is_active: boolean;
+}
+
 interface EvaluationBoardProps {
   projectId?: string;
 }
@@ -72,6 +80,9 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
   const [selectedEvaluation, setSelectedEvaluation] = useState<Evaluation | null>(null);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [showRawJson, setShowRawJson] = useState(false);
+  const [promptVersions, setPromptVersions] = useState<PromptVersion[]>([]);
+  const [selectedPromptVersion, setSelectedPromptVersion] = useState<string>("default");
+  const [selectedEvaluationIds, setSelectedEvaluationIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadDocuments();
@@ -81,6 +92,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
   useEffect(() => {
     if (documentTypeId) {
       loadEvaluations();
+      loadPromptVersions(documentTypeId);
     }
   }, [documentTypeId]);
 
@@ -100,10 +112,23 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
       const data = await response.json();
       console.log('Loaded evaluations:', data.evaluations?.length || 0);
       setEvaluations(data.evaluations || []);
+      setSelectedEvaluationIds(new Set());
     } catch (error) {
       console.error('Error loading evaluations:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadPromptVersions = async (docTypeId: string) => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/v1/evaluation/prompts?document_type_id=${docTypeId}`);
+      if (!response.ok) throw new Error("Failed to load prompt versions");
+      const data = await response.json();
+      setPromptVersions(data.prompt_versions || []);
+    } catch (error) {
+      console.error("Error loading prompt versions:", error);
+      setPromptVersions([]);
     }
   };
 
@@ -176,6 +201,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           document_type_id: documentTypeId,
+          prompt_version_id: selectedPromptVersion === "default" ? null : selectedPromptVersion,
           use_structured_output: useStructuredOutput,
           use_llm_refinement: !useStructuredOutput,
         }),
@@ -214,6 +240,42 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
     return `${(value * 100).toFixed(1)}%`;
   };
 
+  const truncateText = (value: unknown, max: number = 100) => {
+    const text = String(value ?? "");
+    return text.length > max ? `${text.slice(0, max)}...` : text;
+  };
+
+  const toPreviewJson = (value: unknown, max: number = 100) => {
+    return JSON.stringify(
+      value,
+      (_key, v) => (typeof v === "string" ? truncateText(v, max) : v),
+      2
+    );
+  };
+
+  const normalizeComparable = (value: unknown): unknown => {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "number") return Number(value);
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      const cleaned = trimmed.replace(/\$/g, "").replace(/,/g, "");
+      if (/^-?\d+(\.\d+)?$/.test(cleaned)) {
+        return Number(cleaned);
+      }
+      return cleaned.toLowerCase();
+    }
+    return String(value).toLowerCase();
+  };
+
+  const valuesMatch = (a: unknown, b: unknown): boolean => {
+    const na = normalizeComparable(a);
+    const nb = normalizeComparable(b);
+    if (typeof na === "number" && typeof nb === "number") {
+      return Math.abs(na - nb) < 1e-9;
+    }
+    return na === nb;
+  };
+
   // Prepare chart data
   const chartData = evaluations.slice(0, 5).reverse().map((evaluation, idx) => ({
     promptVersion: evaluation.prompt_version_name || `Run ${idx + 1}`,
@@ -222,6 +284,159 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
     latency: evaluation.extraction_time_ms,
     cost: 0.45, // Mock cost for now
   }));
+
+  const fieldScorecard = (() => {
+    const stats = new Map<string, {
+      total: number;
+      correct: number;
+      present: number;
+      extracted: number;
+      avgScore: number;
+      scoreCount: number;
+    }>();
+
+    evaluations.forEach((evaluation) => {
+      (evaluation.metrics.field_evaluations || []).forEach((field) => {
+        const current = stats.get(field.field_name) || {
+          total: 0,
+          correct: 0,
+          present: 0,
+          extracted: 0,
+          avgScore: 0,
+          scoreCount: 0,
+        };
+        current.total += 1;
+        if (field.is_correct) current.correct += 1;
+        if (field.is_present) current.present += 1;
+        if (field.is_extracted) current.extracted += 1;
+        if (typeof field.comparison_score === "number") {
+          current.avgScore += field.comparison_score;
+          current.scoreCount += 1;
+        }
+        stats.set(field.field_name, current);
+      });
+    });
+
+    return Array.from(stats.entries())
+      .map(([fieldName, s]) => {
+        const accuracy = s.total > 0 ? s.correct / s.total : 0;
+        const extractionRate = s.present > 0 ? s.extracted / s.present : 0;
+        const avgSimilarity = s.scoreCount > 0 ? s.avgScore / s.scoreCount : 0;
+        return {
+          fieldName,
+          accuracy,
+          extractionRate,
+          avgSimilarity,
+          runs: s.total,
+          correct: s.correct,
+        };
+      })
+      .sort((a, b) => b.accuracy - a.accuracy);
+  })();
+
+  const componentScorecard = (() => {
+    const stats = new Map<string, { total: number; correct: number }>();
+
+    evaluations.forEach((evaluation) => {
+      (evaluation.metrics.field_evaluations || []).forEach((field) => {
+        const extracted = field.extracted_value;
+        const truth = field.ground_truth_value;
+        const isArrayObjects =
+          Array.isArray(extracted) &&
+          Array.isArray(truth) &&
+          extracted.length > 0 &&
+          truth.length > 0 &&
+          typeof extracted[0] === "object" &&
+          typeof truth[0] === "object";
+
+        if (!isArrayObjects) return;
+
+        const extractedData = extracted as Record<string, unknown>[];
+        const groundTruthData = truth as Record<string, unknown>[];
+        const allKeys = new Set<string>();
+        [...extractedData, ...groundTruthData].forEach((item) => {
+          Object.keys(item).forEach((k) => allKeys.add(k));
+        });
+
+        const primaryKeys = ["id", "name", "item", "item_name", "claim_item", "title", "key"];
+        const primaryKey = primaryKeys.find((k) => allKeys.has(k)) || Array.from(allKeys)[0];
+        if (!primaryKey) return;
+
+        const gtMap = new Map<string, Record<string, unknown>>();
+        groundTruthData.forEach((item) => {
+          gtMap.set(String(normalizeComparable(item[primaryKey] ?? "")), item);
+        });
+
+        extractedData.forEach((extItem) => {
+          const rowKey = String(normalizeComparable(extItem[primaryKey] ?? ""));
+          const gtItem = gtMap.get(rowKey);
+          if (!gtItem) return;
+
+          allKeys.forEach((component) => {
+            const key = `${field.field_name}.${component}`;
+            const current = stats.get(key) || { total: 0, correct: 0 };
+            current.total += 1;
+            if (valuesMatch(extItem[component], gtItem[component])) {
+              current.correct += 1;
+            }
+            stats.set(key, current);
+          });
+        });
+      });
+    });
+
+    return Array.from(stats.entries())
+      .map(([componentName, s]) => ({
+        componentName,
+        accuracy: s.total > 0 ? s.correct / s.total : 0,
+        correct: s.correct,
+        total: s.total,
+      }))
+      .sort((a, b) => b.accuracy - a.accuracy);
+  })();
+
+  const recentEvaluations = evaluations.slice(0, 10);
+  const allRecentSelected =
+    recentEvaluations.length > 0 &&
+    recentEvaluations.every((evaluation) => selectedEvaluationIds.has(evaluation.id));
+  const someRecentSelected =
+    recentEvaluations.some((evaluation) => selectedEvaluationIds.has(evaluation.id)) && !allRecentSelected;
+
+  const toggleSelectAllRecent = (checked: boolean) => {
+    if (checked) {
+      setSelectedEvaluationIds(new Set(recentEvaluations.map((e) => e.id)));
+    } else {
+      setSelectedEvaluationIds(new Set());
+    }
+  };
+
+  const toggleSelectEvaluation = (evaluationId: string, checked: boolean) => {
+    setSelectedEvaluationIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(evaluationId);
+      } else {
+        next.delete(evaluationId);
+      }
+      return next;
+    });
+  };
+
+  const deleteSelectedEvaluations = async () => {
+    if (selectedEvaluationIds.size === 0) return;
+    if (!confirm(`Delete ${selectedEvaluationIds.size} selected evaluation run(s)?`)) return;
+    try {
+      await Promise.all(Array.from(selectedEvaluationIds).map((id) => api.deleteEvaluation(id)));
+      toast({ title: "Evaluations deleted", description: `Deleted ${selectedEvaluationIds.size} run(s)` });
+      await loadEvaluations();
+    } catch (error: any) {
+      toast({
+        title: "Failed to delete selected runs",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -266,6 +481,26 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                   checked={useStructuredOutput}
                   onCheckedChange={setUseStructuredOutput}
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Prompt Version</Label>
+                <Select value={selectedPromptVersion} onValueChange={setSelectedPromptVersion}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Use default prompt configuration" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Default (Document Type Prompt)</SelectItem>
+                    {promptVersions.map((pv) => (
+                      <SelectItem key={pv.id} value={pv.id}>
+                        {pv.name}{pv.is_active ? " (Active)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Run evaluations against a specific prompt version to compare field-level performance.
+                </p>
               </div>
             </div>
 
@@ -361,10 +596,91 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
              </Card>
           </div>
 
+          <Card className="border-muted bg-white">
+            <CardHeader>
+              <CardTitle className="text-primary">Field Scorecard</CardTitle>
+              <CardDescription>
+                Independent tracking per field across runs, plus combined metrics above.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {fieldScorecard.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No field-level data yet.</p>
+              ) : (
+                <div className="rounded-md border overflow-hidden">
+                  <div className="grid grid-cols-5 p-3 text-[10px] uppercase tracking-wider font-bold text-muted-foreground bg-muted/30">
+                    <div>Field</div>
+                    <div>Accuracy</div>
+                    <div>Extraction Rate</div>
+                    <div>Avg Similarity</div>
+                    <div>Runs</div>
+                  </div>
+                  {fieldScorecard.map((row) => (
+                    <div key={row.fieldName} className="grid grid-cols-5 p-3 border-t text-sm items-center">
+                      <div className="font-mono text-primary">{row.fieldName}</div>
+                      <div className="font-mono">{(row.accuracy * 100).toFixed(1)}%</div>
+                      <div className="font-mono">{(row.extractionRate * 100).toFixed(1)}%</div>
+                      <div className="font-mono">{(row.avgSimilarity * 100).toFixed(1)}%</div>
+                      <div className="font-mono">{row.correct}/{row.runs}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-muted bg-white">
+            <CardHeader>
+              <CardTitle className="text-primary">Component Scorecard</CardTitle>
+              <CardDescription>
+                Sub-component performance (array/object fields) for every run.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {componentScorecard.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No component-level data yet.</p>
+              ) : (
+                <div className="rounded-md border overflow-hidden">
+                  <div className="grid grid-cols-3 p-3 text-[10px] uppercase tracking-wider font-bold text-muted-foreground bg-muted/30">
+                    <div>Component</div>
+                    <div>Accuracy</div>
+                    <div>Correct/Total</div>
+                  </div>
+                  {componentScorecard.map((row) => (
+                    <div key={row.componentName} className="grid grid-cols-3 p-3 border-t text-sm items-center">
+                      <div className="font-mono text-primary">{row.componentName}</div>
+                      <div className="font-mono">{(row.accuracy * 100).toFixed(1)}%</div>
+                      <div className="font-mono">{row.correct}/{row.total}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="space-y-4">
-            <h4 className="font-medium">Recent Runs</h4>
+            <div className="flex items-center justify-between">
+              <h4 className="font-medium">Recent Runs</h4>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={selectedEvaluationIds.size === 0}
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                onClick={deleteSelectedEvaluations}
+              >
+                Delete Selected ({selectedEvaluationIds.size})
+              </Button>
+            </div>
             <div className="rounded-md border bg-card overflow-hidden border-muted shadow-sm">
-                <div className="grid grid-cols-7 p-4 border-b font-bold text-[10px] uppercase tracking-wider text-muted-foreground bg-muted/30">
+                <div className="grid grid-cols-8 p-4 border-b font-bold text-[10px] uppercase tracking-wider text-muted-foreground bg-muted/30">
+                    <div className="flex items-center">
+                      <Checkbox
+                        checked={allRecentSelected}
+                        onCheckedChange={(checked) => toggleSelectAllRecent(!!checked)}
+                        aria-label="Select all recent runs"
+                        className={someRecentSelected ? "opacity-60" : ""}
+                      />
+                    </div>
                     <div className="col-span-2">Document / Version</div>
                     <div>Date</div>
                     <div>F1 Score</div>
@@ -372,8 +688,15 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                     <div>Time (ms)</div>
                     <div className="text-right">Actions</div>
                 </div>
-                {evaluations.slice(0, 10).map((evaluation) => (
-                    <div key={evaluation.id} className="grid grid-cols-7 p-4 border-b last:border-0 text-sm hover:bg-accent/5 transition-colors items-center">
+                {recentEvaluations.map((evaluation) => (
+                    <div key={evaluation.id} className="grid grid-cols-8 p-4 border-b last:border-0 text-sm hover:bg-accent/5 transition-colors items-center">
+                        <div className="flex items-center">
+                          <Checkbox
+                            checked={selectedEvaluationIds.has(evaluation.id)}
+                            onCheckedChange={(checked) => toggleSelectEvaluation(evaluation.id, !!checked)}
+                            aria-label={`Select evaluation ${evaluation.id}`}
+                          />
+                        </div>
                         <div className="col-span-2">
                             <div className="font-medium text-primary truncate">{evaluation.document_id.slice(0, 12)}...</div>
                             <div className="text-xs text-muted-foreground">
@@ -435,7 +758,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
 
           {/* Evaluation Details Dialog */}
           <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
-            <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogContent className="w-[96vw] max-w-[1200px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Evaluation Details</DialogTitle>
                 <DialogDescription>
@@ -446,7 +769,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
               {selectedEvaluation && (
                 <div className="space-y-6">
                   {/* Summary */}
-                  <div className="grid grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <Card>
                       <CardContent className="pt-6">
                         <div className="text-2xl font-bold text-accent">
@@ -506,7 +829,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                       // If showing raw JSON or not an array of objects, show JSON view
                       if (showRawJson || !isArrayOfObjects || !gtIsArrayOfObjects) {
                         return (
-                          <Card key={idx} className={field.is_correct ? 'border-green-200' : 'border-red-200'}>
+                          <Card key={idx} className={field.is_correct ? 'border-green-200 overflow-hidden' : 'border-red-200 overflow-hidden'}>
                             <CardHeader className="pb-3">
                               <div className="flex items-center justify-between">
                                 <CardTitle className="text-sm font-mono">{field.field_name}</CardTitle>
@@ -525,14 +848,14 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                             <CardContent className="space-y-3">
                               <div>
                                 <p className="text-xs font-semibold text-muted-foreground mb-1">Extracted Value:</p>
-                                <pre className="text-sm bg-muted p-2 rounded overflow-x-auto">
-                                  {JSON.stringify(field.extracted_value, null, 2)}
+                                <pre className="text-sm bg-muted p-2 rounded whitespace-pre-wrap break-words overflow-x-auto">
+                                  {toPreviewJson(field.extracted_value)}
                                 </pre>
                               </div>
                               <div>
                                 <p className="text-xs font-semibold text-muted-foreground mb-1">Ground Truth:</p>
-                                <pre className="text-sm bg-muted p-2 rounded overflow-x-auto">
-                                  {JSON.stringify(field.ground_truth_value, null, 2)}
+                                <pre className="text-sm bg-muted p-2 rounded whitespace-pre-wrap break-words overflow-x-auto">
+                                  {toPreviewJson(field.ground_truth_value)}
                                 </pre>
                               </div>
                             </CardContent>
@@ -560,12 +883,29 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                         // Create a map of ground truth items by primary key
                         const gtMap = new Map();
                         groundTruthData.forEach(item => {
-                          const key = String(item[primaryKey] || '').toLowerCase();
+                          const key = String(normalizeComparable(item[primaryKey] ?? ""));
                           gtMap.set(key, item);
                         });
 
+                        // Component-level (column) accuracy so prompts can be optimized per item.
+                        const componentStats = columns.map((col) => {
+                          let present = 0;
+                          let correct = 0;
+                          extractedData.forEach((extItem) => {
+                            const itemKey = String(normalizeComparable(extItem[primaryKey] ?? ""));
+                            const gtItem = gtMap.get(itemKey);
+                            if (!gtItem) return;
+                            present += 1;
+                            if (valuesMatch(extItem[col], gtItem[col])) {
+                              correct += 1;
+                            }
+                          });
+                          const accuracy = present > 0 ? correct / present : 0;
+                          return { col, present, correct, accuracy };
+                        });
+
                         return (
-                          <Card key={idx} className={field.is_correct ? 'border-green-200' : 'border-red-200'}>
+                          <Card key={idx} className={field.is_correct ? 'border-green-200 overflow-hidden' : 'border-red-200 overflow-hidden'}>
                             <CardHeader className="pb-3">
                               <div className="flex items-center justify-between">
                                 <CardTitle className="text-sm font-mono">{field.field_name}</CardTitle>
@@ -582,6 +922,13 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                               </div>
                             </CardHeader>
                             <CardContent>
+                              <div className="mb-3 flex flex-wrap gap-2">
+                                {componentStats.map((s) => (
+                                  <Badge key={s.col} variant="outline" className="font-mono">
+                                    {s.col}: {(s.accuracy * 100).toFixed(0)}% ({s.correct}/{s.present})
+                                  </Badge>
+                                ))}
+                              </div>
                               <div className="rounded-md border overflow-x-auto">
                                 <Table>
                                   <TableHeader>
@@ -597,13 +944,14 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                                   </TableHeader>
                                   <TableBody>
                                     {extractedData.map((extItem, rowIdx) => {
-                                      const itemKey = String(extItem[primaryKey] || '').toLowerCase();
+                                      const itemKey = String(normalizeComparable(extItem[primaryKey] ?? ""));
                                       const gtItem = gtMap.get(itemKey);
+                                      const rowMatches = !!gtItem && columns.every((col) => valuesMatch(extItem[col], gtItem[col]));
                                       
                                       return (
                                         <TableRow key={`ext-${rowIdx}`} className="border-b">
                                           <TableCell className="text-center">
-                                            {gtItem && JSON.stringify(extItem) === JSON.stringify(gtItem) ? (
+                                            {rowMatches ? (
                                               <Check className="h-4 w-4 text-green-600 mx-auto" />
                                             ) : (
                                               <X className="h-4 w-4 text-red-600 mx-auto" />
@@ -612,17 +960,17 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                                           {columns.map(col => {
                                             const extValue = extItem[col];
                                             const gtValue = gtItem?.[col];
-                                            const matches = String(extValue) === String(gtValue);
+                                            const matches = valuesMatch(extValue, gtValue);
                                             
                                             return (
                                               <TableCell 
                                                 key={col}
                                                 className={`text-sm ${!matches && gtItem ? 'bg-red-50' : ''}`}
                                               >
-                                                <div className="font-medium">{String(extValue ?? '')}</div>
+                                                <div className="font-medium">{truncateText(extValue)}</div>
                                                 {gtItem && !matches && (
                                                   <div className="text-xs text-muted-foreground mt-1">
-                                                    Expected: {String(gtValue ?? '')}
+                                                    Expected: {truncateText(gtValue)}
                                                   </div>
                                                 )}
                                               </TableCell>
@@ -634,9 +982,9 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                                     })}
                                     {/* Show ground truth items that weren't extracted */}
                                     {groundTruthData.filter(gtItem => {
-                                      const gtKey = String(gtItem[primaryKey] || '').toLowerCase();
+                                      const gtKey = String(normalizeComparable(gtItem[primaryKey] ?? ""));
                                       return !extractedData.some(extItem => 
-                                        String(extItem[primaryKey] || '').toLowerCase() === gtKey
+                                        String(normalizeComparable(extItem[primaryKey] ?? "")) === gtKey
                                       );
                                     }).map((gtItem, rowIdx) => (
                                       <TableRow key={`missing-${rowIdx}`} className="border-b bg-yellow-50">
@@ -646,7 +994,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                                         {columns.map(col => (
                                           <TableCell key={col} className="text-sm">
                                             <div className="text-xs text-muted-foreground italic">
-                                              Expected: {String(gtItem[col] ?? '')}
+                                              Expected: {truncateText(gtItem[col])}
                                             </div>
                                           </TableCell>
                                         ))}

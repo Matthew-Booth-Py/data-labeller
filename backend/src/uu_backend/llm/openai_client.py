@@ -6,6 +6,7 @@ from typing import Any
 from openai import OpenAI
 
 from uu_backend.config import get_settings
+from uu_backend.llm.options import reasoning_options_for_model
 
 
 class OpenAIClient:
@@ -37,6 +38,7 @@ class OpenAIClient:
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            **reasoning_options_for_model(self._model),
         )
 
         return response.choices[0].message.content or ""
@@ -62,6 +64,7 @@ class OpenAIClient:
             temperature=temperature,
             max_tokens=max_tokens,
             response_format={"type": "json_object"},
+            **reasoning_options_for_model(self._model),
         )
 
         content = response.choices[0].message.content or "{}"

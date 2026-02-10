@@ -251,6 +251,35 @@ export interface ExtractionResult {
   extracted_at: string;
 }
 
+export interface FieldPromptVersion {
+  id: string;
+  name: string;
+  document_type_id: string;
+  field_name: string;
+  extraction_prompt: string;
+  description?: string;
+  is_active: boolean;
+  created_by?: string;
+  created_at: string;
+}
+
+export interface FieldPromptVersionCreate {
+  name: string;
+  document_type_id: string;
+  field_name: string;
+  extraction_prompt: string;
+  description?: string;
+  is_active?: boolean;
+  created_by?: string;
+}
+
+export interface FieldPromptVersionUpdate {
+  name?: string;
+  extraction_prompt?: string;
+  description?: string;
+  is_active?: boolean;
+}
+
 // ============================================================================
 // Annotation Types
 // ============================================================================
@@ -979,6 +1008,51 @@ class ApiClient {
     return this.request(`${API_PREFIX}/evaluation/${evaluationId}`, {
       method: 'DELETE',
     });
+  }
+
+  async listFieldPromptVersions(
+    documentTypeId: string,
+    fieldName?: string,
+    isActive?: boolean
+  ): Promise<{ field_prompt_versions: FieldPromptVersion[]; total: number }> {
+    const params = new URLSearchParams();
+    params.append('document_type_id', documentTypeId);
+    if (fieldName) params.append('field_name', fieldName);
+    if (typeof isActive === 'boolean') params.append('is_active', String(isActive));
+    return this.request(`${API_PREFIX}/evaluation/field-prompts/list?${params.toString()}`);
+  }
+
+  async createFieldPromptVersion(
+    data: FieldPromptVersionCreate
+  ): Promise<{ id: string; message: string }> {
+    return this.request(`${API_PREFIX}/evaluation/field-prompts`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateFieldPromptVersion(
+    versionId: string,
+    data: FieldPromptVersionUpdate
+  ): Promise<{ message: string }> {
+    return this.request(`${API_PREFIX}/evaluation/field-prompts/version/${versionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteFieldPromptVersion(versionId: string): Promise<{ message: string }> {
+    return this.request(`${API_PREFIX}/evaluation/field-prompts/version/${versionId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async listActiveFieldPromptsByDocumentType(
+    documentTypeId: string
+  ): Promise<{ field_prompts: Record<string, string>; field_versions: Record<string, string>; total: number }> {
+    return this.request(
+      `${API_PREFIX}/evaluation/field-prompts/active/by-document-type?document_type_id=${encodeURIComponent(documentTypeId)}`
+    );
   }
 }
 

@@ -2,6 +2,7 @@
 
 import difflib
 import math
+import re
 import time
 from datetime import datetime
 from typing import Any, Optional
@@ -661,8 +662,23 @@ class EvaluationService:
         ground_truth_normalized = self._normalize_value(ground_truth_value)
 
         if comparator_mode == "normalized":
-            score = 1.0 if extracted_normalized == ground_truth_normalized else 0.0
-            return score == 1.0, score
+            if extracted_normalized == ground_truth_normalized:
+                return True, 1.0
+
+            # Date-aware equivalence for differently formatted but same date strings.
+            if isinstance(extracted_value, str) and isinstance(ground_truth_value, str):
+                extracted_date = self._parse_date_literal(extracted_value)
+                ground_truth_date = self._parse_date_literal(ground_truth_value)
+                if extracted_date and ground_truth_date and extracted_date == ground_truth_date:
+                    return True, 1.0
+
+                # Free-text soft match: lexical/ordering differences shouldn't be hard-fail.
+                similarity = self._text_similarity(extracted_value, ground_truth_value)
+                if similarity >= 0.92:
+                    return True, similarity
+                return False, similarity
+
+            return False, 0.0
 
         # fuzzy mode: exact on non-strings, similarity on strings
         if isinstance(extracted_normalized, str) and isinstance(ground_truth_normalized, str):
@@ -776,8 +792,13 @@ class EvaluationService:
 
         # Convert to string and normalize whitespace
         if isinstance(value, str):
+            stripped = value.strip()
+            # Normalize date strings to ISO for robust comparison.
+            parsed_date = self._parse_date_literal(stripped)
+            if parsed_date:
+                return parsed_date
             # Remove currency symbols and commas for numeric strings
-            cleaned = value.strip().replace('$', '').replace(',', '')
+            cleaned = stripped.replace('$', '').replace(',', '')
             return cleaned.lower()
 
         # For dictionaries (objects), normalize each value and sort by keys
@@ -833,6 +854,58 @@ class EvaluationService:
             return float(value)
 
         return value
+
+    def _parse_date_literal(self, value: str) -> Optional[str]:
+        """Parse common date string formats and return ISO date if parseable."""
+        if not value:
+            return None
+        s = value.strip()
+        # Fast-path ISO date
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+            return s
+        formats = (
+            "%B %d, %Y",   # February 3, 2024
+            "%b %d, %Y",   # Feb 3, 2024
+            "%m/%d/%Y",    # 02/03/2024
+            "%m-%d-%Y",    # 02-03-2024
+            "%Y/%m/%d",    # 2024/02/03
+            "%Y.%m.%d",    # 2024.02.03
+        )
+        for fmt in formats:
+            try:
+                return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+        return None
+
+    def _text_similarity(self, a: str, b: str) -> float:
+        """Compute robust similarity for free-text field evaluation."""
+        a_norm = self._canonicalize_text(a)
+        b_norm = self._canonicalize_text(b)
+        if not a_norm and not b_norm:
+            return 1.0
+        if not a_norm or not b_norm:
+            return 0.0
+
+        seq_ratio = difflib.SequenceMatcher(a=a_norm, b=b_norm).ratio()
+        a_tokens = a_norm.split()
+        b_tokens = b_norm.split()
+        a_set = set(a_tokens)
+        b_set = set(b_tokens)
+        overlap = len(a_set & b_set)
+        precision = overlap / len(a_set) if a_set else 0.0
+        recall = overlap / len(b_set) if b_set else 0.0
+        token_f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+
+        return max(seq_ratio, token_f1)
+
+    def _canonicalize_text(self, value: str) -> str:
+        """Lowercase + punctuation/whitespace normalization for soft text matching."""
+        lowered = value.lower()
+        # Keep alnum/space only to ignore punctuation-only differences.
+        cleaned = re.sub(r"[^a-z0-9\s]+", " ", lowered)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned
 
     def _calculate_metrics(
         self, field_evaluations: list[FieldEvaluation], comparator_mode: str = "normalized"

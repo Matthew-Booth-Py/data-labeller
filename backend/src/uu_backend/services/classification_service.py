@@ -5,6 +5,7 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
+from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.models.taxonomy import Classification, DocumentType
@@ -113,7 +114,8 @@ Classify this document into one of the available types. Return your response as 
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                **reasoning_options_for_model(self.model),
             )
             
             result_text = response.choices[0].message.content

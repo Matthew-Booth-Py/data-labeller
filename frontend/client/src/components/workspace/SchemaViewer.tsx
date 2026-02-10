@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Code, Plus, Trash2, Settings2, GripVertical, Sparkles, MessageSquare, Search, Edit3, Save, X, Loader2, ThumbsUp, ThumbsDown, FileText } from "lucide-react";
+import { Code, Plus, Trash2, Settings2, GripVertical, Sparkles, MessageSquare, Search, Edit3, Save, X, Loader2, ThumbsDown, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -10,9 +10,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { api, DocumentType, SchemaField, FieldType, Label, LabelSuggestion, LabelSuggestionResponse } from "@/lib/api";
+import {
+  api,
+  DocumentType,
+  SchemaField,
+  FieldType,
+  LabelSuggestion,
+  LabelSuggestionResponse,
+  FieldPromptVersion,
+} from "@/lib/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Tag, Palette } from "lucide-react";
+import { Tag } from "lucide-react";
 
 interface SchemaViewerProps {
   projectId?: string;
@@ -21,6 +29,7 @@ interface SchemaViewerProps {
 export function SchemaViewer({ projectId }: SchemaViewerProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const selectedTypeStorageKey = `uu-schema-selected-type:${projectId || "global"}`;
   
   // State for selected document type
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
@@ -30,6 +39,9 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   
   // State for editing
   const [editingField, setEditingField] = useState<string | null>(null);
+  const [editingPromptText, setEditingPromptText] = useState("");
+  const [fieldPromptVersionDescription, setFieldPromptVersionDescription] = useState("");
+  const [selectedFieldPromptVersionId, setSelectedFieldPromptVersionId] = useState<string | null>(null);
   const [editingFieldProperties, setEditingFieldProperties] = useState<string | null>(null);
   const [editedProperties, setEditedProperties] = useState<Array<{name: string, type: FieldType, description?: string}>>([]);
   const [systemPrompt, setSystemPrompt] = useState("");
@@ -43,24 +55,9 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   const [newFieldArrayItemType, setNewFieldArrayItemType] = useState<FieldType>("string");
   const [newFieldObjectProperties, setNewFieldObjectProperties] = useState<Array<{name: string, type: FieldType, description?: string}>>([]);
   
-  // State for labels
-  const [isAddingLabel, setIsAddingLabel] = useState(false);
-  const [newLabelName, setNewLabelName] = useState("");
-  const [newLabelColor, setNewLabelColor] = useState("#3b82f6");
-  const [newLabelDescription, setNewLabelDescription] = useState("");
-  const [editingLabel, setEditingLabel] = useState<Label | null>(null);
-  
   // State for label suggestions
   const [labelSuggestions, setLabelSuggestions] = useState<LabelSuggestion[]>([]);
   const [suggestionMeta, setSuggestionMeta] = useState<{ documents_analyzed: number; model: string } | null>(null);
-  
-  // Predefined colors for labels
-  const LABEL_COLORS = [
-    '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16',
-    '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9',
-    '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef',
-    '#ec4899', '#f43f5e',
-  ];
   
   // Fetch document types
   const { data: typesData, isLoading: typesLoading } = useQuery({
@@ -70,16 +67,86 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   
   // Fetch labels
   const { data: labelsData, isLoading: labelsLoading } = useQuery({
-    queryKey: ["labels"],
-    queryFn: () => api.listLabels(),
+    queryKey: ["labels", selectedTypeId],
+    queryFn: () => (
+      selectedTypeId
+        ? api.listLabels(selectedTypeId, true)
+        : Promise.resolve({ labels: [], total: 0 })
+    ),
   });
+
+  const { data: activeFieldPromptsData } = useQuery({
+    queryKey: ["field-prompt-versions", "active", selectedTypeId],
+    queryFn: () =>
+      selectedTypeId
+        ? api.listActiveFieldPromptsByDocumentType(selectedTypeId)
+        : Promise.resolve({ field_prompts: {}, total: 0 }),
+    enabled: !!selectedTypeId,
+  });
+
+  const { data: fieldPromptVersionsData, isLoading: fieldPromptVersionsLoading } = useQuery({
+    queryKey: ["field-prompt-versions", selectedTypeId, editingField],
+    queryFn: () =>
+      selectedTypeId && editingField
+        ? api.listFieldPromptVersions(selectedTypeId, editingField)
+        : Promise.resolve({ field_prompt_versions: [], total: 0 }),
+    enabled: !!selectedTypeId && !!editingField,
+  });
+
+  useEffect(() => {
+    if (!editingField) return;
+    const versions = fieldPromptVersionsData?.field_prompt_versions || [];
+    const activeVersion = versions.find((version: FieldPromptVersion) => version.is_active);
+    if (activeVersion) {
+      setSelectedFieldPromptVersionId(activeVersion.id);
+      setEditingPromptText(activeVersion.extraction_prompt);
+    }
+  }, [editingField, fieldPromptVersionsData]);
   
   // Get selected type
   const selectedType = typesData?.types.find(t => t.id === selectedTypeId);
+
+  const setSelectedType = (typeId: string | null) => {
+    setSelectedTypeId(typeId);
+    try {
+      if (typeId) {
+        localStorage.setItem(selectedTypeStorageKey, typeId);
+      } else {
+        localStorage.removeItem(selectedTypeStorageKey);
+      }
+    } catch {
+      // Ignore localStorage errors in restricted environments
+    }
+  };
+
+  useEffect(() => {
+    const availableTypes = typesData?.types || [];
+    if (availableTypes.length === 0) return;
+
+    const availableIds = new Set(availableTypes.map((type) => type.id));
+    if (selectedTypeId && availableIds.has(selectedTypeId)) return;
+
+    let storedTypeId: string | null = null;
+    try {
+      storedTypeId = localStorage.getItem(selectedTypeStorageKey);
+    } catch {
+      storedTypeId = null;
+    }
+
+    const nextTypeId =
+      storedTypeId && availableIds.has(storedTypeId)
+        ? storedTypeId
+        : availableTypes[0].id;
+
+    setSelectedType(nextTypeId);
+    const nextType = availableTypes.find((type) => type.id === nextTypeId);
+    setSystemPrompt(nextType?.system_prompt || "");
+    setPostProcessing(nextType?.post_processing || "");
+  }, [typesData, selectedTypeId, selectedTypeStorageKey]);
   
   // Update local state when selected type changes
   const selectType = (typeId: string) => {
-    setSelectedTypeId(typeId);
+    setSelectedType(typeId);
     const type = typesData?.types.find(t => t.id === typeId);
     if (type) {
       setSystemPrompt(type.system_prompt || "");
@@ -93,7 +160,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       api.createDocumentType(data),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["document-types"] });
-      setSelectedTypeId(result.type.id);
+      setSelectedType(result.type.id);
       setSystemPrompt(result.type.system_prompt || "");
       setPostProcessing(result.type.post_processing || "");
       setIsCreating(false);
@@ -112,6 +179,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       api.updateDocumentType(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["document-types"] });
+      queryClient.invalidateQueries({ queryKey: ["labels"] });
       toast({ title: "Schema saved" });
     },
     onError: (error: Error) => {
@@ -124,55 +192,11 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     mutationFn: (id: string) => api.deleteDocumentType(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["document-types"] });
-      setSelectedTypeId(null);
+      setSelectedType(null);
       toast({ title: "Document type deleted" });
     },
     onError: (error: Error) => {
       toast({ title: "Failed to delete", description: error.message, variant: "destructive" });
-    },
-  });
-  
-  // Create label mutation
-  const createLabelMutation = useMutation({
-    mutationFn: (data: { name: string; color: string; description?: string }) => 
-      api.createLabel(data),
-    onSuccess: (label) => {
-      queryClient.invalidateQueries({ queryKey: ["labels"] });
-      setIsAddingLabel(false);
-      setNewLabelName("");
-      setNewLabelColor("#3b82f6");
-      setNewLabelDescription("");
-      toast({ title: "Label created", description: `Created "${label.name}"` });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Failed to create label", description: error.message, variant: "destructive" });
-    },
-  });
-  
-  // Update label mutation
-  const updateLabelMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<Label> }) =>
-      api.updateLabel(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["labels"] });
-      setEditingLabel(null);
-      toast({ title: "Label updated" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Failed to update label", description: error.message, variant: "destructive" });
-    },
-  });
-  
-  // Delete label mutation
-  const deleteLabelMutation = useMutation({
-    mutationFn: (id: string) => api.deleteLabel(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["labels"] });
-      queryClient.invalidateQueries({ queryKey: ["annotations"] });
-      toast({ title: "Label deleted" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Failed to delete label", description: error.message, variant: "destructive" });
     },
   });
   
@@ -217,19 +241,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     },
     onError: (error: Error) => {
       toast({ title: "Failed to suggest labels", description: error.message, variant: "destructive" });
-    },
-  });
-  
-  // Accept label suggestion mutation
-  const acceptSuggestionMutation = useMutation({
-    mutationFn: (suggestion: LabelSuggestion) => api.acceptLabelSuggestion(suggestion),
-    onSuccess: (label: Label, suggestion: LabelSuggestion) => {
-      queryClient.invalidateQueries({ queryKey: ["labels"] });
-      setLabelSuggestions(prev => prev.filter(s => s.id !== suggestion.id));
-      toast({ title: "Label created", description: `Added "${label.name}" to your labels.` });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Failed to accept suggestion", description: error.message, variant: "destructive" });
     },
   });
   
@@ -333,8 +344,77 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       data: { schema_fields: updatedFields },
     });
     
-    setEditingField(null);
+    closeEditField();
   };
+
+  const openEditField = (fieldName: string) => {
+    const activePrompts = activeFieldPromptsData?.field_prompts || {};
+    const field = selectedType?.schema_fields.find((f) => f.name === fieldName);
+    const prompt =
+      activePrompts[fieldName] ||
+      field?.extraction_prompt ||
+      `Extract the ${fieldName.replace(/_/g, " ")} from the document.`;
+    setEditingField(fieldName);
+    setEditingPromptText(prompt);
+    setFieldPromptVersionDescription("");
+    setSelectedFieldPromptVersionId(null);
+  };
+
+  const closeEditField = () => {
+    setEditingField(null);
+    setEditingPromptText("");
+    setFieldPromptVersionDescription("");
+    setSelectedFieldPromptVersionId(null);
+  };
+
+  const createFieldPromptVersionMutation = useMutation({
+    mutationFn: (data: {
+      name?: string;
+      document_type_id: string;
+      field_name: string;
+      extraction_prompt: string;
+      description?: string;
+      is_active?: boolean;
+    }) => api.createFieldPromptVersion(data),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["field-prompt-versions"] });
+      await queryClient.refetchQueries({ queryKey: ["field-prompt-versions", "active", selectedTypeId] });
+      await queryClient.refetchQueries({ queryKey: ["field-prompt-versions", selectedTypeId, editingField] });
+      setFieldPromptVersionDescription("");
+      toast({ title: "Field prompt version saved" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to save version", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateFieldPromptVersionMutation = useMutation({
+    mutationFn: ({ versionId, data }: { versionId: string; data: { is_active?: boolean } }) =>
+      api.updateFieldPromptVersion(versionId, data),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["field-prompt-versions"] });
+      await queryClient.refetchQueries({ queryKey: ["field-prompt-versions", "active", selectedTypeId] });
+      await queryClient.refetchQueries({ queryKey: ["field-prompt-versions", selectedTypeId, editingField] });
+      toast({ title: "Field prompt version updated" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to update version", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteFieldPromptVersionMutation = useMutation({
+    mutationFn: (versionId: string) => api.deleteFieldPromptVersion(versionId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["field-prompt-versions"] });
+      await queryClient.refetchQueries({ queryKey: ["field-prompt-versions", "active", selectedTypeId] });
+      await queryClient.refetchQueries({ queryKey: ["field-prompt-versions", selectedTypeId, editingField] });
+      setSelectedFieldPromptVersionId(null);
+      toast({ title: "Field prompt version deleted" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to delete version", description: error.message, variant: "destructive" });
+    },
+  });
 
   // Update field properties (for array of objects)
   const updateFieldProperties = (fieldName: string, properties: Array<{name: string, type: FieldType, description?: string}>) => {
@@ -379,6 +459,12 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   }
   
   const labels = labelsData?.labels || [];
+  const activeFieldPrompts = activeFieldPromptsData?.field_prompts || {};
+  const activeFieldVersionByName = activeFieldPromptsData?.field_versions || {};
+  const schemaFieldNames = new Set((selectedType?.schema_fields || []).map((field) => field.name));
+  const labelsForSelectedType = selectedTypeId
+    ? labels.filter((label) => schemaFieldNames.has(label.name))
+    : [];
 
   return (
     <div className="h-full p-4">
@@ -390,7 +476,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
           </TabsTrigger>
           <TabsTrigger value="labels" className="gap-2">
             <Tag className="h-4 w-4" />
-            Labels ({labels.length})
+            Labels ({labelsForSelectedType.length})
           </TabsTrigger>
         </TabsList>
         
@@ -575,6 +661,9 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 <div className="flex-1 flex items-center gap-2 min-w-0">
                   <span className="font-mono text-sm font-medium truncate text-primary">{field.name}</span>
                   <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-mono text-muted-foreground uppercase">{field.type}</Badge>
+                  <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-mono">
+                    v{activeFieldVersionByName[field.name] || "0.0"}
+                  </Badge>
                   {field.type === "array" && field.items && (
                     <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-mono">
                       {field.items.type}[]
@@ -590,7 +679,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                     size="icon" 
                     className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/5" 
                     title="Edit Prompt"
-                    onClick={() => setEditingField(field.name)}
+                    onClick={() => openEditField(field.name)}
                   >
                     <Edit3 className="h-3.5 w-3.5" />
                   </Button>
@@ -649,7 +738,11 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                   <label className="absolute -top-2 left-2 bg-background px-1 text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Extraction Prompt</label>
                   <Textarea 
                     className="min-h-[60px] text-xs resize-none border-muted focus-visible:ring-accent bg-transparent"
-                    value={field.extraction_prompt || `Extract the ${field.name.replace(/_/g, ' ')} from the document.`}
+                    value={
+                      activeFieldPrompts[field.name] ||
+                      field.extraction_prompt ||
+                      `Extract the ${field.name.replace(/_/g, ' ')} from the document.`
+                    }
                     readOnly
                   />
                 </div>
@@ -901,32 +994,121 @@ ${newFieldObjectProperties.map(p => `      "${p.name || 'property'}": ${p.type =
       </Dialog>
       
       {/* Edit Field Prompt Dialog */}
-      <Dialog open={!!editingField} onOpenChange={() => setEditingField(null)}>
+      <Dialog open={!!editingField} onOpenChange={(open) => {
+        if (!open) closeEditField();
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Extraction Prompt</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Active Version</label>
+              <Select
+                value={selectedFieldPromptVersionId || "none"}
+                onValueChange={(value) => {
+                  if (value === "none") {
+                    setSelectedFieldPromptVersionId(null);
+                    return;
+                  }
+                  setSelectedFieldPromptVersionId(value);
+                  const selectedVersion = (fieldPromptVersionsData?.field_prompt_versions || []).find(
+                    (version: FieldPromptVersion) => version.id === value
+                  );
+                  if (selectedVersion) {
+                    setEditingPromptText(selectedVersion.extraction_prompt);
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={fieldPromptVersionsLoading ? "Loading versions..." : "Select a saved version"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Current prompt</SelectItem>
+                  {(fieldPromptVersionsData?.field_prompt_versions || []).map((version: FieldPromptVersion) => (
+                    <SelectItem key={version.id} value={version.id}>
+                      {version.name}{version.is_active ? " (active)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedFieldPromptVersionId && (
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      updateFieldPromptVersionMutation.mutate({
+                        versionId: selectedFieldPromptVersionId,
+                        data: { is_active: true },
+                      });
+                    }}
+                    disabled={updateFieldPromptVersionMutation.isPending}
+                  >
+                    Set Active
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => deleteFieldPromptVersionMutation.mutate(selectedFieldPromptVersionId)}
+                    disabled={deleteFieldPromptVersionMutation.isPending}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              )}
+            </div>
+
             <Textarea 
               className="min-h-[150px]"
               placeholder="Enter extraction prompt..."
-              defaultValue={
-                selectedType?.schema_fields.find(f => f.name === editingField)?.extraction_prompt ||
-                `Extract the ${editingField?.replace(/_/g, ' ')} from the document.`
-              }
-              id="edit-prompt-textarea"
+              value={editingPromptText}
+              onChange={(e) => setEditingPromptText(e.target.value)}
             />
+
+            <div className="space-y-2 border-t pt-4">
+              <label className="text-sm font-medium">Save As New Version</label>
+              <Input
+                placeholder="Description (optional)"
+                value={fieldPromptVersionDescription}
+                onChange={(e) => setFieldPromptVersionDescription(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Version number is automatic: first is 0.0, then 0.1, 0.2, ...
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (!selectedTypeId || !editingField || !editingPromptText.trim()) {
+                    return;
+                  }
+                  createFieldPromptVersionMutation.mutate({
+                    document_type_id: selectedTypeId,
+                    field_name: editingField,
+                    extraction_prompt: editingPromptText,
+                    description: fieldPromptVersionDescription.trim() || undefined,
+                    is_active: true,
+                  });
+                }}
+                disabled={
+                  createFieldPromptVersionMutation.isPending ||
+                  !editingPromptText.trim()
+                }
+              >
+                Save Version + Set Active
+              </Button>
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingField(null)}>Cancel</Button>
+            <Button variant="outline" onClick={closeEditField}>Cancel</Button>
             <Button 
               onClick={() => {
-                const textarea = document.getElementById('edit-prompt-textarea') as HTMLTextAreaElement;
-                if (editingField && textarea) {
-                  updateFieldPrompt(editingField, textarea.value);
+                if (editingField) {
+                  updateFieldPrompt(editingField, editingPromptText);
                 }
               }}
-              disabled={updateTypeMutation.isPending}
+              disabled={updateTypeMutation.isPending || !editingPromptText.trim()}
             >
               {updateTypeMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Save
@@ -1054,7 +1236,7 @@ ${newFieldObjectProperties.map(p => `      "${p.name || 'property'}": ${p.type =
                       Suggest Labels from Documents
                     </CardTitle>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Analyze your uploaded documents to automatically suggest relevant label types.
+                      Analyze your uploaded documents to suggest potential schema fields.
                     </p>
                   </div>
                   <Button 
@@ -1121,20 +1303,6 @@ ${newFieldObjectProperties.map(p => `      "${p.name || 'property'}": ${p.type =
                               <Button 
                                 size="icon"
                                 variant="ghost"
-                                className="h-8 w-8 text-green-600 hover:bg-green-100 hover:text-green-700"
-                                onClick={() => acceptSuggestionMutation.mutate(suggestion)}
-                                disabled={acceptSuggestionMutation.isPending}
-                                title="Accept suggestion"
-                              >
-                                {acceptSuggestionMutation.isPending ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <ThumbsUp className="h-4 w-4" />
-                                )}
-                              </Button>
-                              <Button 
-                                size="icon"
-                                variant="ghost"
                                 className="h-8 w-8 text-red-600 hover:bg-red-100 hover:text-red-700"
                                 onClick={() => rejectSuggestionMutation.mutate(suggestion.id)}
                                 disabled={rejectSuggestionMutation.isPending}
@@ -1161,44 +1329,34 @@ ${newFieldObjectProperties.map(p => `      "${p.name || 'property'}": ${p.type =
             
             <Card className="border-none shadow-none bg-background">
               <CardHeader className="px-0 pt-0">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-lg text-primary flex items-center gap-2">
-                      <Tag className="h-5 w-5" />
-                      Annotation Labels
-                    </CardTitle>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Manage labels used for text annotation and NER tagging in Label Studio.
-                    </p>
-                  </div>
-                  <Button 
-                    size="sm" 
-                    className="gap-2"
-                    onClick={() => setIsAddingLabel(true)}
-                  >
-                    <Plus className="h-4 w-4" /> Add Label
-                  </Button>
+                <div>
+                  <CardTitle className="text-lg text-primary flex items-center gap-2">
+                    <Tag className="h-5 w-5" />
+                    Annotation Labels
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Labels are generated from the selected document type schema fields and cannot be edited independently.
+                  </p>
                 </div>
               </CardHeader>
               <CardContent className="px-0">
-                {labels.length === 0 ? (
+                {!selectedTypeId ? (
                   <div className="p-8 text-center text-muted-foreground border border-dashed rounded-lg">
                     <Tag className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p className="text-sm">No labels defined yet.</p>
-                    <Button 
-                      variant="link" 
-                      className="mt-2"
-                      onClick={() => setIsAddingLabel(true)}
-                    >
-                      Create your first label
-                    </Button>
+                    <p className="text-sm">Select a document type to view generated labels.</p>
+                  </div>
+                ) : labelsForSelectedType.length === 0 ? (
+                  <div className="p-8 text-center text-muted-foreground border border-dashed rounded-lg">
+                    <Tag className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-sm">No labels generated yet.</p>
+                    <p className="text-xs mt-2">Add schema fields in the Document Types tab to generate labels.</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {labels.map((label) => (
-                      <Card key={label.id} className="border hover:shadow-md transition-shadow group">
+                    {labelsForSelectedType.map((label) => (
+                      <Card key={label.id} className="border hover:shadow-md transition-shadow">
                         <CardContent className="p-4">
-                          <div className="flex items-start justify-between">
+                          <div className="flex items-start">
                             <div className="flex items-center gap-3">
                               <div 
                                 className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm"
@@ -1218,28 +1376,6 @@ ${newFieldObjectProperties.map(p => `      "${p.name || 'property'}": ${p.type =
                                 )}
                               </div>
                             </div>
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                className="h-7 w-7 text-muted-foreground hover:text-primary"
-                                onClick={() => setEditingLabel(label)}
-                              >
-                                <Edit3 className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                onClick={() => {
-                                  if (confirm(`Delete label "${label.name}"? This will also delete all annotations using this label.`)) {
-                                    deleteLabelMutation.mutate(label.id);
-                                  }
-                                }}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
                           </div>
                           <div className="mt-3 flex items-center gap-2">
                             <div 
@@ -1258,130 +1394,6 @@ ${newFieldObjectProperties.map(p => `      "${p.name || 'property'}": ${p.type =
               </CardContent>
             </Card>
           </div>
-          
-          {/* Add Label Dialog */}
-          <Dialog open={isAddingLabel} onOpenChange={setIsAddingLabel}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create Label</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Label Name</label>
-                  <Input 
-                    placeholder="e.g., Person, Date, Organization, Amount"
-                    value={newLabelName}
-                    onChange={(e) => setNewLabelName(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Description (optional)</label>
-                  <Input 
-                    placeholder="What this label represents..."
-                    value={newLabelDescription}
-                    onChange={(e) => setNewLabelDescription(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Color</label>
-                  <div className="flex flex-wrap gap-2">
-                    {LABEL_COLORS.map(color => (
-                      <button
-                        key={color}
-                        className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${
-                          newLabelColor === color ? 'border-foreground scale-110' : 'border-transparent'
-                        }`}
-                        style={{ backgroundColor: color }}
-                        onClick={() => setNewLabelColor(color)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddingLabel(false)}>Cancel</Button>
-                <Button 
-                  onClick={() => createLabelMutation.mutate({ 
-                    name: newLabelName, 
-                    color: newLabelColor,
-                    description: newLabelDescription || undefined 
-                  })}
-                  disabled={!newLabelName.trim() || createLabelMutation.isPending}
-                >
-                  {createLabelMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                  Create
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-          
-          {/* Edit Label Dialog */}
-          <Dialog open={!!editingLabel} onOpenChange={() => setEditingLabel(null)}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Edit Label</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Label Name</label>
-                  <Input 
-                    defaultValue={editingLabel?.name}
-                    id="edit-label-name"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Description</label>
-                  <Input 
-                    defaultValue={editingLabel?.description || ""}
-                    id="edit-label-description"
-                    placeholder="What this label represents..."
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Color</label>
-                  <div className="flex flex-wrap gap-2">
-                    {LABEL_COLORS.map(color => (
-                      <button
-                        key={color}
-                        className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${
-                          (editingLabel?.color || '#3b82f6') === color ? 'border-foreground scale-110' : 'border-transparent'
-                        }`}
-                        style={{ backgroundColor: color }}
-                        onClick={() => {
-                          if (editingLabel) {
-                            setEditingLabel({ ...editingLabel, color });
-                          }
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setEditingLabel(null)}>Cancel</Button>
-                <Button 
-                  onClick={() => {
-                    if (editingLabel) {
-                      const nameInput = document.getElementById('edit-label-name') as HTMLInputElement;
-                      const descInput = document.getElementById('edit-label-description') as HTMLInputElement;
-                      updateLabelMutation.mutate({
-                        id: editingLabel.id,
-                        data: {
-                          name: nameInput?.value || editingLabel.name,
-                          description: descInput?.value || undefined,
-                          color: editingLabel.color,
-                        },
-                      });
-                    }
-                  }}
-                  disabled={updateLabelMutation.isPending}
-                >
-                  {updateLabelMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                  Save
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         </TabsContent>
       </Tabs>
     </div>
