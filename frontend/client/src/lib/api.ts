@@ -758,10 +758,17 @@ class ApiClient {
   }
 
   // Extraction
-  async extractDocument(documentId: string, useLlm: boolean = true): Promise<ExtractionResult> {
-    return this.request(`${API_PREFIX}/documents/${documentId}/extract?use_llm=${useLlm}`, {
+  async extractDocument(
+    documentId: string,
+    useLlm: boolean = true,
+    useStructuredOutput: boolean = false
+  ): Promise<ExtractionResult> {
+    return this.request(
+      `${API_PREFIX}/documents/${documentId}/extract?use_llm=${useLlm}&use_structured_output=${useStructuredOutput}`,
+      {
       method: 'POST',
-    });
+      }
+    );
   }
 
   async getDocumentExtraction(documentId: string): Promise<ExtractionResult> {

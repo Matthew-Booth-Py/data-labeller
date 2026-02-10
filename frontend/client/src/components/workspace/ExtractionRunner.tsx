@@ -45,15 +45,11 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
     setError(null);
     setFields([]);
     try {
-      const response = await fetch(
-        `/api/v1/documents/${selectedDocumentId}/extract?use_llm=${String(!useStructuredOutput)}&use_structured_output=${String(useStructuredOutput)}`,
-        { method: "POST" }
+      const data = await api.extractDocument(
+        selectedDocumentId,
+        !useStructuredOutput,
+        useStructuredOutput
       );
-      if (!response.ok) {
-        const body = await response.json();
-        throw new Error(body.detail || "Extraction failed");
-      }
-      const data = await response.json();
       setFields(data.fields || []);
     } catch (e: any) {
       setError(e.message || "Extraction failed");
@@ -139,4 +135,3 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
     </div>
   );
 }
-
