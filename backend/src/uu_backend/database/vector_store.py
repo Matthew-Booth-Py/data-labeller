@@ -90,6 +90,74 @@ class VectorStore:
                 metadatas=chunk_metadatas,
             )
 
+    def update_document_content(self, document_id: str, new_content: str) -> bool:
+        """
+        Update document content after reprocessing.
+        
+        Args:
+            document_id: Document ID
+            new_content: New content from reprocessing
+            
+        Returns:
+            True if successful
+        """
+        from uu_backend.ingestion.chunker import get_chunker
+        
+        # Get existing document
+        document = self.get_document(document_id)
+        if not document:
+            return False
+        
+        # Delete old chunks
+        self._collection.delete(where={"document_id": document_id})
+        
+        # Create new chunks
+        chunker = get_chunker()
+        new_chunks = chunker.chunk(new_content, document_id)
+        
+        # Update document metadata with new content
+        doc_metadata = {
+            "filename": document.filename,
+            "file_type": document.file_type,
+            "created_at": document.created_at.isoformat(),
+            "chunk_count": len(new_chunks),
+        }
+        
+        if document.date_extracted:
+            doc_metadata["date_extracted"] = document.date_extracted.isoformat()
+        
+        self._docs_collection.upsert(
+            ids=[document_id],
+            documents=[new_content[:1000]],
+            metadatas=[doc_metadata],
+        )
+        
+        # Add new chunks
+        if new_chunks:
+            chunk_ids = [chunk.id for chunk in new_chunks]
+            chunk_texts = [chunk.content for chunk in new_chunks]
+            chunk_metadatas = [
+                {
+                    "document_id": document_id,
+                    "filename": document.filename,
+                    "chunk_index": chunk.chunk_index,
+                    "date_extracted": (
+                        document.date_extracted.isoformat()
+                        if document.date_extracted
+                        else ""
+                    ),
+                }
+                for chunk in new_chunks
+            ]
+            
+            self._collection.upsert(
+                ids=chunk_ids,
+                documents=chunk_texts,
+                metadatas=chunk_metadatas,
+            )
+        
+        return True
+
     def get_document(self, document_id: str) -> Document | None:
         """
         Retrieve a document by ID.

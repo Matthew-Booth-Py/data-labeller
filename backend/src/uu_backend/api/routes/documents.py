@@ -188,3 +188,51 @@ async def delete_document(document_id: str):
         )
 
     return {"status": "deleted", "document_id": document_id}
+
+
+@router.post("/documents/{document_id}/reprocess")
+async def reprocess_document(document_id: str):
+    """
+    Reprocess a document with the current converter.
+    
+    Useful after converter improvements to update existing documents.
+    """
+    from uu_backend.ingestion.converter import get_converter
+    from uu_backend.database.sqlite_client import get_sqlite_client
+    
+    store = get_vector_store()
+    document = store.get_document(document_id)
+    
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Get original file
+    file_path = get_original_file_path(document_id, document.file_type)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="Original file not found")
+    
+    try:
+        # Re-convert the document
+        converter = get_converter()
+        with open(file_path, 'rb') as f:
+            result = converter.convert(f, document.filename)
+        
+        if not result.success:
+            raise HTTPException(status_code=500, detail=f"Conversion failed: {result.error}")
+        
+        # Update document content in vector store
+        store.update_document_content(document_id, result.content)
+        
+        # Clear any existing annotations since content changed
+        sqlite_client = get_sqlite_client()
+        # Note: You might want to keep annotations, but content offsets may be invalid now
+        
+        return {
+            "status": "reprocessed",
+            "document_id": document_id,
+            "content_length": len(result.content),
+            "message": "Document reprocessed successfully. Note: Existing annotations may have invalid offsets."
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Reprocessing failed: {str(e)}")

@@ -15,6 +15,7 @@ class SuggestedAnnotation(BaseModel):
     end_offset: int = Field(..., description="End character offset")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score 0-1")
     reasoning: Optional[str] = Field(None, description="Why this annotation was suggested")
+    metadata: Optional[dict] = Field(None, description="Structured metadata (e.g., key-value pairs)")
 
 
 class SuggestionRequest(BaseModel):

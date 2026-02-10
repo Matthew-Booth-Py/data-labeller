@@ -16,6 +16,7 @@ class FieldEvaluation(BaseModel):
     is_present: bool = Field(..., description="Whether field exists in ground truth")
     is_extracted: bool = Field(..., description="Whether field was extracted")
     confidence: Optional[float] = Field(None, description="Extraction confidence score")
+    r2_score: Optional[float] = Field(None, description="R² score for numerical fields (array of numbers)")
 
 
 class ExtractionEvaluationMetrics(BaseModel):
@@ -100,7 +101,19 @@ class ExtractionEvaluationCreate(BaseModel):
 
     document_id: str = Field(..., description="Document to evaluate")
     prompt_version_id: Optional[str] = Field(None, description="Prompt version to use (null = current active)")
-    use_llm_refinement: bool = Field(True, description="Whether to use LLM refinement")
+    use_llm_refinement: bool = Field(True, description="Whether to use LLM refinement (annotation-based only)")
+    use_structured_output: bool = Field(False, description="Use OpenAI structured output (bypasses annotations)")
+    evaluated_by: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ProjectEvaluationCreate(BaseModel):
+    """Request model for batch evaluation of a project."""
+
+    document_type_id: str = Field(..., description="Document type (project) to evaluate")
+    prompt_version_id: Optional[str] = Field(None, description="Prompt version to use (null = current active)")
+    use_llm_refinement: bool = Field(True, description="Whether to use LLM refinement (annotation-based only)")
+    use_structured_output: bool = Field(False, description="Use OpenAI structured output (bypasses annotations)")
     evaluated_by: Optional[str] = None
     notes: Optional[str] = None
 
@@ -116,6 +129,15 @@ class ExtractionEvaluationListResponse(BaseModel):
 
     evaluations: list[ExtractionEvaluation]
     total: int
+
+
+class ProjectEvaluationResponse(BaseModel):
+    """Response model for batch project evaluation."""
+
+    evaluations: list[ExtractionEvaluation]
+    total: int
+    successful: int
+    failed: int
 
 
 class EvaluationSummary(BaseModel):

@@ -196,6 +196,7 @@ class SuggestionService:
             if label_ids and pred["label_id"] not in label_ids:
                 continue
 
+            # ML model doesn't provide key metadata yet
             suggestions.append(SuggestedAnnotation(
                 label_id=pred["label_id"],
                 label_name=label.name,
@@ -204,6 +205,7 @@ class SuggestionService:
                 end_offset=span["end_offset"],
                 confidence=pred["confidence"],
                 reasoning="Predicted by local ML model",
+                metadata=None,
             ))
 
         # Sort by confidence
@@ -312,6 +314,12 @@ class SuggestionService:
     ) -> SuggestionResponse:
         """Generate annotation suggestions using LLM."""
 
+        # Get document classification and type for schema context
+        classification = self.sqlite.get_classification(document_id)
+        doc_type = None
+        if classification:
+            doc_type = self.sqlite.get_document_type(classification.document_type_id)
+        
         # Get available labels
         labels = self.sqlite.list_labels()
         if label_ids:
@@ -328,11 +336,23 @@ class SuggestionService:
         # Get few-shot examples
         examples = self.get_few_shot_examples(label_ids, limit_per_label=5)
 
-        # Build the prompt
-        labels_description = "\n".join([
-            f"- **{label.name}** (id: `{label.id}`): {label.description or 'Use this label for ' + label.name.lower() + ' entities'}"
-            for label in labels
-        ])
+        # Build the prompt with schema information
+        labels_description_parts = []
+        for label in labels:
+            desc = f"- **{label.name}** (id: `{label.id}`): {label.description or 'Use this label for ' + label.name.lower() + ' entities'}"
+            
+            # Add property information for array fields
+            if doc_type and doc_type.schema_fields:
+                matching_field = next((f for f in doc_type.schema_fields if f.name == label.name), None)
+                if matching_field and matching_field.type == "array" and matching_field.items and matching_field.items.type == "object":
+                    props = matching_field.items.properties or {}
+                    if props:
+                        prop_names = ", ".join(props.keys())
+                        desc += f"\n  → This is a TABLE field. For each value, specify the 'key' property: {prop_names}"
+            
+            labels_description_parts.append(desc)
+        
+        labels_description = "\n".join(labels_description_parts)
         
         # Build examples section grouped by label
         examples_text = ""
@@ -384,6 +404,7 @@ Return a JSON object with an array of suggestions. Each suggestion must have:
 - "label_name": The human-readable label name
 - "confidence": A number from 0.0 to 1.0
 - "reasoning": Brief explanation of why this text matches the label
+- "key": (OPTIONAL) For table/array labels, specify which property this value belongs to (e.g., "claim_item", "claim_amount")
 
 ```json
 {{
@@ -461,6 +482,14 @@ Find all text spans in the document above that should be labeled with the labels
                 if confidence < min_confidence:
                     continue
                 
+                # Extract key if provided (for array/table fields)
+                metadata = None
+                if "key" in item and item["key"]:
+                    metadata = {
+                        "key": item["key"],
+                        "value": text
+                    }
+                
                 suggestions.append(SuggestedAnnotation(
                     label_id=label.id,
                     label_name=label.name,
@@ -469,6 +498,7 @@ Find all text spans in the document above that should be labeled with the labels
                     end_offset=start_offset + len(text),
                     confidence=confidence,
                     reasoning=item.get("reasoning"),
+                    metadata=metadata,
                 ))
             
             # Sort by confidence descending

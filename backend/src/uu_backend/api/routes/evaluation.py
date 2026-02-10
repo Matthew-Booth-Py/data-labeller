@@ -13,6 +13,8 @@ from uu_backend.models.evaluation import (
     ExtractionEvaluationResponse,
     EvaluationSummary,
     EvaluationSummaryResponse,
+    ProjectEvaluationCreate,
+    ProjectEvaluationResponse,
     PromptComparisonResponse,
     PromptVersion,
     PromptVersionCreate,
@@ -42,6 +44,7 @@ def run_evaluation(request: ExtractionEvaluationCreate):
             document_id=request.document_id,
             prompt_version_id=request.prompt_version_id,
             use_llm_refinement=request.use_llm_refinement,
+            use_structured_output=request.use_structured_output,
             evaluated_by=request.evaluated_by,
             notes=request.notes,
         )
@@ -50,6 +53,36 @@ def run_evaluation(request: ExtractionEvaluationCreate):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Evaluation failed: {str(e)}")
+
+
+@router.post("/run-project", response_model=ProjectEvaluationResponse)
+def run_project_evaluation(request: ProjectEvaluationCreate):
+    """
+    Run extraction evaluation on all labeled documents in a project.
+
+    Compares extraction results against ground truth annotations for all
+    documents with the specified document type that have annotations.
+    """
+    try:
+        evaluation_service = get_evaluation_service()
+        evaluations = evaluation_service.evaluate_project(
+            document_type_id=request.document_type_id,
+            prompt_version_id=request.prompt_version_id,
+            use_llm_refinement=request.use_llm_refinement,
+            use_structured_output=request.use_structured_output,
+            evaluated_by=request.evaluated_by,
+            notes=request.notes,
+        )
+        return ProjectEvaluationResponse(
+            evaluations=evaluations,
+            total=len(evaluations),
+            successful=len(evaluations),
+            failed=0
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Project evaluation failed: {str(e)}")
 
 
 @router.get("/{evaluation_id}", response_model=ExtractionEvaluationResponse)
@@ -83,6 +116,18 @@ def list_evaluations(
     )
 
     return ExtractionEvaluationListResponse(evaluations=evaluations, total=total)
+
+
+@router.delete("/{evaluation_id}", response_model=dict)
+def delete_evaluation(evaluation_id: str):
+    """Delete a specific evaluation by ID."""
+    sqlite_client = get_sqlite_client()
+    success = sqlite_client.delete_evaluation(evaluation_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Evaluation not found")
+
+    return {"message": "Evaluation deleted successfully"}
 
 
 @router.get("/summary/aggregate", response_model=EvaluationSummaryResponse)
