@@ -18,6 +18,7 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY .python-version .
 COPY README.md .
+COPY settings.yml .
 
 # Create a minimal stub for the package so uv sync can work
 RUN mkdir -p src/uu_backend && \

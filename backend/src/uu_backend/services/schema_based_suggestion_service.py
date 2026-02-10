@@ -4,6 +4,7 @@ from typing import Optional
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
+from uu_backend.config import get_settings
 from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.models.annotation import AnnotationCreate, AnnotationType
@@ -39,7 +40,9 @@ class SchemaBasedSuggestionService:
     """Service for suggesting annotations based on schema fields using structured output."""
 
     def __init__(self):
-        self.client = OpenAI()
+        settings = get_settings()
+        self.client = OpenAI(api_key=settings.openai_api_key)
+        self.model = settings.openai_tagging_model or settings.openai_model
         self.sqlite_client = get_sqlite_client()
         self.vector_store = get_vector_store()
 
@@ -144,7 +147,7 @@ Provide the character start and end positions for each span."""
         try:
             # First: Get structured extraction
             extraction_response = self.client.beta.chat.completions.parse(
-                model="gpt-4o-2024-08-06",
+                model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -178,7 +181,7 @@ For each extracted value, provide:
 Return as JSON array of objects with: field_name, text, start_char, end_char"""
 
             span_response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model=self.model,
                 messages=[
                     {"role": "system", "content": "You are an expert at identifying text positions in documents."},
                     {"role": "user", "content": span_prompt}
