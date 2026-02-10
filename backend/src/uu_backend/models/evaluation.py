@@ -17,6 +17,16 @@ class FieldEvaluation(BaseModel):
     is_extracted: bool = Field(..., description="Whether field was extracted")
     confidence: Optional[float] = Field(None, description="Extraction confidence score")
     r2_score: Optional[float] = Field(None, description="R² score for numerical fields (array of numbers)")
+    comparator_mode: Literal["exact", "normalized", "fuzzy"] = Field(
+        "normalized", description="Comparator mode used for this field"
+    )
+    comparison_score: Optional[float] = Field(
+        None, description="Similarity score when comparator supports it"
+    )
+    reason_code: str = Field(
+        "match",
+        description="Outcome reason (match, value_mismatch, missing_extraction, extra_extraction, unsupported_type, abstained)",
+    )
 
 
 class ExtractionEvaluationMetrics(BaseModel):
@@ -28,6 +38,11 @@ class ExtractionEvaluationMetrics(BaseModel):
     incorrect_fields: int = Field(..., description="Incorrectly extracted fields")
     missing_fields: int = Field(..., description="Fields not extracted (false negatives)")
     extra_fields: int = Field(..., description="Fields extracted but not in ground truth (false positives)")
+    abstained_fields: int = Field(0, description="Fields explicitly abstained from evaluation")
+    unsupported_fields: int = Field(0, description="Fields with unsupported comparison semantics")
+    comparator_mode: Literal["exact", "normalized", "fuzzy"] = Field(
+        "normalized", description="Comparator mode used to score this evaluation"
+    )
 
     # Accuracy metrics
     accuracy: float = Field(..., description="Correct / Total", ge=0.0, le=1.0)
@@ -85,6 +100,7 @@ class ExtractionEvaluation(BaseModel):
     document_type_id: str = Field(..., description="Document type")
     prompt_version_id: Optional[str] = Field(None, description="Prompt version used")
     prompt_version_name: Optional[str] = Field(None, description="Prompt version name (joined)")
+    schema_version_id: Optional[str] = Field(None, description="Schema version used for extraction/evaluation")
     
     # Metrics
     metrics: ExtractionEvaluationMetrics = Field(..., description="Evaluation metrics")
@@ -103,6 +119,12 @@ class ExtractionEvaluationCreate(BaseModel):
     prompt_version_id: Optional[str] = Field(None, description="Prompt version to use (null = current active)")
     use_llm_refinement: bool = Field(True, description="Whether to use LLM refinement (annotation-based only)")
     use_structured_output: bool = Field(False, description="Use OpenAI structured output (bypasses annotations)")
+    comparator_mode: Literal["exact", "normalized", "fuzzy"] = Field(
+        "normalized", description="Field comparator mode"
+    )
+    fuzzy_threshold: float = Field(
+        0.85, ge=0.0, le=1.0, description="Fuzzy match threshold when comparator_mode=fuzzy"
+    )
     evaluated_by: Optional[str] = None
     notes: Optional[str] = None
 
@@ -114,6 +136,12 @@ class ProjectEvaluationCreate(BaseModel):
     prompt_version_id: Optional[str] = Field(None, description="Prompt version to use (null = current active)")
     use_llm_refinement: bool = Field(True, description="Whether to use LLM refinement (annotation-based only)")
     use_structured_output: bool = Field(False, description="Use OpenAI structured output (bypasses annotations)")
+    comparator_mode: Literal["exact", "normalized", "fuzzy"] = Field(
+        "normalized", description="Field comparator mode"
+    )
+    fuzzy_threshold: float = Field(
+        0.85, ge=0.0, le=1.0, description="Fuzzy match threshold when comparator_mode=fuzzy"
+    )
     evaluated_by: Optional[str] = None
     notes: Optional[str] = None
 
@@ -228,6 +256,8 @@ class BenchmarkRunCreate(BaseModel):
     baseline_run_id: Optional[str] = Field(None, description="Benchmark run to compare against")
     use_llm_refinement: bool = True
     use_structured_output: bool = False
+    comparator_mode: Literal["exact", "normalized", "fuzzy"] = "normalized"
+    fuzzy_threshold: float = Field(0.85, ge=0.0, le=1.0)
     evaluated_by: Optional[str] = None
     notes: Optional[str] = None
     required_field_gates: dict[str, dict[str, float]] = Field(

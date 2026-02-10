@@ -34,6 +34,9 @@ class SchemaField(BaseModel):
     items: Optional["SchemaField"] = Field(
         None, description="Item schema for array types"
     )
+    template_field_id: Optional[str] = Field(
+        None, description="Optional linked global field template ID"
+    )
 
 
 class DocumentTypeCreate(BaseModel):
@@ -76,6 +79,9 @@ class DocumentType(BaseModel):
     )
     post_processing: Optional[str] = Field(
         None, description="Post-processing code (Python/JS)"
+    )
+    schema_version_id: Optional[str] = Field(
+        None, description="Current schema/config version ID for this document type"
     )
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
@@ -136,4 +142,45 @@ class ExtractionResult(BaseModel):
     document_id: str
     document_type_id: str
     fields: list[ExtractedField]
+    schema_version_id: Optional[str] = None
+    prompt_version_id: Optional[str] = None
     extracted_at: datetime
+
+
+class GlobalField(BaseModel):
+    """Reusable field template available across document types."""
+
+    id: str
+    name: str = Field(..., min_length=1, max_length=100)
+    type: FieldType
+    prompt: str = Field(..., min_length=1)
+    description: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class GlobalFieldCreate(BaseModel):
+    """Request model for creating a reusable global field."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    type: FieldType
+    prompt: str = Field(..., min_length=1)
+    description: Optional[str] = None
+    created_by: Optional[str] = None
+
+
+class GlobalFieldUpdate(BaseModel):
+    """Request model for updating a reusable global field."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    type: Optional[FieldType] = None
+    prompt: Optional[str] = Field(None, min_length=1)
+    description: Optional[str] = None
+
+
+class GlobalFieldListResponse(BaseModel):
+    """Response model for listing global fields."""
+
+    fields: list[GlobalField]
+    total: int

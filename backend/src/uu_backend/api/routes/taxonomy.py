@@ -16,10 +16,68 @@ from uu_backend.models.taxonomy import (
     DocumentTypeListResponse,
     DocumentTypeResponse,
     DocumentTypeUpdate,
+    GlobalField,
+    GlobalFieldCreate,
+    GlobalFieldListResponse,
+    GlobalFieldUpdate,
 )
 from uu_backend.models.annotation import LabelCreate
 
 router = APIRouter()
+
+
+@router.get("/taxonomy/fields", response_model=GlobalFieldListResponse)
+async def list_global_fields(search: str | None = Query(None, description="Search by name/prompt/description")):
+    """List global reusable field templates."""
+    client = get_sqlite_client()
+    fields = client.list_global_fields(search=search)
+    return GlobalFieldListResponse(fields=fields, total=len(fields))
+
+
+@router.post("/taxonomy/fields", response_model=GlobalField, status_code=201)
+async def create_global_field(data: GlobalFieldCreate):
+    """Create a global reusable field template."""
+    client = get_sqlite_client()
+    if client.get_global_field_by_name(data.name):
+        raise HTTPException(status_code=400, detail=f"Global field '{data.name}' already exists")
+    try:
+        return client.create_global_field(data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create global field: {e}")
+
+
+@router.get("/taxonomy/fields/{field_id}", response_model=GlobalField)
+async def get_global_field(field_id: str):
+    """Get a single global field template by ID."""
+    client = get_sqlite_client()
+    field = client.get_global_field(field_id)
+    if not field:
+        raise HTTPException(status_code=404, detail="Global field not found")
+    return field
+
+
+@router.put("/taxonomy/fields/{field_id}", response_model=GlobalField)
+async def update_global_field(field_id: str, data: GlobalFieldUpdate):
+    """Update a global reusable field template."""
+    client = get_sqlite_client()
+    if data.name:
+        existing = client.get_global_field_by_name(data.name)
+        if existing and existing.id != field_id:
+            raise HTTPException(status_code=400, detail=f"Global field '{data.name}' already exists")
+    updated = client.update_global_field(field_id, data)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Global field not found")
+    return updated
+
+
+@router.delete("/taxonomy/fields/{field_id}")
+async def delete_global_field(field_id: str):
+    """Delete a global reusable field template."""
+    client = get_sqlite_client()
+    deleted = client.delete_global_field(field_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Global field not found")
+    return {"status": "success", "message": "Global field deleted"}
 
 
 # Helper function to auto-create labels for schema fields
@@ -106,6 +164,17 @@ async def get_document_type(type_id: str):
         raise HTTPException(status_code=404, detail=f"Document type {type_id} not found")
 
     return DocumentTypeResponse(type=doc_type)
+
+
+@router.get("/taxonomy/types/{type_id}/schema-versions")
+async def list_schema_versions(type_id: str):
+    """List schema versions for a document type."""
+    client = get_sqlite_client()
+    doc_type = client.get_document_type(type_id)
+    if not doc_type:
+        raise HTTPException(status_code=404, detail=f"Document type {type_id} not found")
+    versions = client.list_schema_versions(type_id)
+    return {"document_type_id": type_id, "versions": versions, "total": len(versions)}
 
 
 @router.put("/taxonomy/types/{type_id}", response_model=DocumentTypeResponse)

@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Search, Trash2, Edit2, BookOpen, Sparkles, MoreVertical, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,29 +36,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-
-type FieldType = 'string' | 'number' | 'date' | 'boolean' | 'array' | 'object';
-
-interface GlobalField {
-  id: string;
-  name: string;
-  type: FieldType;
-  prompt: string;
-}
-
-const MOCK_FIELDS: GlobalField[] = [
-  { id: 'f1', name: 'invoice_number', type: 'string', prompt: 'Extract the unique invoice identifier precisely as shown.' },
-  { id: 'f2', name: 'total_amount', type: 'number', prompt: 'The final payable amount including all taxes and fees.' },
-  { id: 'f3', name: 'vendor_tax_id', type: 'string', prompt: 'VAT or Tax Registration number of the issuing vendor.' },
-  { id: 'f4', name: 'due_date', type: 'date', prompt: 'The date by which the payment must be received.' },
-  { id: 'f5', name: 'line_items', type: 'array', prompt: 'List of all items purchased including description and quantity.' },
-  { id: 'f6', name: 'vendor_address', type: 'string', prompt: 'Full physical address of the vendor.' },
-];
+import { api, type FieldType, type GlobalField } from "@/lib/api";
 
 export default function FieldsLibrary() {
   const { toast } = useToast();
-  const [fields, setFields] = useState<GlobalField[]>(MOCK_FIELDS);
+  const [fields, setFields] = useState<GlobalField[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   
   // Dialog state
   const [isCreating, setIsCreating] = useState(false);
@@ -69,11 +54,30 @@ export default function FieldsLibrary() {
   const [fieldType, setFieldType] = useState<FieldType>("string");
   const [fieldPrompt, setFieldPrompt] = useState("");
   
-  // Filter fields based on search
-  const filteredFields = fields.filter(field => 
+  const filteredFields = useMemo(() => fields.filter(field =>
     field.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     field.prompt.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  ), [fields, searchQuery]);
+
+  const loadFields = async () => {
+    setIsLoading(true);
+    try {
+      const response = await api.listGlobalFields();
+      setFields(response.fields || []);
+    } catch (error: any) {
+      toast({
+        title: "Failed to load fields",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadFields();
+  }, []);
   
   // Reset form
   const resetForm = () => {
@@ -99,7 +103,7 @@ export default function FieldsLibrary() {
   };
   
   // Save field (create or update)
-  const saveField = () => {
+  const saveField = async () => {
     const name = fieldName.trim().toLowerCase().replace(/\s+/g, '_');
     
     if (!name) {
@@ -117,36 +121,52 @@ export default function FieldsLibrary() {
       return;
     }
     
-    if (editingField) {
-      // Update existing field
-      setFields(prev => prev.map(f => 
-        f.id === editingField.id 
-          ? { ...f, name, type: fieldType, prompt: fieldPrompt }
-          : f
-      ));
-      toast({ title: "Field updated", description: `Updated "${name}"` });
-    } else {
-      // Create new field
-      const newField: GlobalField = {
-        id: `f${Date.now()}`,
+    setIsSaving(true);
+    try {
+      const payload = {
         name,
         type: fieldType,
         prompt: fieldPrompt || `Extract the ${name.replace(/_/g, ' ')} from the document.`,
       };
-      setFields(prev => [...prev, newField]);
-      toast({ title: "Field created", description: `Created "${name}"` });
+
+      if (editingField) {
+        const updated = await api.updateGlobalField(editingField.id, payload);
+        setFields(prev => prev.map(f => (f.id === editingField.id ? updated : f)));
+        toast({ title: "Field updated", description: `Updated "${name}"` });
+      } else {
+        const created = await api.createGlobalField(payload);
+        setFields(prev => [...prev, created]);
+        toast({ title: "Field created", description: `Created "${name}"` });
+      }
+
+      setIsCreating(false);
+      resetForm();
+      setEditingField(null);
+    } catch (error: any) {
+      toast({
+        title: editingField ? "Failed to update field" : "Failed to create field",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
     }
-    
-    setIsCreating(false);
-    resetForm();
-    setEditingField(null);
   };
   
   // Delete field
-  const deleteField = (field: GlobalField) => {
+  const deleteField = async (field: GlobalField) => {
     if (confirm(`Delete field "${field.name}"?`)) {
-      setFields(prev => prev.filter(f => f.id !== field.id));
-      toast({ title: "Field deleted" });
+      try {
+        await api.deleteGlobalField(field.id);
+        setFields(prev => prev.filter(f => f.id !== field.id));
+        toast({ title: "Field deleted" });
+      } catch (error: any) {
+        toast({
+          title: "Failed to delete field",
+          description: error.message,
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -172,12 +192,12 @@ export default function FieldsLibrary() {
         <div className="flex items-center gap-2 mb-6 max-w-md">
            <div className="relative flex-1">
              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-             <Input 
-               placeholder="Search shared fields..." 
-               className="pl-9"
-               value={searchQuery}
-               onChange={(e) => setSearchQuery(e.target.value)}
-             />
+            <Input 
+              placeholder="Search shared fields..." 
+              className="pl-9"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
            </div>
         </div>
 
@@ -192,6 +212,17 @@ export default function FieldsLibrary() {
               </TableRow>
             </TableHeader>
             <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading fields...
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ) : (
+              <>
               {filteredFields.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
@@ -234,6 +265,8 @@ export default function FieldsLibrary() {
                     </TableCell>
                   </TableRow>
                 ))
+              )}
+              </>
               )}
             </TableBody>
           </Table>
@@ -311,7 +344,14 @@ export default function FieldsLibrary() {
                 Cancel
               </Button>
               <Button onClick={saveField} disabled={!fieldName.trim()}>
-                {editingField ? "Save Changes" : "Create Field"}
+                {isSaving ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Saving...
+                  </span>
+                ) : (
+                  editingField ? "Save Changes" : "Create Field"
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>
