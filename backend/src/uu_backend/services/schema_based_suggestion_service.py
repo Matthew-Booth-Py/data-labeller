@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
-from uu_backend.models.annotation import Annotation
+from uu_backend.models.annotation import AnnotationCreate, AnnotationType
 from uu_backend.services.schema_generator import generate_pydantic_schema
 
 
@@ -263,20 +263,16 @@ Return as JSON array of objects with: field_name, text, start_char, end_char"""
                     label = label_map.get(suggestion.label_name)
                     if label:
                         for span in suggestion.spans:
-                            annotation = Annotation(
-                                id=None,  # Will be generated
-                                document_id=document_id,
+                            annotation_create = AnnotationCreate(
                                 label_id=label.id,
+                                annotation_type=AnnotationType.TEXT_SPAN,
                                 text=span.text,
-                                start_char=span.start_char,
-                                end_char=span.end_char,
-                                page_number=None,
-                                confidence=suggestion.confidence,
-                                source="ai_schema_suggestion",
-                                created_at=None,  # Will be set by DB
-                                updated_at=None
+                                start_offset=span.start_char,
+                                end_offset=span.end_char,
+                                metadata=suggestion.metadata,
+                                created_by="ai_schema_suggestion",
                             )
-                            self.sqlite_client.create_annotation(annotation)
+                            self.sqlite_client.create_annotation(document_id, annotation_create)
                 print(f"Auto-accepted {len(suggestions)} annotation suggestions")
             
             return SchemaBasedSuggestionResponse(
