@@ -87,6 +87,13 @@ class LabelSuggestionService:
         vector_store = get_vector_store()
         all_doc_summaries = vector_store.get_all_documents()
         
+        # Filter by document_ids if provided (for project-specific suggestions)
+        if request.document_ids:
+            all_doc_summaries = [
+                doc for doc in all_doc_summaries 
+                if doc.id in request.document_ids
+            ]
+        
         if not all_doc_summaries:
             return LabelSuggestionResponse(
                 suggestions=[],

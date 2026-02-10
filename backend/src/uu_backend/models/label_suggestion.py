@@ -34,6 +34,10 @@ class LabelSuggestionRequest(BaseModel):
         default=True,
         description="Whether to consider existing labels when suggesting"
     )
+    document_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of document IDs to analyze (filters to specific project)"
+    )
 
 
 class LabelSuggestionResponse(BaseModel):
