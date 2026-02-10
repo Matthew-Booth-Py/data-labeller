@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 
 from uu_backend.config import get_settings
 from uu_backend.database.vector_store import get_vector_store
+from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.models.document import DocumentListResponse, DocumentResponse
 
 router = APIRouter()
@@ -63,7 +64,16 @@ async def list_documents():
     Returns summaries of all documents including metadata and chunk counts.
     """
     store = get_vector_store()
+    sqlite_client = get_sqlite_client()
     documents = store.get_all_documents()
+    
+    # Enrich with classification data from SQLite
+    for doc in documents:
+        classification = sqlite_client.get_classification(doc.id)
+        if classification:
+            doc_type = sqlite_client.get_document_type(classification.document_type_id)
+            if doc_type:
+                doc.document_type = doc_type
 
     return DocumentListResponse(
         documents=documents,

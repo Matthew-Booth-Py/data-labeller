@@ -1,7 +1,7 @@
 """Document-related Pydantic models."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -49,6 +49,7 @@ class DocumentSummary(BaseModel):
     date_extracted: datetime | None = None
     created_at: datetime
     chunk_count: int
+    document_type: Optional[Any] = None  # Classification if available (DocumentType)
 
 
 class IngestResponse(BaseModel):
