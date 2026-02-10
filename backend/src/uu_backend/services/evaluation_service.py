@@ -189,16 +189,21 @@ class EvaluationService:
         # Group annotations by property
         items_data = {}
         for prop_name, prop_schema in properties.items():
+            # Expected label name is field_name + property_name (e.g., claim_items_item_name)
+            expected_label = f"{field.name}_{prop_name}"
+            expected_label_lower = expected_label.lower().replace("_", " ")
+            
+            # Also try just the property name for backward compatibility
             prop_name_lower = prop_name.lower().replace("_", " ")
             
             # Find annotations for this property
             for label_name, anns in annotations_by_label.items():
                 label_lower = label_name.lower().replace("_", " ")
                 
-                # Check if label matches this property
-                if (prop_name_lower in label_lower or 
-                    label_lower in prop_name_lower or
-                    label_lower == prop_name_lower):
+                # Check if label matches this property (prefer exact match with field prefix)
+                if (label_lower == expected_label_lower or 
+                    label_lower == prop_name_lower or
+                    prop_name_lower in label_lower):
                     
                     if prop_name not in items_data:
                         items_data[prop_name] = []

@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlite3 import IntegrityError
+from uuid import uuid4
 
 from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.services.classification_service import get_classification_service
@@ -16,8 +17,49 @@ from uu_backend.models.taxonomy import (
     DocumentTypeResponse,
     DocumentTypeUpdate,
 )
+from uu_backend.models.annotation import LabelCreate
 
 router = APIRouter()
+
+
+# Helper function to auto-create labels for nested object properties
+def _auto_create_labels_for_schema(client, doc_type: DocumentType):
+    """Automatically create labels for nested object properties in schema fields."""
+    label_colors = [
+        '#3b82f6', '#ef4444', '#f97316', '#eab308', '#22c55e',
+        '#06b6d4', '#8b5cf6', '#ec4899', '#14b8a6', '#f59e0b'
+    ]
+    color_idx = 0
+    
+    for field in doc_type.schema_fields:
+        # Check if this is an array of objects
+        if field.type.value == "array" and field.items and field.items.type.value == "object":
+            if field.items.properties:
+                # Create labels for each property
+                for prop_name, prop_schema in field.items.properties.items():
+                    # Create label name as field_name + property_name
+                    label_name = f"{field.name}_{prop_name}"
+                    
+                    # Check if label already exists
+                    existing_labels = client.list_labels()
+                    label_exists = any(label.name == label_name for label in existing_labels)
+                    
+                    if not label_exists:
+                        # Create the label
+                        label_data = LabelCreate(
+                            name=label_name,
+                            color=label_colors[color_idx % len(label_colors)],
+                            description=prop_schema.description or f"{prop_name} from {field.name}",
+                            document_type_id=doc_type.id
+                        )
+                        try:
+                            created_label = client.create_label(label_data)
+                            print(f"✓ Auto-created label: {label_name} (ID: {created_label.id}) for document type {doc_type.name}")
+                            color_idx += 1
+                        except Exception as e:
+                            import traceback
+                            print(f"❌ Error creating label {label_name}: {e}")
+                            print(traceback.format_exc())
 
 
 # Document Type Endpoints
@@ -46,6 +88,10 @@ async def create_document_type(data: DocumentTypeCreate):
 
     try:
         doc_type = client.create_document_type(data)
+        
+        # Auto-create labels for nested object properties
+        _auto_create_labels_for_schema(client, doc_type)
+        
         return DocumentTypeResponse(type=doc_type)
     except IntegrityError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -80,6 +126,10 @@ async def update_document_type(type_id: str, data: DocumentTypeUpdate):
             )
 
     doc_type = client.update_document_type(type_id, data)
+    
+    # Auto-create labels for any new nested object properties
+    if data.schema_fields:
+        _auto_create_labels_for_schema(client, doc_type)
 
     if not doc_type:
         raise HTTPException(status_code=404, detail=f"Document type {type_id} not found")
