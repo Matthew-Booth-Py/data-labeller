@@ -28,6 +28,7 @@ import { APIManagement } from "@/components/workspace/APIManagement";
 import { Timeline } from "@/components/workspace/Timeline";
 import { KnowledgeGraph } from "@/components/workspace/KnowledgeGraph";
 import { SearchPanel } from "@/components/workspace/SearchPanel";
+import { ExtractionRunner } from "@/components/workspace/ExtractionRunner";
 
 interface Project {
   id: string;
@@ -198,6 +199,12 @@ export default function ProjectWorkspace() {
               >
                 Evaluation
               </TabsTrigger>
+              <TabsTrigger
+                value="extraction"
+                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
+              >
+                Extraction
+              </TabsTrigger>
               <TabsTrigger 
                 value="timeline" 
                 className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
@@ -252,6 +259,9 @@ export default function ProjectWorkspace() {
             </TabsContent>
             <TabsContent value="evaluation" className="h-full m-0 p-6 overflow-auto">
               <EvaluationBoard projectId={id} />
+            </TabsContent>
+            <TabsContent value="extraction" className="h-full m-0 p-6 overflow-auto">
+              <ExtractionRunner projectId={id} />
             </TabsContent>
             <TabsContent value="timeline" className="h-full m-0 p-6 overflow-auto">
               <Timeline onDocumentClick={handleDocumentClick} />
