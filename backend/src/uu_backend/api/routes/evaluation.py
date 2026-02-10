@@ -14,6 +14,9 @@ from uu_backend.models.evaluation import (
     BenchmarkDatasetDocumentCreate,
     BenchmarkRunCreate,
     BenchmarkRunResult,
+    FieldPromptVersion,
+    FieldPromptVersionCreate,
+    FieldPromptVersionUpdate,
     ExtractionEvaluationCreate,
     ExtractionEvaluationListResponse,
     ExtractionEvaluationResponse,
@@ -335,7 +338,7 @@ def create_prompt_version(request: PromptVersionCreate):
 
     prompt_version = PromptVersion(
         id=str(uuid4()),
-        name=request.name,
+        name=request.name or "0.0",
         document_type_id=request.document_type_id,
         system_prompt=request.system_prompt,
         user_prompt_template=request.user_prompt_template,
@@ -433,3 +436,116 @@ def get_active_prompt_version(
         )
 
     return {"prompt_version": prompt_version}
+
+
+@router.post("/field-prompts", response_model=dict)
+def create_field_prompt_version(request: FieldPromptVersionCreate):
+    """Create a new field prompt version for a specific document type field."""
+    sqlite_client = get_sqlite_client()
+
+    field_prompt_version = FieldPromptVersion(
+        id=str(uuid4()),
+        name=request.name or "0.0",
+        document_type_id=request.document_type_id,
+        field_name=request.field_name,
+        extraction_prompt=request.extraction_prompt,
+        description=request.description,
+        is_active=request.is_active,
+        created_by=request.created_by,
+        created_at=datetime.utcnow(),
+    )
+
+    version_id = sqlite_client.create_field_prompt_version(field_prompt_version)
+    return {"id": version_id, "message": "Field prompt version created successfully"}
+
+
+@router.get("/field-prompts/version/{version_id}", response_model=dict)
+def get_field_prompt_version(version_id: str):
+    """Get a specific field prompt version by ID."""
+    sqlite_client = get_sqlite_client()
+    field_prompt_version = sqlite_client.get_field_prompt_version(version_id)
+
+    if not field_prompt_version:
+        raise HTTPException(status_code=404, detail="Field prompt version not found")
+
+    return {"field_prompt_version": field_prompt_version}
+
+
+@router.get("/field-prompts/list", response_model=dict)
+def list_field_prompt_versions(
+    document_type_id: Optional[str] = Query(None, description="Filter by document type"),
+    field_name: Optional[str] = Query(None, description="Filter by field name"),
+    is_active: Optional[bool] = Query(None, description="Filter by active status"),
+):
+    """List field prompt versions with optional filters."""
+    sqlite_client = get_sqlite_client()
+    field_prompt_versions = sqlite_client.list_field_prompt_versions(
+        document_type_id=document_type_id,
+        field_name=field_name,
+        is_active=is_active,
+    )
+    return {"field_prompt_versions": field_prompt_versions, "total": len(field_prompt_versions)}
+
+
+@router.patch("/field-prompts/version/{version_id}", response_model=dict)
+def update_field_prompt_version(version_id: str, request: FieldPromptVersionUpdate):
+    """Update a field prompt version."""
+    sqlite_client = get_sqlite_client()
+
+    updates = {}
+    if request.name is not None:
+        updates["name"] = request.name
+    if request.extraction_prompt is not None:
+        updates["extraction_prompt"] = request.extraction_prompt
+    if request.description is not None:
+        updates["description"] = request.description
+    if request.is_active is not None:
+        updates["is_active"] = request.is_active
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    success = sqlite_client.update_field_prompt_version(version_id, updates)
+    if not success:
+        raise HTTPException(status_code=404, detail="Field prompt version not found")
+
+    return {"message": "Field prompt version updated successfully"}
+
+
+@router.delete("/field-prompts/version/{version_id}", response_model=dict)
+def delete_field_prompt_version(version_id: str):
+    """Delete a field prompt version."""
+    sqlite_client = get_sqlite_client()
+    success = sqlite_client.delete_field_prompt_version(version_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Field prompt version not found")
+
+    return {"message": "Field prompt version deleted successfully"}
+
+
+@router.get("/field-prompts/active/current", response_model=dict)
+def get_active_field_prompt_version(
+    document_type_id: str = Query(..., description="Document type ID"),
+    field_name: str = Query(..., description="Field name"),
+):
+    """Get active field prompt version for a specific field."""
+    sqlite_client = get_sqlite_client()
+    field_prompt_version = sqlite_client.get_active_field_prompt_version(document_type_id, field_name)
+
+    if not field_prompt_version:
+        raise HTTPException(
+            status_code=404,
+            detail="No active field prompt version found for this field",
+        )
+
+    return {"field_prompt_version": field_prompt_version}
+
+
+@router.get("/field-prompts/active/by-document-type", response_model=dict)
+def list_active_field_prompt_versions(document_type_id: str = Query(..., description="Document type ID")):
+    """Get active field prompt text for all fields in a document type."""
+    sqlite_client = get_sqlite_client()
+    prompts = sqlite_client.list_active_field_prompt_versions(document_type_id)
+    versions = sqlite_client.list_active_field_prompt_version_names(document_type_id)
+    return {"field_prompts": prompts, "field_versions": versions, "total": len(prompts)}

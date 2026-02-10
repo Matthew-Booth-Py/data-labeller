@@ -73,7 +73,7 @@ class PromptVersion(BaseModel):
 class PromptVersionCreate(BaseModel):
     """Request model for creating a prompt version."""
 
-    name: str = Field(..., min_length=1, max_length=100)
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
     document_type_id: Optional[str] = None
     system_prompt: str = Field(..., min_length=1)
     user_prompt_template: Optional[str] = None
@@ -88,6 +88,41 @@ class PromptVersionUpdate(BaseModel):
     name: Optional[str] = None
     system_prompt: Optional[str] = None
     user_prompt_template: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class FieldPromptVersion(BaseModel):
+    """A version of a field-level extraction prompt."""
+
+    id: str = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Version name for this field prompt")
+    document_type_id: str = Field(..., description="Document type this field belongs to")
+    field_name: str = Field(..., description="Schema field name")
+    extraction_prompt: str = Field(..., description="Field extraction prompt content")
+    description: Optional[str] = Field(None, description="Description of what changed")
+    is_active: bool = Field(False, description="Whether this is the active field prompt version")
+    created_by: Optional[str] = Field(None, description="User who created this version")
+    created_at: datetime = Field(..., description="Creation timestamp")
+
+
+class FieldPromptVersionCreate(BaseModel):
+    """Request model for creating a field prompt version."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    document_type_id: str = Field(..., min_length=1)
+    field_name: str = Field(..., min_length=1)
+    extraction_prompt: str = Field(..., min_length=1)
+    description: Optional[str] = None
+    is_active: bool = Field(False, description="Set as active version")
+    created_by: Optional[str] = None
+
+
+class FieldPromptVersionUpdate(BaseModel):
+    """Request model for updating a field prompt version."""
+
+    name: Optional[str] = None
+    extraction_prompt: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
 

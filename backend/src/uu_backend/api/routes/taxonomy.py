@@ -80,41 +80,45 @@ async def delete_global_field(field_id: str):
     return {"status": "success", "message": "Global field deleted"}
 
 
-# Helper function to auto-create labels for schema fields
-def _auto_create_labels_for_schema(client, doc_type: DocumentType):
-    """Automatically create labels for schema fields (one label per array field for key-value mode)."""
+# Helper function to keep labels strictly derived from schema fields
+def _sync_labels_for_schema(client, doc_type: DocumentType):
+    """Synchronize labels to exactly match top-level schema field names for a document type."""
     label_colors = [
         '#3b82f6', '#ef4444', '#f97316', '#eab308', '#22c55e',
         '#06b6d4', '#8b5cf6', '#ec4899', '#14b8a6', '#f59e0b'
     ]
+    expected_by_name = {
+        field.name: field for field in (doc_type.schema_fields or [])
+    }
+
+    existing_labels = client.list_labels(document_type_id=doc_type.id, include_global=False)
+    existing_by_name = {label.name: label for label in existing_labels}
+
+    # Create missing labels
     color_idx = 0
-    
-    for field in doc_type.schema_fields:
-        # Check if this is an array of objects
-        if field.type.value == "array" and field.items and field.items.type.value == "object":
-            # Create ONE label for the entire array field (for key-value pair labeling)
-            label_name = field.name
-            
-            # Check if label already exists
-            existing_labels = client.list_labels()
-            label_exists = any(label.name == label_name for label in existing_labels)
-            
-            if not label_exists:
-                # Create the label
-                label_data = LabelCreate(
-                    name=label_name,
-                    color=label_colors[color_idx % len(label_colors)],
-                    description=field.description or f"Key-value pairs for {field.name}",
-                    document_type_id=doc_type.id
-                )
-                try:
-                    created_label = client.create_label(label_data)
-                    print(f"✓ Auto-created label: {label_name} (ID: {created_label.id}) for document type {doc_type.name}")
-                    color_idx += 1
-                except Exception as e:
-                    import traceback
-                    print(f"❌ Error creating label {label_name}: {e}")
-                    print(traceback.format_exc())
+    for label_name, field in expected_by_name.items():
+        if label_name in existing_by_name:
+            continue
+        label_data = LabelCreate(
+            name=label_name,
+            color=label_colors[color_idx % len(label_colors)],
+            description=field.description or f"Schema-derived label for {label_name}",
+            document_type_id=doc_type.id,
+        )
+        try:
+            created_label = client.create_label(label_data)
+            print(f"✓ Synced label: created {created_label.name} for document type {doc_type.name}")
+        except Exception as e:
+            import traceback
+            print(f"❌ Error creating synced label {label_name}: {e}")
+            print(traceback.format_exc())
+        color_idx += 1
+
+    # Remove labels that are no longer in schema
+    for existing_name, label in existing_by_name.items():
+        if existing_name not in expected_by_name:
+            client.delete_label(label.id)
+            print(f"✓ Synced label: removed {existing_name} (not in schema)")
 
 
 # Document Type Endpoints
@@ -144,8 +148,8 @@ async def create_document_type(data: DocumentTypeCreate):
     try:
         doc_type = client.create_document_type(data)
         
-        # Auto-create labels for nested object properties
-        _auto_create_labels_for_schema(client, doc_type)
+        # Keep labels strictly derived from schema fields
+        _sync_labels_for_schema(client, doc_type)
         
         return DocumentTypeResponse(type=doc_type)
     except IntegrityError as e:
@@ -193,9 +197,8 @@ async def update_document_type(type_id: str, data: DocumentTypeUpdate):
 
     doc_type = client.update_document_type(type_id, data)
     
-    # Auto-create labels for any new nested object properties
-    if data.schema_fields:
-        _auto_create_labels_for_schema(client, doc_type)
+    # Keep labels strictly derived from schema fields on every update to self-heal drift
+    _sync_labels_for_schema(client, doc_type)
 
     if not doc_type:
         raise HTTPException(status_code=404, detail=f"Document type {type_id} not found")

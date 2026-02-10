@@ -52,6 +52,7 @@ class Settings(BaseModel):
     openai_api_key: str = ""
     openai_model: str = "gpt-5-mini"
     openai_tagging_model: str = "gpt-5-mini"
+    openai_reasoning_effort: str = "low"
 
     @property
     def chroma_path(self) -> Path:
@@ -86,6 +87,7 @@ _ENV_TO_FIELD = {
     "OPENAI_API_KEY": "openai_api_key",
     "OPENAI_MODEL": "openai_model",
     "OPENAI_TAGGING_MODEL": "openai_tagging_model",
+    "OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
 }
 
 
@@ -168,4 +170,3 @@ def _build_settings_payload() -> dict[str, Any]:
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings(**_build_settings_payload())
-

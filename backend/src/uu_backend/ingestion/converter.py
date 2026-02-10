@@ -1,6 +1,8 @@
 """Document conversion using MarkItDown and pdfplumber for enhanced table extraction."""
 
+import re
 import tempfile
+from collections import deque
 from pathlib import Path
 from typing import BinaryIO
 
@@ -24,6 +26,121 @@ class ConversionResult:
         self.metadata = metadata
         self.success = success
         self.error = error
+
+
+def _normalize_for_dedupe(line: str) -> str:
+    """Create a normalized representation of a line for duplicate checks."""
+    normalized = re.sub(r"\s+", " ", line.strip().lower())
+    normalized = re.sub(r"[^\w\s|:.$-]", "", normalized)
+    return normalized
+
+
+def _repair_table_header_fragments(line: str) -> str:
+    """Repair common split-header artifacts from table extraction."""
+    repaired = line
+    # Example observed: "Damage Description E | st. Replacement Cost"
+    repaired = repaired.replace("Damage Description E | st. Replacement Cost", "Damage Description | Est. Replacement Cost")
+    repaired = re.sub(r"\bE\s*\|\s*st\.", "Est.", repaired)
+    return repaired
+
+
+def _move_total_after_following_table(lines: list[str]) -> list[str]:
+    """If TOTAL line appears before immediately following markdown table rows, move it below the table."""
+    i = 0
+    out: list[str] = []
+    while i < len(lines):
+        line = lines[i]
+        if re.match(r"^\s*TOTAL\b", line, flags=re.IGNORECASE):
+            j = i + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            if j < len(lines) and lines[j].lstrip().startswith("|"):
+                table_block: list[str] = []
+                k = j
+                while k < len(lines) and lines[k].lstrip().startswith("|"):
+                    table_block.append(lines[k])
+                    k += 1
+                out.extend(table_block)
+                out.append(line)
+                i = k
+                continue
+        out.append(line)
+        i += 1
+    return out
+
+
+def _normalize_key_value_blocks(lines: list[str]) -> list[str]:
+    """Convert contiguous key-value lines into markdown tables for consistent formatting."""
+    kv_pattern = re.compile(r"^\s*([A-Za-z][A-Za-z0-9 /()&\-.]{1,50}):\s+(.+?)\s*$")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        match = kv_pattern.match(lines[i])
+        if not match:
+            out.append(lines[i])
+            i += 1
+            continue
+
+        block: list[tuple[str, str]] = []
+        j = i
+        while j < len(lines):
+            m = kv_pattern.match(lines[j])
+            if not m:
+                break
+            key = m.group(1).strip()
+            value = m.group(2).strip()
+            block.append((key, value))
+            j += 1
+
+        # Only normalize sufficiently large blocks to avoid over-formatting incidental pairs.
+        if len(block) >= 3:
+            out.append("| Field | Value |")
+            out.append("| --- | --- |")
+            for key, value in block:
+                out.append(f"| {key} | {value} |")
+        else:
+            for key, value in block:
+                out.append(f"{key}: {value}")
+        i = j
+    return out
+
+
+def _dedupe_lines(lines: list[str]) -> list[str]:
+    """Remove repeated nearby lines caused by layout extraction overlap."""
+    recent = deque(maxlen=24)
+    out: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            out.append(line)
+            continue
+        if stripped.startswith("|") or stripped.startswith("## Page"):
+            out.append(line)
+            recent.append(_normalize_for_dedupe(line))
+            continue
+
+        marker = _normalize_for_dedupe(line)
+        if marker and marker in recent:
+            continue
+        out.append(line)
+        recent.append(marker)
+    return out
+
+
+def postprocess_markdown(content: str) -> str:
+    """Apply deterministic formatting repairs to extracted markdown content."""
+    if not content.strip():
+        return content
+
+    lines = content.splitlines()
+    lines = [_repair_table_header_fragments(line) for line in lines]
+    lines = _dedupe_lines(lines)
+    lines = _move_total_after_following_table(lines)
+    lines = _normalize_key_value_blocks(lines)
+
+    text = "\n".join(lines)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
 
 
 def table_to_markdown(table: list[list[str | None]]) -> str:
@@ -262,6 +379,7 @@ class DocumentConverter:
             # Use pdfplumber for PDFs (better table extraction)
             if extension == ".pdf":
                 text_content, page_count = extract_pdf_with_tables(str(temp_path))
+                text_content = postprocess_markdown(text_content)
                 metadata = DocumentMetadata(
                     filename=filename,
                     file_type=extension.lstrip("."),
@@ -271,7 +389,7 @@ class DocumentConverter:
             else:
                 # Use MarkItDown for other formats
                 result = self._converter.convert(str(temp_path))
-                text_content = result.text_content
+                text_content = postprocess_markdown(result.text_content)
                 metadata = DocumentMetadata(
                     filename=filename,
                     file_type=extension.lstrip("."),

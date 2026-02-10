@@ -101,7 +101,7 @@ class SQLiteClient:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS labels (
                     id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
                     color TEXT NOT NULL DEFAULT '#3b82f6',
                     description TEXT,
                     shortcut TEXT,
@@ -117,6 +117,14 @@ class SQLiteClient:
             columns = [row[1] for row in cursor.fetchall()]
             if "document_type_id" not in columns:
                 cursor.execute("ALTER TABLE labels ADD COLUMN document_type_id TEXT")
+            self._migrate_labels_uniqueness(cursor)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_labels_document_type ON labels(document_type_id)"
+            )
+            cursor.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_labels_name_scope_unique "
+                "ON labels(name, COALESCE(document_type_id, '__global__'))"
+            )
 
             # Annotations table
             cursor.execute("""
@@ -255,6 +263,36 @@ class SQLiteClient:
                 CREATE INDEX IF NOT EXISTS idx_prompt_versions_active
                 ON prompt_versions(is_active)
             """)
+
+            # Field prompt versions table for per-field prompt tracking
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS field_prompt_versions (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    document_type_id TEXT NOT NULL,
+                    field_name TEXT NOT NULL,
+                    extraction_prompt TEXT NOT NULL,
+                    description TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 0,
+                    created_by TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (document_type_id) REFERENCES document_types(id) ON DELETE CASCADE
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_field_prompt_versions_type
+                ON field_prompt_versions(document_type_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_field_prompt_versions_field
+                ON field_prompt_versions(field_name)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_field_prompt_versions_active
+                ON field_prompt_versions(is_active)
+            """)
+            self._migrate_incremental_prompt_version_names(cursor)
+            self._migrate_incremental_field_prompt_version_names(cursor)
 
             # Evaluations table for extraction quality metrics
             cursor.execute("""
@@ -427,6 +465,143 @@ class SQLiteClient:
 
 
             conn.commit()
+
+    @staticmethod
+    def _parse_incremental_version(name: Optional[str]) -> Optional[int]:
+        """Parse version names like 0.0, 0.1, ... and return the minor integer."""
+        if not name:
+            return None
+        parts = name.strip().split(".")
+        if len(parts) != 2:
+            return None
+        if parts[0] != "0":
+            return None
+        if not parts[1].isdigit():
+            return None
+        return int(parts[1])
+
+    @staticmethod
+    def _format_incremental_version(minor: int) -> str:
+        return f"0.{minor}"
+
+    def _next_prompt_version_name_from_cursor(
+        self, cursor: sqlite3.Cursor, document_type_id: Optional[str]
+    ) -> str:
+        cursor.execute(
+            """
+            SELECT name
+            FROM prompt_versions
+            WHERE document_type_id IS ? OR (document_type_id IS NULL AND ? IS NULL)
+            """,
+            (document_type_id, document_type_id),
+        )
+        minors = [
+            parsed
+            for parsed in (
+                self._parse_incremental_version(row["name"]) for row in cursor.fetchall()
+            )
+            if parsed is not None
+        ]
+        next_minor = (max(minors) + 1) if minors else 0
+        return self._format_incremental_version(next_minor)
+
+    def _next_field_prompt_version_name_from_cursor(
+        self, cursor: sqlite3.Cursor, document_type_id: str, field_name: str
+    ) -> str:
+        cursor.execute(
+            """
+            SELECT name
+            FROM field_prompt_versions
+            WHERE document_type_id = ? AND field_name = ?
+            """,
+            (document_type_id, field_name),
+        )
+        minors = [
+            parsed
+            for parsed in (
+                self._parse_incremental_version(row["name"]) for row in cursor.fetchall()
+            )
+            if parsed is not None
+        ]
+        next_minor = (max(minors) + 1) if minors else 0
+        return self._format_incremental_version(next_minor)
+
+    def _migrate_incremental_prompt_version_names(self, cursor: sqlite3.Cursor) -> None:
+        """Retroactively normalize prompt version names to incremental 0.x by scope."""
+        cursor.execute(
+            """
+            SELECT id, document_type_id
+            FROM prompt_versions
+            ORDER BY
+              CASE WHEN document_type_id IS NULL THEN 1 ELSE 0 END,
+              document_type_id,
+              datetime(created_at),
+              id
+            """
+        )
+        rows = cursor.fetchall()
+        counters: dict[Optional[str], int] = {}
+        for row in rows:
+            key = row["document_type_id"]
+            minor = counters.get(key, 0)
+            cursor.execute(
+                "UPDATE prompt_versions SET name = ? WHERE id = ?",
+                (self._format_incremental_version(minor), row["id"]),
+            )
+            counters[key] = minor + 1
+
+    def _migrate_incremental_field_prompt_version_names(self, cursor: sqlite3.Cursor) -> None:
+        """Retroactively normalize field prompt version names to incremental 0.x by field scope."""
+        cursor.execute(
+            """
+            SELECT id, document_type_id, field_name
+            FROM field_prompt_versions
+            ORDER BY document_type_id, field_name, datetime(created_at), id
+            """
+        )
+        rows = cursor.fetchall()
+        counters: dict[tuple[str, str], int] = {}
+        for row in rows:
+            key = (row["document_type_id"], row["field_name"])
+            minor = counters.get(key, 0)
+            cursor.execute(
+                "UPDATE field_prompt_versions SET name = ? WHERE id = ?",
+                (self._format_incremental_version(minor), row["id"]),
+            )
+            counters[key] = minor + 1
+
+    def _migrate_labels_uniqueness(self, cursor):
+        """Migrate legacy labels table with global UNIQUE(name) to scoped uniqueness."""
+        cursor.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'labels'"
+        )
+        row = cursor.fetchone()
+        labels_table_sql = (row["sql"] or "").lower() if row and row["sql"] else ""
+        if "name text not null unique" not in labels_table_sql:
+            return
+
+        cursor.execute("PRAGMA foreign_keys=OFF")
+        cursor.execute("ALTER TABLE labels RENAME TO labels_old")
+        cursor.execute("""
+            CREATE TABLE labels (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                color TEXT NOT NULL DEFAULT '#3b82f6',
+                description TEXT,
+                shortcut TEXT,
+                entity_type TEXT,
+                document_type_id TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (document_type_id) REFERENCES document_types(id) ON DELETE SET NULL
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO labels (id, name, color, description, shortcut, entity_type, document_type_id, created_at)
+            SELECT id, name, color, description, shortcut, entity_type, document_type_id, created_at
+            FROM labels_old
+        """)
+        cursor.execute("DROP TABLE labels_old")
+        cursor.execute("PRAGMA foreign_keys=ON")
 
     # Document Type CRUD Operations
 
@@ -1589,6 +1764,9 @@ class SQLiteClient:
         
         with self._get_connection() as conn:
             cursor = conn.cursor()
+            version_name = self._next_prompt_version_name_from_cursor(
+                cursor, prompt_version.document_type_id
+            )
             
             # If setting as active, deactivate others for this document type
             if prompt_version.is_active:
@@ -1610,7 +1788,7 @@ class SQLiteClient:
                 """,
                 (
                     prompt_version.id,
-                    prompt_version.name,
+                    version_name,
                     prompt_version.document_type_id,
                     prompt_version.system_prompt,
                     prompt_version.user_prompt_template,
@@ -1773,6 +1951,244 @@ class SQLiteClient:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM prompt_versions WHERE id = ?", (version_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    # Field Prompt Version CRUD Operations
+
+    def create_field_prompt_version(self, field_prompt_version) -> str:
+        """Create a new field prompt version."""
+        from uu_backend.models.evaluation import FieldPromptVersion
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            version_name = self._next_field_prompt_version_name_from_cursor(
+                cursor,
+                field_prompt_version.document_type_id,
+                field_prompt_version.field_name,
+            )
+
+            # If setting as active, deactivate others for this field scope
+            if field_prompt_version.is_active:
+                cursor.execute(
+                    """
+                    UPDATE field_prompt_versions
+                    SET is_active = 0
+                    WHERE document_type_id = ? AND field_name = ?
+                    """,
+                    (field_prompt_version.document_type_id, field_prompt_version.field_name),
+                )
+
+            cursor.execute(
+                """
+                INSERT INTO field_prompt_versions
+                (id, name, document_type_id, field_name, extraction_prompt,
+                 description, is_active, created_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    field_prompt_version.id,
+                    version_name,
+                    field_prompt_version.document_type_id,
+                    field_prompt_version.field_name,
+                    field_prompt_version.extraction_prompt,
+                    field_prompt_version.description,
+                    1 if field_prompt_version.is_active else 0,
+                    field_prompt_version.created_by,
+                    field_prompt_version.created_at.isoformat(),
+                ),
+            )
+            conn.commit()
+            return field_prompt_version.id
+
+    def get_field_prompt_version(self, version_id: str):
+        """Get a field prompt version by ID."""
+        from uu_backend.models.evaluation import FieldPromptVersion
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM field_prompt_versions WHERE id = ?", (version_id,))
+            row = cursor.fetchone()
+
+        if not row:
+            return None
+
+        return FieldPromptVersion(
+            id=row["id"],
+            name=row["name"],
+            document_type_id=row["document_type_id"],
+            field_name=row["field_name"],
+            extraction_prompt=row["extraction_prompt"],
+            description=row["description"],
+            is_active=bool(row["is_active"]),
+            created_by=row["created_by"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    def get_active_field_prompt_version(self, document_type_id: str, field_name: str):
+        """Get the active field prompt version for a specific document type field."""
+        from uu_backend.models.evaluation import FieldPromptVersion
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT * FROM field_prompt_versions
+                WHERE is_active = 1 AND document_type_id = ? AND field_name = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (document_type_id, field_name),
+            )
+            row = cursor.fetchone()
+
+        if not row:
+            return None
+
+        return FieldPromptVersion(
+            id=row["id"],
+            name=row["name"],
+            document_type_id=row["document_type_id"],
+            field_name=row["field_name"],
+            extraction_prompt=row["extraction_prompt"],
+            description=row["description"],
+            is_active=bool(row["is_active"]),
+            created_by=row["created_by"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    def list_active_field_prompt_versions(self, document_type_id: str) -> dict[str, str]:
+        """Get active field prompt text keyed by field name for a document type."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT field_name, extraction_prompt, created_at
+                FROM field_prompt_versions
+                WHERE is_active = 1 AND document_type_id = ?
+                ORDER BY created_at DESC
+                """,
+                (document_type_id,),
+            )
+            rows = cursor.fetchall()
+        prompts_by_field: dict[str, str] = {}
+        for row in rows:
+            if row["field_name"] not in prompts_by_field:
+                prompts_by_field[row["field_name"]] = row["extraction_prompt"]
+        return prompts_by_field
+
+    def list_active_field_prompt_version_names(self, document_type_id: str) -> dict[str, str]:
+        """Get active field prompt version name keyed by field name for a document type."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT field_name, name, created_at
+                FROM field_prompt_versions
+                WHERE is_active = 1 AND document_type_id = ?
+                ORDER BY created_at DESC
+                """,
+                (document_type_id,),
+            )
+            rows = cursor.fetchall()
+        versions_by_field: dict[str, str] = {}
+        for row in rows:
+            if row["field_name"] not in versions_by_field:
+                versions_by_field[row["field_name"]] = row["name"]
+        return versions_by_field
+
+    def list_field_prompt_versions(
+        self,
+        document_type_id: Optional[str] = None,
+        field_name: Optional[str] = None,
+        is_active: Optional[bool] = None,
+    ) -> list:
+        """List field prompt versions with optional filters."""
+        from uu_backend.models.evaluation import FieldPromptVersion
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            query = "SELECT * FROM field_prompt_versions WHERE 1=1"
+            params = []
+
+            if document_type_id is not None:
+                query += " AND document_type_id = ?"
+                params.append(document_type_id)
+
+            if field_name is not None:
+                query += " AND field_name = ?"
+                params.append(field_name)
+
+            if is_active is not None:
+                query += " AND is_active = ?"
+                params.append(1 if is_active else 0)
+
+            query += " ORDER BY created_at DESC"
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+        return [
+            FieldPromptVersion(
+                id=row["id"],
+                name=row["name"],
+                document_type_id=row["document_type_id"],
+                field_name=row["field_name"],
+                extraction_prompt=row["extraction_prompt"],
+                description=row["description"],
+                is_active=bool(row["is_active"]),
+                created_by=row["created_by"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+            for row in rows
+        ]
+
+    def update_field_prompt_version(self, version_id: str, updates: dict) -> bool:
+        """Update a field prompt version."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            if updates.get("is_active"):
+                cursor.execute(
+                    "SELECT document_type_id, field_name FROM field_prompt_versions WHERE id = ?",
+                    (version_id,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    cursor.execute(
+                        """
+                        UPDATE field_prompt_versions
+                        SET is_active = 0
+                        WHERE id != ? AND document_type_id = ? AND field_name = ?
+                        """,
+                        (version_id, row["document_type_id"], row["field_name"]),
+                    )
+
+            set_clauses = []
+            params = []
+
+            for key, value in updates.items():
+                if key == "is_active":
+                    set_clauses.append("is_active = ?")
+                    params.append(1 if value else 0)
+                else:
+                    set_clauses.append(f"{key} = ?")
+                    params.append(value)
+
+            if not set_clauses:
+                return False
+
+            params.append(version_id)
+            query = f"UPDATE field_prompt_versions SET {', '.join(set_clauses)} WHERE id = ?"
+            cursor.execute(query, params)
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def delete_field_prompt_version(self, version_id: str) -> bool:
+        """Delete a field prompt version."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM field_prompt_versions WHERE id = ?", (version_id,))
             conn.commit()
             return cursor.rowcount > 0
 

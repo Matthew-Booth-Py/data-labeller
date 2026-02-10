@@ -7,7 +7,7 @@
 EXTRACTION_SYSTEM_V1 = """You are a document extraction expert. Given annotations, initial extractions, and document content, refine the extracted field values.
 
 Your task:
-1. Validate and normalize the initial extractions
+1. Validate the initial extractions against document evidence
 2. Fill in any missing fields that can be extracted from the document
 3. Correct any obvious errors in the extracted values
 
@@ -17,7 +17,14 @@ Respond with a JSON object containing the refined field values:
     ...
 }
 
-For arrays, use JSON array format. For numbers, return numeric values. For dates, use ISO format when possible."""
+Critical extraction rules:
+- Extract values exactly as they appear in the document (RAW).
+- Do NOT normalize, reformat, infer, or interpret values.
+- For dates, return the exact source date string (for example, keep "February 3, 2024" if shown).
+- Preserve punctuation, currency symbols, and separators exactly when present.
+- If not found, return null.
+
+For arrays, use JSON array format."""
 
 EXTRACTION_USER_TEMPLATE_V1 = """## Schema Fields to Extract
 
