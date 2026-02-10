@@ -8,6 +8,12 @@ from datetime import datetime
 
 from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.models.evaluation import (
+    BenchmarkDataset,
+    BenchmarkDatasetCreate,
+    BenchmarkDatasetDocument,
+    BenchmarkDatasetDocumentCreate,
+    BenchmarkRunCreate,
+    BenchmarkRunResult,
     ExtractionEvaluationCreate,
     ExtractionEvaluationListResponse,
     ExtractionEvaluationResponse,
@@ -26,6 +32,94 @@ router = APIRouter(prefix="/evaluation", tags=["evaluation"])
 
 
 # Evaluation endpoints
+
+
+@router.post("/benchmarks/datasets", response_model=BenchmarkDataset)
+def create_benchmark_dataset(request: BenchmarkDatasetCreate):
+    """Create a benchmark dataset and optional split assignments."""
+    sqlite_client = get_sqlite_client()
+    try:
+        dataset = sqlite_client.create_benchmark_dataset(request.model_dump(exclude={"documents"}))
+        for doc in request.documents:
+            sqlite_client.add_benchmark_dataset_document(
+                dataset_id=dataset["id"],
+                document_id=doc.document_id,
+                split=doc.split,
+                tags=doc.tags,
+                doc_subtype=doc.doc_subtype,
+            )
+        loaded = sqlite_client.get_benchmark_dataset(dataset["id"])
+        if not loaded:
+            raise ValueError("Failed to load created dataset")
+        return BenchmarkDataset.model_validate(loaded)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to create benchmark dataset: {str(e)}")
+
+
+@router.get("/benchmarks/datasets", response_model=list[BenchmarkDataset])
+def list_benchmark_datasets(
+    document_type_id: Optional[str] = Query(None, description="Filter by document type"),
+):
+    """List benchmark datasets."""
+    sqlite_client = get_sqlite_client()
+    datasets = sqlite_client.list_benchmark_datasets(document_type_id=document_type_id)
+    return [
+        BenchmarkDataset.model_validate(
+            {
+                **dataset,
+                "documents": sqlite_client.get_benchmark_dataset(dataset["id"]).get("documents", []),
+            }
+        )
+        for dataset in datasets
+    ]
+
+
+@router.post("/benchmarks/datasets/{dataset_id}/documents", response_model=BenchmarkDatasetDocument)
+def add_benchmark_dataset_document(dataset_id: str, request: BenchmarkDatasetDocumentCreate):
+    """Add or update a benchmark dataset document assignment."""
+    sqlite_client = get_sqlite_client()
+    dataset = sqlite_client.get_benchmark_dataset(dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Benchmark dataset not found")
+    doc = sqlite_client.add_benchmark_dataset_document(
+        dataset_id=dataset_id,
+        document_id=request.document_id,
+        split=request.split,
+        tags=request.tags,
+        doc_subtype=request.doc_subtype,
+    )
+    return BenchmarkDatasetDocument.model_validate(doc)
+
+
+@router.post("/run-benchmark", response_model=BenchmarkRunResult)
+def run_benchmark(request: BenchmarkRunCreate):
+    """Run benchmark evaluation over a dataset with optional quality gates."""
+    try:
+        evaluation_service = get_evaluation_service()
+        return evaluation_service.evaluate_benchmark(
+            dataset_id=request.dataset_id,
+            prompt_version_id=request.prompt_version_id,
+            baseline_run_id=request.baseline_run_id,
+            use_llm_refinement=request.use_llm_refinement,
+            use_structured_output=request.use_structured_output,
+            evaluated_by=request.evaluated_by,
+            notes=request.notes,
+            required_field_gates=request.required_field_gates,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Benchmark evaluation failed: {str(e)}")
+
+
+@router.get("/benchmarks/runs/{run_id}", response_model=BenchmarkRunResult)
+def get_benchmark_run(run_id: str):
+    """Get a persisted benchmark run summary."""
+    sqlite_client = get_sqlite_client()
+    run = sqlite_client.get_benchmark_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+    return BenchmarkRunResult.model_validate(run)
 
 
 @router.post("/run", response_model=ExtractionEvaluationResponse)
