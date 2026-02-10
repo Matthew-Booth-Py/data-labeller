@@ -102,6 +102,8 @@ def run_benchmark(request: BenchmarkRunCreate):
             baseline_run_id=request.baseline_run_id,
             use_llm_refinement=request.use_llm_refinement,
             use_structured_output=request.use_structured_output,
+            comparator_mode=request.comparator_mode,
+            fuzzy_threshold=request.fuzzy_threshold,
             evaluated_by=request.evaluated_by,
             notes=request.notes,
             required_field_gates=request.required_field_gates,
@@ -139,6 +141,8 @@ def run_evaluation(request: ExtractionEvaluationCreate):
             prompt_version_id=request.prompt_version_id,
             use_llm_refinement=request.use_llm_refinement,
             use_structured_output=request.use_structured_output,
+            comparator_mode=request.comparator_mode,
+            fuzzy_threshold=request.fuzzy_threshold,
             evaluated_by=request.evaluated_by,
             notes=request.notes,
         )
@@ -164,6 +168,8 @@ def run_project_evaluation(request: ProjectEvaluationCreate):
             prompt_version_id=request.prompt_version_id,
             use_llm_refinement=request.use_llm_refinement,
             use_structured_output=request.use_structured_output,
+            comparator_mode=request.comparator_mode,
+            fuzzy_threshold=request.fuzzy_threshold,
             evaluated_by=request.evaluated_by,
             notes=request.notes,
         )

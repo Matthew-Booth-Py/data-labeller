@@ -14,6 +14,9 @@ from uu_backend.models.taxonomy import (
     DocumentType,
     DocumentTypeCreate,
     DocumentTypeUpdate,
+    GlobalField,
+    GlobalFieldCreate,
+    GlobalFieldUpdate,
     SchemaField,
 )
 from uu_backend.models.annotation import (
@@ -66,10 +69,15 @@ class SQLiteClient:
                     schema_fields TEXT NOT NULL DEFAULT '[]',
                     system_prompt TEXT,
                     post_processing TEXT,
+                    schema_version_id TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
             """)
+            cursor.execute("PRAGMA table_info(document_types)")
+            doc_type_columns = [row[1] for row in cursor.fetchall()]
+            if "schema_version_id" not in doc_type_columns:
+                cursor.execute("ALTER TABLE document_types ADD COLUMN schema_version_id TEXT")
 
             # Classifications table
             cursor.execute("""
@@ -209,12 +217,20 @@ class SQLiteClient:
                     id TEXT PRIMARY KEY,
                     document_id TEXT NOT NULL UNIQUE,
                     document_type_id TEXT NOT NULL,
+                    schema_version_id TEXT,
+                    prompt_version_id TEXT,
                     extracted_data TEXT NOT NULL,
                     extracted_at TEXT NOT NULL,
                     FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
                     FOREIGN KEY (document_type_id) REFERENCES document_types(id) ON DELETE CASCADE
                 )
             """)
+            cursor.execute("PRAGMA table_info(extractions)")
+            extraction_columns = [row[1] for row in cursor.fetchall()]
+            if "schema_version_id" not in extraction_columns:
+                cursor.execute("ALTER TABLE extractions ADD COLUMN schema_version_id TEXT")
+            if "prompt_version_id" not in extraction_columns:
+                cursor.execute("ALTER TABLE extractions ADD COLUMN prompt_version_id TEXT")
 
             # Prompt versions table for tracking extraction prompts
             cursor.execute("""
@@ -247,6 +263,8 @@ class SQLiteClient:
                     document_id TEXT NOT NULL,
                     document_type_id TEXT NOT NULL,
                     prompt_version_id TEXT,
+                    schema_version_id TEXT,
+                    comparator_mode TEXT NOT NULL DEFAULT 'normalized',
                     metrics TEXT NOT NULL,
                     extraction_time_ms INTEGER,
                     evaluated_by TEXT,
@@ -257,6 +275,14 @@ class SQLiteClient:
                     FOREIGN KEY (prompt_version_id) REFERENCES prompt_versions(id) ON DELETE SET NULL
                 )
             """)
+            cursor.execute("PRAGMA table_info(evaluations)")
+            evaluation_columns = [row[1] for row in cursor.fetchall()]
+            if "schema_version_id" not in evaluation_columns:
+                cursor.execute("ALTER TABLE evaluations ADD COLUMN schema_version_id TEXT")
+            if "comparator_mode" not in evaluation_columns:
+                cursor.execute(
+                    "ALTER TABLE evaluations ADD COLUMN comparator_mode TEXT NOT NULL DEFAULT 'normalized'"
+                )
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_evaluations_document
                 ON evaluations(document_id)
@@ -355,6 +381,50 @@ class SQLiteClient:
                 ON benchmark_runs(created_at)
             """)
 
+            # Schema version lineage for reproducibility
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_versions (
+                    id TEXT PRIMARY KEY,
+                    document_type_id TEXT NOT NULL,
+                    schema_fields TEXT NOT NULL,
+                    system_prompt TEXT,
+                    post_processing TEXT,
+                    created_at TEXT NOT NULL,
+                    created_by TEXT,
+                    FOREIGN KEY (document_type_id) REFERENCES document_types(id) ON DELETE CASCADE
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_schema_versions_document_type
+                ON schema_versions(document_type_id)
+                """
+            )
+
+            # Reusable global field templates
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS global_fields (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    type TEXT NOT NULL,
+                    prompt TEXT NOT NULL,
+                    description TEXT,
+                    created_by TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_global_fields_name
+                ON global_fields(name)
+                """
+            )
+
             conn.commit()
 
     # Document Type CRUD Operations
@@ -362,6 +432,7 @@ class SQLiteClient:
     def create_document_type(self, data: DocumentTypeCreate) -> DocumentType:
         """Create a new document type."""
         now = datetime.utcnow()
+        schema_version_id = str(uuid4())
         doc_type = DocumentType(
             id=str(uuid4()),
             name=data.name,
@@ -369,6 +440,7 @@ class SQLiteClient:
             schema_fields=data.schema_fields,
             system_prompt=data.system_prompt,
             post_processing=data.post_processing,
+            schema_version_id=schema_version_id,
             created_at=now,
             updated_at=now,
         )
@@ -378,8 +450,8 @@ class SQLiteClient:
             cursor.execute(
                 """
                 INSERT INTO document_types
-                (id, name, description, schema_fields, system_prompt, post_processing, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, name, description, schema_fields, system_prompt, post_processing, schema_version_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     doc_type.id,
@@ -388,8 +460,25 @@ class SQLiteClient:
                     json.dumps([f.model_dump() for f in doc_type.schema_fields]),
                     doc_type.system_prompt,
                     doc_type.post_processing,
+                    doc_type.schema_version_id,
                     doc_type.created_at.isoformat(),
                     doc_type.updated_at.isoformat(),
+                ),
+            )
+            cursor.execute(
+                """
+                INSERT INTO schema_versions
+                (id, document_type_id, schema_fields, system_prompt, post_processing, created_at, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    schema_version_id,
+                    doc_type.id,
+                    json.dumps([f.model_dump() for f in doc_type.schema_fields]),
+                    doc_type.system_prompt,
+                    doc_type.post_processing,
+                    now.isoformat(),
+                    None,
                 ),
             )
             conn.commit()
@@ -459,16 +548,48 @@ class SQLiteClient:
         if data.post_processing is not None:
             updates["post_processing"] = data.post_processing
 
+        requires_new_schema_version = any(
+            key in updates for key in ("schema_fields", "system_prompt", "post_processing")
+        )
+
         if not updates:
             return existing
 
         updates["updated_at"] = datetime.utcnow().isoformat()
+        if requires_new_schema_version:
+            updates["schema_version_id"] = str(uuid4())
 
         set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
         values = list(updates.values()) + [type_id]
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
+            if requires_new_schema_version:
+                next_schema_fields = (
+                    data.schema_fields if data.schema_fields is not None else existing.schema_fields
+                )
+                next_system_prompt = (
+                    data.system_prompt if data.system_prompt is not None else existing.system_prompt
+                )
+                next_post_processing = (
+                    data.post_processing if data.post_processing is not None else existing.post_processing
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO schema_versions
+                    (id, document_type_id, schema_fields, system_prompt, post_processing, created_at, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        updates["schema_version_id"],
+                        type_id,
+                        json.dumps([f.model_dump() for f in next_schema_fields]),
+                        next_system_prompt,
+                        next_post_processing,
+                        updates["updated_at"],
+                        None,
+                    ),
+                )
             cursor.execute(
                 f"UPDATE document_types SET {set_clause} WHERE id = ?",
                 values,
@@ -510,6 +631,153 @@ class SQLiteClient:
             schema_fields=schema_fields,
             system_prompt=row["system_prompt"],
             post_processing=row["post_processing"],
+            schema_version_id=row["schema_version_id"] if "schema_version_id" in row.keys() else None,
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
+
+    def list_schema_versions(self, document_type_id: str) -> list[dict]:
+        """List schema versions for a document type."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT * FROM schema_versions
+                WHERE document_type_id = ?
+                ORDER BY created_at DESC
+                """,
+                (document_type_id,),
+            )
+            rows = cursor.fetchall()
+        return [
+            {
+                "id": row["id"],
+                "document_type_id": row["document_type_id"],
+                "schema_fields": json.loads(row["schema_fields"]),
+                "system_prompt": row["system_prompt"],
+                "post_processing": row["post_processing"],
+                "created_at": row["created_at"],
+                "created_by": row["created_by"],
+            }
+            for row in rows
+        ]
+
+    # Global Field Library CRUD Operations
+
+    def create_global_field(self, data: GlobalFieldCreate) -> GlobalField:
+        """Create a reusable global field template."""
+        now = datetime.utcnow()
+        field = GlobalField(
+            id=str(uuid4()),
+            name=data.name,
+            type=data.type,
+            prompt=data.prompt,
+            description=data.description,
+            created_by=data.created_by,
+            created_at=now,
+            updated_at=now,
+        )
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO global_fields
+                (id, name, type, prompt, description, created_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    field.id,
+                    field.name,
+                    field.type.value,
+                    field.prompt,
+                    field.description,
+                    field.created_by,
+                    field.created_at.isoformat(),
+                    field.updated_at.isoformat(),
+                ),
+            )
+            conn.commit()
+        return field
+
+    def list_global_fields(self, search: Optional[str] = None) -> list[GlobalField]:
+        """List global field templates with optional search."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if search:
+                term = f"%{search}%"
+                cursor.execute(
+                    """
+                    SELECT * FROM global_fields
+                    WHERE name LIKE ? OR prompt LIKE ? OR description LIKE ?
+                    ORDER BY name
+                    """,
+                    (term, term, term),
+                )
+            else:
+                cursor.execute("SELECT * FROM global_fields ORDER BY name")
+            rows = cursor.fetchall()
+        return [self._row_to_global_field(row) for row in rows]
+
+    def get_global_field(self, field_id: str) -> Optional[GlobalField]:
+        """Get a global field template by ID."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM global_fields WHERE id = ?", (field_id,))
+            row = cursor.fetchone()
+        return self._row_to_global_field(row) if row else None
+
+    def get_global_field_by_name(self, name: str) -> Optional[GlobalField]:
+        """Get a global field template by name."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM global_fields WHERE name = ?", (name,))
+            row = cursor.fetchone()
+        return self._row_to_global_field(row) if row else None
+
+    def update_global_field(self, field_id: str, data: GlobalFieldUpdate) -> Optional[GlobalField]:
+        """Update a global field template."""
+        existing = self.get_global_field(field_id)
+        if not existing:
+            return None
+        updates = {}
+        if data.name is not None:
+            updates["name"] = data.name
+        if data.type is not None:
+            updates["type"] = data.type.value
+        if data.prompt is not None:
+            updates["prompt"] = data.prompt
+        if data.description is not None:
+            updates["description"] = data.description
+        if not updates:
+            return existing
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
+        values = list(updates.values()) + [field_id]
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"UPDATE global_fields SET {set_clause} WHERE id = ?", values)
+            conn.commit()
+        return self.get_global_field(field_id)
+
+    def delete_global_field(self, field_id: str) -> bool:
+        """Delete a global field template."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM global_fields WHERE id = ?", (field_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def _row_to_global_field(self, row: sqlite3.Row) -> GlobalField:
+        """Convert a global field row to model."""
+        from uu_backend.models.taxonomy import FieldType
+
+        return GlobalField(
+            id=row["id"],
+            name=row["name"],
+            type=FieldType(row["type"]),
+            prompt=row["prompt"],
+            description=row["description"],
+            created_by=row["created_by"],
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
@@ -1263,13 +1531,15 @@ class SQLiteClient:
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO extractions 
-                (id, document_id, document_type_id, extracted_data, extracted_at)
-                VALUES (?, ?, ?, ?, ?)
+                (id, document_id, document_type_id, schema_version_id, prompt_version_id, extracted_data, extracted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(uuid4()),
                     result.document_id,
                     result.document_type_id,
+                    result.schema_version_id,
+                    result.prompt_version_id,
                     json.dumps(fields_data),
                     result.extracted_at.isoformat(),
                 ),
@@ -1293,6 +1563,8 @@ class SQLiteClient:
             "id": row["id"],
             "document_id": row["document_id"],
             "document_type_id": row["document_type_id"],
+            "schema_version_id": row["schema_version_id"] if "schema_version_id" in row.keys() else None,
+            "prompt_version_id": row["prompt_version_id"] if "prompt_version_id" in row.keys() else None,
             "fields": json.loads(row["extracted_data"]),
             "extracted_at": row["extracted_at"],
         }
@@ -1517,15 +1789,17 @@ class SQLiteClient:
             cursor.execute(
                 """
                 INSERT INTO evaluations 
-                (id, document_id, document_type_id, prompt_version_id, metrics, 
+                (id, document_id, document_type_id, prompt_version_id, schema_version_id, comparator_mode, metrics, 
                  extraction_time_ms, evaluated_by, evaluated_at, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     evaluation.id,
                     evaluation.document_id,
                     evaluation.document_type_id,
                     evaluation.prompt_version_id,
+                    evaluation.schema_version_id,
+                    evaluation.metrics.comparator_mode,
                     metrics_json,
                     evaluation.extraction_time_ms,
                     evaluation.evaluated_by,
@@ -1563,6 +1837,7 @@ class SQLiteClient:
             document_type_id=row["document_type_id"],
             prompt_version_id=row["prompt_version_id"],
             prompt_version_name=row["prompt_version_name"],
+            schema_version_id=row["schema_version_id"] if "schema_version_id" in row.keys() else None,
             metrics=metrics,
             extraction_time_ms=row["extraction_time_ms"],
             evaluated_by=row["evaluated_by"],
@@ -1635,6 +1910,7 @@ class SQLiteClient:
                     document_type_id=row["document_type_id"],
                     prompt_version_id=row["prompt_version_id"],
                     prompt_version_name=row["prompt_version_name"],
+                    schema_version_id=row["schema_version_id"] if "schema_version_id" in row.keys() else None,
                     metrics=metrics,
                     extraction_time_ms=row["extraction_time_ms"],
                     evaluated_by=row["evaluated_by"],

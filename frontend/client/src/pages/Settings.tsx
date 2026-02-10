@@ -4,26 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { 
   Plus, 
-  Trash2, 
-  Settings2, 
   Cpu, 
   Database, 
-  MoreVertical,
-  CheckCircle2,
-  ChevronRight
+  MoreVertical
 } from "lucide-react";
 import { useState } from "react";
-
-const MOCK_MODELS = [
-  { id: 'm1', name: 'GPT-4o', provider: 'OpenAI', status: 'active', tokens: '128k' },
-  { id: 'm2', name: 'GPT-4o mini', provider: 'OpenAI', status: 'active', tokens: '128k' },
-  { id: 'm3', name: 'Claude 3.5 Sonnet', provider: 'Anthropic', status: 'active', tokens: '200k' },
-];
-
-const MOCK_ENGINES = [
-  { id: 'e1', name: 'Azure DI Prebuilt', type: 'OCR', region: 'East US', status: 'connected' },
-  { id: 'e2', name: 'AWS Textract', type: 'OCR', region: 'Global', status: 'inactive' },
-];
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('llm');
@@ -94,21 +79,9 @@ export default function Settings() {
                             <span className="w-20 text-right">Action</span>
                           </div>
                         </div>
-                        {MOCK_MODELS.filter(m => m.provider === 'OpenAI').map(model => (
-                          <div key={model.id} className="flex items-center justify-between group py-1">
-                            <div className="flex items-center gap-2">
-                              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                              <span className="font-medium text-sm">{model.name}</span>
-                            </div>
-                            <div className="flex items-center gap-16 text-xs">
-                              <span className="font-mono text-muted-foreground w-24">{model.tokens}</span>
-                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity w-20 justify-end">
-                                <Button variant="ghost" size="icon" className="h-7 w-7"><Settings2 className="h-3.5 w-3.5" /></Button>
-                                <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></Button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                        <div className="text-sm text-muted-foreground py-2">
+                          No provider-backed model registry exists yet. This page intentionally avoids mock model rows.
+                        </div>
                         <Button variant="ghost" size="sm" className="w-full border-dashed border h-9 text-xs text-muted-foreground hover:text-accent hover:border-accent/50">
                           <Plus className="h-3.5 w-3.5 mr-2" /> Register New Model
                         </Button>
@@ -133,30 +106,15 @@ export default function Settings() {
                 </div>
 
                 <div className="grid gap-6">
-                  {MOCK_ENGINES.map(engine => (
-                    <Card key={engine.id} className="border-accent/10 bg-white">
-                      <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                        <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded border bg-muted/50 flex items-center justify-center">
-                            <Database className="h-5 w-5 text-indigo-500" />
-                          </div>
-                          <div>
-                            <CardTitle className="text-lg">{engine.name}</CardTitle>
-                            <CardDescription>{engine.type} • {engine.region}</CardDescription>
-                          </div>
-                        </div>
-                        <Badge variant={engine.status === 'connected' ? 'default' : 'outline'} className={engine.status === 'connected' ? 'bg-emerald-500' : ''}>
-                          {engine.status}
-                        </Badge>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex gap-2">
-                           <Button variant="outline" size="sm" className="flex-1">Configure Endpoint</Button>
-                           <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" /></Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                  <Card className="border-accent/10 bg-white">
+                    <CardHeader>
+                      <CardTitle className="text-lg">No Engines Configured</CardTitle>
+                      <CardDescription>This section currently has no backend persistence and shows no synthetic rows.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Button variant="outline" size="sm" className="w-full">Configure First Engine</Button>
+                    </CardContent>
+                  </Card>
                 </div>
               </>
             )}

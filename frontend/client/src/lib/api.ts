@@ -194,6 +194,25 @@ export interface DocumentTypeUpdate {
   post_processing?: string;
 }
 
+export interface GlobalField {
+  id: string;
+  name: string;
+  type: FieldType;
+  prompt: string;
+  description?: string;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GlobalFieldCreate {
+  name: string;
+  type: FieldType;
+  prompt: string;
+  description?: string;
+  created_by?: string;
+}
+
 export interface Classification {
   document_id: string;
   document_type_id: string;
@@ -681,6 +700,33 @@ class ApiClient {
 
   async getDocumentsByType(typeId: string): Promise<{ document_type: string; document_ids: string[]; total: number }> {
     return this.request(`${API_PREFIX}/taxonomy/types/${typeId}/documents`);
+  }
+
+  async listGlobalFields(search?: string): Promise<{ fields: GlobalField[]; total: number }> {
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`${API_PREFIX}/taxonomy/fields${query}`);
+  }
+
+  async createGlobalField(data: GlobalFieldCreate): Promise<GlobalField> {
+    return this.request(`${API_PREFIX}/taxonomy/fields`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateGlobalField(id: string, data: Partial<GlobalFieldCreate>): Promise<GlobalField> {
+    return this.request(`${API_PREFIX}/taxonomy/fields/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteGlobalField(id: string): Promise<{ status: string; message: string }> {
+    return this.request(`${API_PREFIX}/taxonomy/fields/${id}`, {
+      method: 'DELETE',
+    });
   }
 
   // Taxonomy - Document Classification

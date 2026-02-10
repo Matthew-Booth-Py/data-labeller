@@ -1,22 +1,15 @@
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Copy, ShieldCheck, Globe, Webhook } from "lucide-react";
+import { Plus, Trash2, Copy, ShieldCheck, Webhook } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState } from "react";
 
 export function APIManagement() {
-  const [backgroundProcessing, setBackgroundProcessing] = useState<Record<string, boolean>>({
-    ak1: false,
-    ak2: true
-  });
-
-  const mockKeys = [
-    { id: 'ak1', name: 'Production - Internal', key: 'ii_prod_••••••••••••••••', created: '2024-02-01', lastUsed: '2 hours ago' },
-    { id: 'ak2', name: 'Staging - Webhooks', key: 'ii_stg_••••••••••••••••', created: '2024-02-03', lastUsed: '1 day ago' },
-  ];
+  const [backgroundProcessing, setBackgroundProcessing] = useState<Record<string, boolean>>({});
+  const keys: Array<{ id: string; name: string; key: string; created: string }> = [];
 
   const toggleProcessing = (id: string, checked: boolean) => {
     setBackgroundProcessing(prev => ({ ...prev, [id]: checked }));
@@ -36,7 +29,7 @@ export function APIManagement() {
       </div>
 
       <div className="grid gap-4">
-        {mockKeys.map((key) => (
+        {keys.map((key) => (
           <Card key={key.id} className="border-muted hover:border-accent/30 transition-all bg-white">
             <CardContent className="p-4 space-y-4">
               <div className="flex items-center justify-between">
@@ -88,6 +81,13 @@ export function APIManagement() {
             </CardContent>
           </Card>
         ))}
+        {keys.length === 0 && (
+          <Card className="border-muted bg-white">
+            <CardContent className="p-4 text-sm text-muted-foreground">
+              API key storage is not yet wired to backend persistence. No synthetic keys are shown.
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <Card className="bg-primary/5 border-primary/20">

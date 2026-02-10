@@ -2,9 +2,25 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Copy, Terminal, PlayCircle, Rocket, CheckCircle2, History } from "lucide-react";
-import { MOCK_EVALS } from "@/lib/mockData";
+import { useEffect, useState } from "react";
 
 export function DeploymentView() {
+  const [runs, setRuns] = useState<any[]>([]);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const response = await fetch("/api/v1/evaluation?limit=10");
+        if (!response.ok) return;
+        const data = await response.json();
+        setRuns(data.evaluations || []);
+      } catch {
+        setRuns([]);
+      }
+    };
+    load();
+  }, []);
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -31,17 +47,17 @@ export function DeploymentView() {
                             <div>Completeness</div>
                             <div className="col-span-2 text-right">Action</div>
                         </div>
-                        {MOCK_EVALS.map((run, i) => (
+                        {runs.map((run, i) => (
                             <div key={run.id} className={`grid grid-cols-6 p-4 items-center border-b last:border-0 text-sm ${i === 0 ? 'bg-accent/5' : ''}`}>
                                 <div className="col-span-2">
                                     <div className="font-medium flex items-center gap-2">
-                                        {run.promptVersion}
+                                        {run.prompt_version_name || "default"}
                                         {i === 0 && <Badge className="bg-accent h-4 text-[9px] px-1 uppercase">Current</Badge>}
                                     </div>
-                                    <div className="text-xs text-muted-foreground">{run.model}</div>
+                                    <div className="text-xs text-muted-foreground">{new Date(run.evaluated_at).toLocaleString()}</div>
                                 </div>
-                                <div className="font-mono text-emerald-500">{run.accuracy}%</div>
-                                <div className="font-mono">{run.completeness}%</div>
+                                <div className="font-mono text-emerald-500">{((run.metrics?.accuracy || 0) * 100).toFixed(1)}%</div>
+                                <div className="font-mono">{((run.metrics?.recall || 0) * 100).toFixed(1)}%</div>
                                 <div className="col-span-2 text-right">
                                     {i === 0 ? (
                                         <Button size="sm" variant="ghost" className="text-emerald-500 gap-2 pointer-events-none">
@@ -55,6 +71,9 @@ export function DeploymentView() {
                                 </div>
                             </div>
                         ))}
+                        {runs.length === 0 && (
+                            <div className="p-4 text-sm text-muted-foreground">No evaluation runs found.</div>
+                        )}
                     </div>
                 </CardContent>
             </Card>

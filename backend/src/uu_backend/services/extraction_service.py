@@ -138,6 +138,8 @@ Extract all fields according to the schema. Return null for fields that cannot b
                 document_id=document_id,
                 document_type_id=doc_type.id,
                 fields=extracted_fields,
+                schema_version_id=doc_type.schema_version_id,
+                prompt_version_id=prompt_version_id,
                 extracted_at=datetime.utcnow()
             )
             
@@ -248,6 +250,8 @@ If a field cannot be found, return null. Do not make up data."""
             document_id=document_id,
             document_type_id=doc_type.id,
             fields=extracted_fields,
+            schema_version_id=doc_type.schema_version_id,
+            prompt_version_id=prompt_version_id,
             extracted_at=datetime.utcnow()
         )
         
