@@ -425,6 +425,7 @@ class SQLiteClient:
                 """
             )
 
+
             conn.commit()
 
     # Document Type CRUD Operations
