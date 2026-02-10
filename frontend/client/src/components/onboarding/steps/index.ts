@@ -1,0 +1,9 @@
+export { WelcomeStep } from "./WelcomeStep";
+export { CreateTypesStep } from "./CreateTypesStep";
+export { ExploreDocumentsStep } from "./ExploreDocumentsStep";
+export { ClassifyDocumentStep } from "./ClassifyDocumentStep";
+export { AutoClassifyStep } from "./AutoClassifyStep";
+export { CreateLabelsStep } from "./CreateLabelsStep";
+export { AnnotateDocumentStep } from "./AnnotateDocumentStep";
+export { GetSuggestionsStep } from "./GetSuggestionsStep";
+export { CompleteStep } from "./CompleteStep";

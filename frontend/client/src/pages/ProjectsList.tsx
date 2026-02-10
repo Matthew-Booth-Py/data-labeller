@@ -1,0 +1,239 @@
+import { useState, useEffect } from "react";
+import { Shell } from "@/components/layout/Shell";
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { 
+  Plus, 
+  MoreVertical, 
+  FileText, 
+  Play,
+  ArrowUpRight,
+  Clock,
+  Trash2,
+  Loader2,
+} from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { api } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
+
+interface Project {
+  id: string;
+  name: string;
+  description: string;
+  type: string;
+  coverage: number;
+  lastEval: string;
+  driftRisk: "Low" | "Medium" | "High";
+  docCount: number;
+  model: string;
+  createdAt?: string;
+  documentIds?: string[];  // Track uploaded document IDs
+}
+
+export default function ProjectsList() {
+  const [_, setLocation] = useLocation();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  // Load projects from localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem("uu-projects");
+    if (stored) {
+      try {
+        setProjects(JSON.parse(stored));
+      } catch {
+        setProjects([]);
+      }
+    }
+  }, []);
+
+  const deleteProject = async (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const project = projects.find(p => p.id === id);
+    if (!project) return;
+
+    // Confirm deletion if project has documents
+    if (project.documentIds && project.documentIds.length > 0) {
+      const confirmed = window.confirm(
+        `This will delete the project and ${project.documentIds.length} uploaded document(s). Continue?`
+      );
+      if (!confirmed) return;
+    }
+
+    setDeletingId(id);
+
+    try {
+      // Delete all associated documents from backend
+      if (project.documentIds && project.documentIds.length > 0) {
+        const deletePromises = project.documentIds.map(docId => 
+          api.deleteDocument(docId).catch(err => {
+            console.warn(`Failed to delete document ${docId}:`, err);
+            return null; // Continue even if one fails
+          })
+        );
+        await Promise.all(deletePromises);
+      }
+
+      // Remove project from localStorage
+      const updated = projects.filter(p => p.id !== id);
+      setProjects(updated);
+      localStorage.setItem("uu-projects", JSON.stringify(updated));
+
+      toast({
+        title: "Project deleted",
+        description: project.documentIds?.length 
+          ? `Deleted project and ${project.documentIds.length} document(s)`
+          : "Project removed successfully",
+      });
+    } catch (error) {
+      console.error("Error deleting project:", error);
+      toast({
+        title: "Delete failed",
+        description: "Failed to delete some documents",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <Shell>
+      <div className="p-8 max-w-7xl mx-auto space-y-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-primary">Projects</h1>
+            <p className="text-muted-foreground mt-1">Manage and monitor your document extraction pipelines.</p>
+          </div>
+          <Button 
+            className="gap-2 bg-accent hover:bg-accent/90"
+            onClick={() => setLocation("/projects/new")}
+          >
+            <Plus className="h-4 w-4" />
+            New Project
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {projects.map((project) => (
+            <Card key={project.id} className="group hover:border-primary/20 transition-all bg-white border-muted shadow-sm flex flex-col relative overflow-visible">
+              <CardHeader className="pb-4">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-1">
+                     <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="text-xs font-normal border-muted-foreground/20 text-muted-foreground bg-muted/5">
+                          {project.type || "Document Analysis"}
+                        </Badge>
+                        <Badge variant={project.driftRisk === 'Low' ? 'secondary' : 'destructive'} className="text-[10px]">
+                           {project.driftRisk || "Low"} Risk
+                        </Badge>
+                     </div>
+                     <CardTitle className="text-xl font-bold text-foreground group-hover:text-primary transition-colors flex items-center gap-2">
+                        <Link href={`/project/${project.id}`} className="hover:underline underline-offset-4 decoration-primary/30">
+                          {project.name}
+                        </Link>
+                        <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                     </CardTitle>
+                     <p className="text-sm text-muted-foreground line-clamp-1">
+                       {project.description || "No description"}
+                     </p>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10 -mt-1 -mr-2"
+                    onClick={(e) => deleteProject(project.id, e)}
+                    disabled={deletingId === project.id}
+                    title="Delete project"
+                  >
+                    {deletingId === project.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </CardHeader>
+              
+              <CardContent className="py-4 border-t border-dashed border-muted">
+                <div className="grid grid-cols-3 gap-8">
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Docs</p>
+                    <div className="flex items-center gap-2 font-mono text-sm font-medium">
+                      <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                      {(project.docCount || 0).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Coverage</p>
+                    <div className="flex items-center gap-2 font-mono text-sm font-medium">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      {project.coverage || 0}%
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Model</p>
+                    <div className="flex items-center gap-2 font-mono text-sm font-medium truncate" title={project.model}>
+                       {(project.model || "GPT-5-mini").split(' ')[0]}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+
+              <CardFooter className="pt-3 pb-3 bg-muted/5 flex justify-between items-center text-xs text-muted-foreground border-t border-muted">
+                 <div className="flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5" />
+                    {project.createdAt 
+                      ? `Created: ${new Date(project.createdAt).toLocaleDateString()}` 
+                      : `Last eval: ${project.lastEval || "Never"}`
+                    }
+                 </div>
+                 
+                 <Button 
+                    size="sm"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setLocation(`/project/${project.id}`);
+                    }}
+                    className="h-8 gap-2 bg-accent hover:bg-accent/90 shadow-sm text-white px-4"
+                  >
+                    <Play className="h-3.5 w-3.5 fill-current" />
+                    Open
+                  </Button>
+              </CardFooter>
+            </Card>
+          ))}
+
+          {/* Create New Project Card */}
+          <button 
+            className="h-full min-h-[220px] border-2 border-dashed rounded-xl border-muted-foreground/10 flex flex-col items-center justify-center gap-3 text-muted-foreground hover:border-accent/50 hover:text-accent hover:bg-accent/5 transition-all group bg-white/50"
+            onClick={() => setLocation("/projects/new")}
+          >
+             <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center group-hover:bg-accent/10 group-hover:text-accent transition-colors">
+               <Plus className="h-6 w-6" />
+             </div>
+             <div className="text-center">
+                <span className="font-semibold block">Create Project</span>
+                <span className="text-xs text-muted-foreground mt-1">Start a new document analysis project</span>
+             </div>
+          </button>
+        </div>
+
+        {projects.length === 0 && (
+          <div className="text-center py-12">
+            <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-medium">No projects yet</h3>
+            <p className="text-muted-foreground mt-1">
+              Create your first project to get started
+            </p>
+          </div>
+        )}
+      </div>
+    </Shell>
+  );
+}

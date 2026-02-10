@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output (we build in container)
+dist/
+
+# Development files
+.git/
+.gitignore
+*.md
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Replit (removed)
+.replit
+.local/
+
+# Misc
+*.tmp
+*.temp
+
+# Assets we don't need in container
+attached_assets/
