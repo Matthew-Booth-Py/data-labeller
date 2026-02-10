@@ -1,0 +1,32 @@
+{
+  "name": "Final Test Auto Labels",
+  "description": "Testing automatic label creation after rebuild",
+  "schema_fields": [
+    {
+      "name": "line_items",
+      "type": "array",
+      "description": "Line items from invoice",
+      "items": {
+        "name": "item",
+        "type": "object",
+        "properties": {
+          "product_name": {
+            "name": "product_name",
+            "type": "string",
+            "description": "Name of the product"
+          },
+          "quantity": {
+            "name": "quantity",
+            "type": "number",
+            "description": "Quantity ordered"
+          },
+          "unit_price": {
+            "name": "unit_price",
+            "type": "number",
+            "description": "Price per unit"
+          }
+        }
+      }
+    }
+  ]
+}

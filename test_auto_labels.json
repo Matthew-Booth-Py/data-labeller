@@ -1,0 +1,44 @@
+{
+  "name": "Property Damage Claim",
+  "description": "Property insurance claim with itemized damages",
+  "schema_fields": [
+    {
+      "name": "claim_id",
+      "type": "string",
+      "description": "Unique claim identifier",
+      "required": true
+    },
+    {
+      "name": "damage_items",
+      "type": "array",
+      "description": "List of damaged property items",
+      "items": {
+        "name": "item",
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "name": "item_type",
+            "type": "string",
+            "description": "Type of damaged property"
+          },
+          "damage_description": {
+            "name": "damage_description",
+            "type": "string",
+            "description": "Description of the damage"
+          },
+          "repair_cost": {
+            "name": "repair_cost",
+            "type": "number",
+            "description": "Estimated repair cost"
+          }
+        }
+      }
+    },
+    {
+      "name": "total_claim_amount",
+      "type": "number",
+      "description": "Total claim amount",
+      "required": true
+    }
+  ]
+}

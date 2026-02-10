@@ -99,10 +99,30 @@ def extract_pdf_with_tables(pdf_path: str) -> tuple[str, int]:
                         if md_table:
                             page_content.append(f"\n{md_table}\n")
 
-                # Also get text that might be outside tables
-                text = page.extract_text() or ""
-                if text.strip():
-                    page_content.append(f"\n{text}\n")
+                # Extract text outside of tables by filtering out table bounding boxes
+                # This prevents duplication of table content
+                table_bboxes = [table.bbox for table in page.find_tables(table_settings) if table.bbox]
+                
+                # Get all text objects
+                words = page.extract_words()
+                non_table_text = []
+                
+                for word in words:
+                    word_bbox = (word['x0'], word['top'], word['x1'], word['bottom'])
+                    # Check if word is inside any table bbox
+                    in_table = False
+                    for table_bbox in table_bboxes:
+                        if (word_bbox[0] >= table_bbox[0] and word_bbox[2] <= table_bbox[2] and
+                            word_bbox[1] >= table_bbox[1] and word_bbox[3] <= table_bbox[3]):
+                            in_table = True
+                            break
+                    
+                    if not in_table:
+                        non_table_text.append(word['text'])
+                
+                # Add non-table text if any
+                if non_table_text:
+                    page_content.append(f"\n{' '.join(non_table_text)}\n")
             else:
                 # No bordered tables - use layout-preserving text extraction
                 # This preserves whitespace alignment for financial tables
