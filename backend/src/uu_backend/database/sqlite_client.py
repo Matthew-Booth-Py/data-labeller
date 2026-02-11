@@ -981,6 +981,17 @@ class SQLiteClient:
             row = cursor.fetchone()
         return self._row_to_deployment_version(row) if row else None
 
+    def get_deployment_version_by_name(self, project_id: str, version: str) -> Optional[dict]:
+        """Get one deployment version snapshot by project_id + version name (e.g., 0.1)."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM deployment_versions WHERE project_id = ? AND version = ? LIMIT 1",
+                (project_id, version),
+            )
+            row = cursor.fetchone()
+        return self._row_to_deployment_version(row) if row else None
+
     def list_deployment_versions(self, project_id: str) -> list[dict]:
         """List all deployment versions for a project."""
         with self._get_connection() as conn:

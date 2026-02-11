@@ -119,3 +119,16 @@ def extract_with_specific_deployment(project_id: str, version_id: str, file: Upl
         raise HTTPException(status_code=404, detail="Deployment version not found for this project")
     return _run_deployment_extract(project_id, version, file)
 
+
+@router.post("/projects/{project_id}/v/{version}/extract", response_model=DeploymentExtractResponse)
+def extract_with_named_deployment_version(project_id: str, version: str, file: UploadFile = File(...)):
+    """
+    Extract using a semantic deployment version endpoint.
+
+    Example: /api/v1/deployments/projects/tutorial/v/0.1/extract
+    """
+    sqlite_client = get_sqlite_client()
+    deployment_version = sqlite_client.get_deployment_version_by_name(project_id, version)
+    if not deployment_version:
+        raise HTTPException(status_code=404, detail="Named deployment version not found for this project")
+    return _run_deployment_extract(project_id, deployment_version, file)
