@@ -30,6 +30,7 @@ export default function Settings() {
   const [newModelId, setNewModelId] = useState("");
   const [newModelName, setNewModelName] = useState("");
   const [modelSaving, setModelSaving] = useState(false);
+  const [modelTesting, setModelTesting] = useState<Record<string, boolean>>({});
   const { toast } = useToast();
 
   const keyChanged = useMemo(() => keyInput !== maskedKey, [keyInput, maskedKey]);
@@ -111,6 +112,29 @@ export default function Settings() {
         description: error.message || "Could not delete model.",
         variant: "destructive",
       });
+    }
+  };
+
+  const testModel = async (modelId: string) => {
+    setModelTesting((prev) => ({ ...prev, [modelId]: true }));
+    try {
+      const result = await api.testOpenAIProviderModel(modelId);
+      setLastStatus(result.connected ? "connected" : "failed");
+      setLastTestedAt(result.tested_at);
+      toast({
+        title: result.connected ? "Model connected" : "Model connection failed",
+        description: result.message,
+        variant: result.connected ? "default" : "destructive",
+      });
+    } catch (error: any) {
+      setLastStatus("failed");
+      toast({
+        title: "Model test failed",
+        description: error.message || `Could not test model ${modelId}.`,
+        variant: "destructive",
+      });
+    } finally {
+      setModelTesting((prev) => ({ ...prev, [modelId]: false }));
     }
   };
 
@@ -305,6 +329,15 @@ export default function Settings() {
                                 <Badge variant={model.is_enabled ? "default" : "secondary"}>
                                   {model.is_enabled ? "Enabled" : "Disabled"}
                                 </Badge>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => testModel(model.model_id)}
+                                  disabled={!model.is_enabled || !!modelTesting[model.model_id]}
+                                >
+                                  {modelTesting[model.model_id] && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                                  Test
+                                </Button>
                                 <Button
                                   size="sm"
                                   variant="outline"

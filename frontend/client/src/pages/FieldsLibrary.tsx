@@ -53,6 +53,10 @@ export default function FieldsLibrary() {
   const [fieldName, setFieldName] = useState("");
   const [fieldType, setFieldType] = useState<FieldType>("string");
   const [fieldPrompt, setFieldPrompt] = useState("");
+  const [fieldModel, setFieldModel] = useState("gpt-5-mini");
+  const [ocrEngine, setOcrEngine] = useState("azure-di-prebuilt");
+
+  const [providerModels, setProviderModels] = useState<Array<{ model_id: string; display_name?: string | null }>>([]);
   
   const filteredFields = useMemo(() => fields.filter(field =>
     field.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -64,6 +68,8 @@ export default function FieldsLibrary() {
     try {
       const response = await api.listGlobalFields();
       setFields(response.fields || []);
+      const models = await api.listOpenAIProviderModels(true);
+      setProviderModels(models.models || []);
     } catch (error: any) {
       toast({
         title: "Failed to load fields",
@@ -84,6 +90,8 @@ export default function FieldsLibrary() {
     setFieldName("");
     setFieldType("string");
     setFieldPrompt("");
+    setFieldModel("gpt-5-mini");
+    setOcrEngine("azure-di-prebuilt");
   };
   
   // Open create dialog
@@ -98,6 +106,8 @@ export default function FieldsLibrary() {
     setFieldName(field.name);
     setFieldType(field.type);
     setFieldPrompt(field.prompt);
+    setFieldModel(field.extraction_model || "gpt-5-mini");
+    setOcrEngine(field.ocr_engine || "azure-di-prebuilt");
     setEditingField(field);
     setIsCreating(true);
   };
@@ -127,6 +137,8 @@ export default function FieldsLibrary() {
         name,
         type: fieldType,
         prompt: fieldPrompt || `Extract the ${name.replace(/_/g, ' ')} from the document.`,
+        extraction_model: fieldModel,
+        ocr_engine: ocrEngine,
       };
 
       if (editingField) {
@@ -201,12 +213,14 @@ export default function FieldsLibrary() {
            </div>
         </div>
 
-        <div className="rounded-md border bg-white">
+        <div className="rounded-md border bg-card">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/5 hover:bg-muted/5">
                 <TableHead className="w-[250px]">Field Name</TableHead>
                 <TableHead className="w-[100px]">Type</TableHead>
+                <TableHead className="w-[160px]">Model</TableHead>
+                <TableHead className="w-[160px]">OCR</TableHead>
                 <TableHead>Optimized Prompt</TableHead>
                 <TableHead className="w-[100px] text-right">Actions</TableHead>
               </TableRow>
@@ -214,7 +228,7 @@ export default function FieldsLibrary() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                     <span className="inline-flex items-center gap-2">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Loading fields...
@@ -225,7 +239,7 @@ export default function FieldsLibrary() {
               <>
               {filteredFields.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                     {searchQuery ? "No fields match your search." : "No fields defined yet."}
                   </TableCell>
                 </TableRow>
@@ -237,6 +251,12 @@ export default function FieldsLibrary() {
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary" className="text-[10px] font-mono">{field.type}</Badge>
+                    </TableCell>
+                    <TableCell className="text-xs font-mono text-muted-foreground">
+                      {field.extraction_model || "gpt-5-mini"}
+                    </TableCell>
+                    <TableCell className="text-xs font-mono text-muted-foreground">
+                      {field.ocr_engine || "azure-di-prebuilt"}
                     </TableCell>
                     <TableCell className="max-w-md truncate text-muted-foreground text-xs italic">
                       "{field.prompt}"
@@ -333,6 +353,43 @@ export default function FieldsLibrary() {
                 <p className="text-xs text-muted-foreground">
                   This prompt will be used by the LLM to extract this field from documents.
                 </p>
+              </div>
+              <div className="rounded-lg border p-3 space-y-3 bg-muted/10">
+                <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Extraction Engine Settings</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Model Choice</label>
+                    <Select value={fieldModel} onValueChange={setFieldModel}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {!providerModels?.length && <SelectItem value={fieldModel}>{fieldModel}</SelectItem>}
+                        {providerModels?.length &&
+                          !providerModels.some((m) => m.model_id === fieldModel) && (
+                            <SelectItem value={fieldModel}>{fieldModel}</SelectItem>
+                          )}
+                        {providerModels.map((model) => (
+                          <SelectItem key={model.model_id} value={model.model_id}>
+                            {model.display_name || model.model_id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">OCR Engine</label>
+                    <Select value={ocrEngine} onValueChange={setOcrEngine}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="azure-di-prebuilt">Azure DI Prebuilt</SelectItem>
+                        <SelectItem value="aws-textract">AWS Textract</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </div>
             </div>
             <DialogFooter>

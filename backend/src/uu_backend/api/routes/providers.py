@@ -115,6 +115,14 @@ class OpenAIProviderModelUpdateRequest(BaseModel):
     is_enabled: Optional[bool] = None
 
 
+class OpenAIProviderModelTestResponse(BaseModel):
+    provider: str = "openai"
+    model_id: str
+    connected: bool
+    message: str
+    tested_at: str
+
+
 @router.get("/openai", response_model=OpenAIProviderStatusResponse)
 def get_openai_provider_status():
     """Get OpenAI provider status for settings UI."""
@@ -231,3 +239,42 @@ def delete_openai_model(model_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail="Model not found")
     return {"status": "deleted"}
+
+
+@router.post("/openai/models/{model_id}/test", response_model=OpenAIProviderModelTestResponse)
+def test_openai_model(model_id: str):
+    """Test one configured OpenAI model with the effective provider key."""
+    sqlite_client = get_sqlite_client()
+    key, _ = _get_effective_openai_key()
+    tested_at = datetime.utcnow().isoformat()
+    if not key:
+        sqlite_client.update_llm_provider_test_status("openai", "failed")
+        raise HTTPException(status_code=400, detail="No OpenAI API key configured")
+
+    try:
+        client = OpenAI(api_key=key)
+        # Prefer Responses API for broad model compatibility.
+        try:
+            client.responses.create(
+                model=model_id,
+                input="Reply with OK",
+                max_output_tokens=12,
+            )
+        except Exception:
+            # Fallback for models exposed primarily via chat completions.
+            client.chat.completions.create(
+                model=model_id,
+                messages=[{"role": "user", "content": "Reply with OK"}],
+                max_completion_tokens=12,
+            )
+        sqlite_client.update_llm_provider_test_status("openai", "connected")
+        return OpenAIProviderModelTestResponse(
+            provider="openai",
+            model_id=model_id,
+            connected=True,
+            message=f"Model '{model_id}' responded successfully",
+            tested_at=tested_at,
+        )
+    except Exception as exc:
+        sqlite_client.update_llm_provider_test_status("openai", "failed")
+        raise HTTPException(status_code=400, detail=f"Model test failed for '{model_id}': {exc}") from exc

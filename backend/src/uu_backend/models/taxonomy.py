@@ -169,6 +169,8 @@ class GlobalField(BaseModel):
     type: FieldType
     prompt: str = Field(..., min_length=1)
     description: Optional[str] = None
+    extraction_model: Optional[str] = None
+    ocr_engine: Optional[str] = None
     created_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -181,6 +183,8 @@ class GlobalFieldCreate(BaseModel):
     type: FieldType
     prompt: str = Field(..., min_length=1)
     description: Optional[str] = None
+    extraction_model: Optional[str] = None
+    ocr_engine: Optional[str] = None
     created_by: Optional[str] = None
 
 
@@ -191,6 +195,8 @@ class GlobalFieldUpdate(BaseModel):
     type: Optional[FieldType] = None
     prompt: Optional[str] = Field(None, min_length=1)
     description: Optional[str] = None
+    extraction_model: Optional[str] = None
+    ocr_engine: Optional[str] = None
 
 
 class FieldPropertySuggestion(BaseModel):

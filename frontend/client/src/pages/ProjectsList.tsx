@@ -31,9 +31,18 @@ interface Project {
   documentIds?: string[];  // Track uploaded document IDs
 }
 
+type DriftRisk = "Low" | "Medium" | "High" | "Unknown";
+
+interface ProjectLiveMetrics {
+  coverage: number;
+  lastEval: string;
+  driftRisk: DriftRisk;
+}
+
 export default function ProjectsList() {
   const [_, setLocation] = useLocation();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectMetrics, setProjectMetrics] = useState<Record<string, ProjectLiveMetrics>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -48,6 +57,101 @@ export default function ProjectsList() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    const computeMetrics = async () => {
+      if (!projects.length) {
+        setProjectMetrics({});
+        return;
+      }
+      try {
+        const response = await api.listEvaluations({ limit: 2000 });
+        const allEvals = response.evaluations || [];
+        const next: Record<string, ProjectLiveMetrics> = {};
+
+        for (const project of projects) {
+          const documentIds = project.documentIds || [];
+          const docCount = documentIds.length || project.docCount || 0;
+          if (docCount === 0) {
+            next[project.id] = { coverage: 0, lastEval: "Never", driftRisk: "Unknown" };
+            continue;
+          }
+
+          // Primary path: strict project doc IDs.
+          const docSet = new Set(documentIds);
+          let evals = allEvals.filter((e: any) => docSet.has(e.document_id));
+
+          // Fallback for legacy projects that tracked docCount but not documentIds.
+          if (!documentIds.length) {
+            evals = allEvals;
+          }
+
+          const evaluatedDocs = new Set(evals.map((e: any) => e.document_id));
+          const coverage = Math.min(100, Math.round((evaluatedDocs.size / docCount) * 100));
+          const latestEval = evals
+            .map((e: any) => e.evaluated_at)
+            .filter(Boolean)
+            .sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime())[0];
+
+          const sortedByDate = [...evals].sort(
+            (a: any, b: any) => new Date(a.evaluated_at).getTime() - new Date(b.evaluated_at).getTime()
+          );
+          const f1Series = sortedByDate
+            .map((e: any) => Number(e.metrics?.f1_score ?? 0))
+            .filter((v: number) => Number.isFinite(v));
+
+          let driftRisk: DriftRisk = "Unknown";
+          if (f1Series.length >= 2) {
+            const recent = f1Series.slice(-5);
+            const previous = f1Series.slice(-10, -5);
+            const avg = (arr: number[]) => (arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : 0);
+            const recentAvg = avg(recent);
+            const previousAvg = previous.length ? avg(previous) : recentAvg;
+            const delta = Math.abs(recentAvg - previousAvg);
+            if (recentAvg < 0.75 || delta > 0.15) driftRisk = "High";
+            else if (recentAvg < 0.9 || delta > 0.08) driftRisk = "Medium";
+            else driftRisk = "Low";
+          }
+
+          next[project.id] = {
+            coverage,
+            lastEval: latestEval ? new Date(latestEval).toLocaleDateString() : "Never",
+            driftRisk,
+          };
+        }
+
+        setProjectMetrics(next);
+      } catch {
+        // keep UI usable if metrics endpoint fails
+      }
+    };
+
+    computeMetrics();
+
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key === "uu-projects") {
+        const stored = localStorage.getItem("uu-projects");
+        if (stored) {
+          try {
+            setProjects(JSON.parse(stored));
+          } catch {
+            // ignore parse errors
+          }
+        }
+      }
+    };
+
+    const onFocus = () => {
+      computeMetrics();
+    };
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [projects]);
 
   const deleteProject = async (id: string, e: React.MouseEvent) => {
     e.preventDefault();
@@ -128,8 +232,15 @@ export default function ProjectsList() {
                         <Badge variant="outline" className="text-xs font-normal border-muted-foreground/20 text-muted-foreground bg-muted/5">
                           {project.type || "Document Analysis"}
                         </Badge>
-                        <Badge variant={project.driftRisk === 'Low' ? 'secondary' : 'destructive'} className="text-[10px]">
-                           {project.driftRisk || "Low"} Risk
+                        <Badge
+                          variant={
+                            (projectMetrics[project.id]?.driftRisk || "Unknown") === "High"
+                              ? "destructive"
+                              : "secondary"
+                          }
+                          className="text-[10px]"
+                        >
+                           {(projectMetrics[project.id]?.driftRisk || "Unknown")} Risk
                         </Badge>
                      </div>
                      <CardTitle className="text-xl font-bold text-foreground group-hover:text-primary transition-colors flex items-center gap-2">
@@ -170,9 +281,9 @@ export default function ProjectsList() {
                   </div>
                   <div className="space-y-1">
                     <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Coverage</p>
-                    <div className="flex items-center gap-2 font-mono text-sm font-medium">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      {project.coverage || 0}%
+                      <div className="flex items-center gap-2 font-mono text-sm font-medium">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      {projectMetrics[project.id]?.coverage ?? 0}%
                     </div>
                   </div>
                   <div className="space-y-1">
@@ -189,7 +300,7 @@ export default function ProjectsList() {
                     <Clock className="h-3.5 w-3.5" />
                     {project.createdAt 
                       ? `Created: ${new Date(project.createdAt).toLocaleDateString()}` 
-                      : `Last eval: ${project.lastEval || "Never"}`
+                      : `Last eval: ${projectMetrics[project.id]?.lastEval || "Never"}`
                     }
                  </div>
                  

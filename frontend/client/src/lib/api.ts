@@ -186,6 +186,14 @@ export interface OpenAIProviderModel {
   updated_at: string;
 }
 
+export interface OpenAIProviderModelTestResponse {
+  provider: "openai";
+  model_id: string;
+  connected: boolean;
+  message: string;
+  tested_at: string;
+}
+
 export type EntityType = 'Person' | 'Organization' | 'Location' | 'Event';
 
 export interface Entity {
@@ -289,6 +297,8 @@ export interface GlobalField {
   type: FieldType;
   prompt: string;
   description?: string;
+  extraction_model?: string;
+  ocr_engine?: string;
   created_by?: string;
   created_at: string;
   updated_at: string;
@@ -299,6 +309,8 @@ export interface GlobalFieldCreate {
   type: FieldType;
   prompt: string;
   description?: string;
+  extraction_model?: string;
+  ocr_engine?: string;
   created_by?: string;
 }
 
@@ -1209,6 +1221,12 @@ class ApiClient {
   async deleteOpenAIProviderModel(modelId: string): Promise<{ status: string }> {
     return this.request(`${API_PREFIX}/providers/openai/models/${encodeURIComponent(modelId)}`, {
       method: "DELETE",
+    });
+  }
+
+  async testOpenAIProviderModel(modelId: string): Promise<OpenAIProviderModelTestResponse> {
+    return this.request(`${API_PREFIX}/providers/openai/models/${encodeURIComponent(modelId)}/test`, {
+      method: "POST",
     });
   }
 

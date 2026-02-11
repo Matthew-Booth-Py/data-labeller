@@ -559,12 +559,20 @@ class SQLiteClient:
                     type TEXT NOT NULL,
                     prompt TEXT NOT NULL,
                     description TEXT,
+                    extraction_model TEXT,
+                    ocr_engine TEXT,
                     created_by TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
                 """
             )
+            cursor.execute("PRAGMA table_info(global_fields)")
+            global_field_columns = [row[1] for row in cursor.fetchall()]
+            if "extraction_model" not in global_field_columns:
+                cursor.execute("ALTER TABLE global_fields ADD COLUMN extraction_model TEXT")
+            if "ocr_engine" not in global_field_columns:
+                cursor.execute("ALTER TABLE global_fields ADD COLUMN ocr_engine TEXT")
             cursor.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_global_fields_name
@@ -1349,6 +1357,8 @@ class SQLiteClient:
             type=data.type,
             prompt=data.prompt,
             description=data.description,
+            extraction_model=data.extraction_model or "gpt-5-mini",
+            ocr_engine=data.ocr_engine or "azure-di-prebuilt",
             created_by=data.created_by,
             created_at=now,
             updated_at=now,
@@ -1358,8 +1368,8 @@ class SQLiteClient:
             cursor.execute(
                 """
                 INSERT INTO global_fields
-                (id, name, type, prompt, description, created_by, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, name, type, prompt, description, extraction_model, ocr_engine, created_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     field.id,
@@ -1367,6 +1377,8 @@ class SQLiteClient:
                     field.type.value,
                     field.prompt,
                     field.description,
+                    field.extraction_model,
+                    field.ocr_engine,
                     field.created_by,
                     field.created_at.isoformat(),
                     field.updated_at.isoformat(),
@@ -1424,6 +1436,10 @@ class SQLiteClient:
             updates["prompt"] = data.prompt
         if data.description is not None:
             updates["description"] = data.description
+        if data.extraction_model is not None:
+            updates["extraction_model"] = data.extraction_model
+        if data.ocr_engine is not None:
+            updates["ocr_engine"] = data.ocr_engine
         if not updates:
             return existing
         updates["updated_at"] = datetime.utcnow().isoformat()
@@ -1453,6 +1469,8 @@ class SQLiteClient:
             type=FieldType(row["type"]),
             prompt=row["prompt"],
             description=row["description"],
+            extraction_model=row["extraction_model"] if "extraction_model" in row.keys() else None,
+            ocr_engine=row["ocr_engine"] if "ocr_engine" in row.keys() else None,
             created_by=row["created_by"],
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
