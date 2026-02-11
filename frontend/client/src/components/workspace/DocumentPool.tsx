@@ -145,8 +145,10 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
       }
       
       queryClient.invalidateQueries({ queryKey: ["documents"] });
-      queryClient.invalidateQueries({ queryKey: ["timeline"] });
+      queryClient.invalidateQueries({ queryKey: ["timeline-uploaded"] });
       queryClient.invalidateQueries({ queryKey: ["graph"] });
+      queryClient.invalidateQueries({ queryKey: ["ingest-status"] });
+      queryClient.invalidateQueries({ queryKey: ["health"] });
     },
     onError: (error: Error) => {
       toast({
@@ -188,6 +190,10 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
       });
       removeDocumentIdFromProject(deletedId);
       queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["timeline-uploaded"] });
+      queryClient.invalidateQueries({ queryKey: ["graph"] });
+      queryClient.invalidateQueries({ queryKey: ["ingest-status"] });
+      queryClient.invalidateQueries({ queryKey: ["health"] });
     },
     onError: (error: Error) => {
       toast({

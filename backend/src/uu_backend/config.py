@@ -44,12 +44,19 @@ class Settings(BaseModel):
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
     neo4j_password: str = "password"
+    neo4j_database: str | None = None
 
     # OpenAI Settings
     openai_api_key: str = ""
     openai_model: str = "gpt-5-mini"
     openai_tagging_model: str = "gpt-5-mini"
     openai_reasoning_effort: str = "low"
+
+    # GraphRAG Settings
+    graphrag_embedding_model: str = "text-embedding-3-small"
+    graphrag_embedding_dimensions: int = 1536
+    graphrag_vector_index_name: str = "chunk_embeddings"
+    graphrag_similarity_fn: str = "cosine"
 
     @property
     def chroma_path(self) -> Path:
@@ -79,16 +86,26 @@ _ENV_TO_FIELD = {
     "NEO4J_URI": "neo4j_uri",
     "NEO4J_USER": "neo4j_user",
     "NEO4J_PASSWORD": "neo4j_password",
+    "NEO4J_DATABASE": "neo4j_database",
     "OPENAI_API_KEY": "openai_api_key",
     "OPENAI_MODEL": "openai_model",
     "OPENAI_TAGGING_MODEL": "openai_tagging_model",
     "OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
+    "GRAPHRAG_EMBEDDING_MODEL": "graphrag_embedding_model",
+    "GRAPHRAG_EMBEDDING_DIMENSIONS": "graphrag_embedding_dimensions",
+    "GRAPHRAG_VECTOR_INDEX_NAME": "graphrag_vector_index_name",
+    "GRAPHRAG_SIMILARITY_FN": "graphrag_similarity_fn",
 }
 
 
 def _coerce_value(field_name: str, raw: str) -> Any:
     """Coerce env/.env string values into typed settings values."""
-    if field_name in {"api_port", "chunk_size", "chunk_overlap"}:
+    if field_name in {
+        "api_port",
+        "chunk_size",
+        "chunk_overlap",
+        "graphrag_embedding_dimensions",
+    }:
         return int(raw)
     if field_name == "debug":
         return raw.strip().lower() in {"1", "true", "yes", "on"}

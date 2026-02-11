@@ -178,17 +178,18 @@ Schema fields to extract:
             doc_type.schema_fields,
             model_name=f"{doc_type.name.replace(' ', '')}Extraction"
         )
+        model_name = getattr(self, "model", "gpt-5-mini")
         
         try:
             # First: Get structured extraction
             extraction_response = self.client.beta.chat.completions.parse(
-                model=self.model,
+                model=model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
                 response_format=ExtractionModel,
-                **reasoning_options_for_model(self.model),
+                **reasoning_options_for_model(model_name),
             )
             
             extracted_data = extraction_response.choices[0].message.parsed
