@@ -87,6 +87,7 @@ def _run_deployment_extract(project_id: str, deployment_version: dict, file: Upl
         document_type_name=deployment_version["document_type_name"],
         schema_fields=schema_fields,
         system_prompt=deployment_version.get("system_prompt"),
+        model=deployment_version.get("model"),
     )
 
     return DeploymentExtractResponse(

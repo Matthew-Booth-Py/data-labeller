@@ -22,6 +22,7 @@ from uu_backend.api.routes import (
     tutorial,
     evaluation,
     deployments,
+    providers,
 )
 
 
@@ -137,6 +138,11 @@ def create_app() -> FastAPI:
         deployments.router,
         prefix=settings.api_prefix,
         tags=["deployments"],
+    )
+    app.include_router(
+        providers.router,
+        prefix=settings.api_prefix,
+        tags=["providers"],
     )
 
     return app
