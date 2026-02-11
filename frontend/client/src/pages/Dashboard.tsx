@@ -41,11 +41,7 @@ export default function Dashboard() {
 
   const { data: evaluations } = useQuery({
     queryKey: ["dashboard-evaluations"],
-    queryFn: async () => {
-      const response = await fetch("/api/v1/evaluation?limit=30");
-      if (!response.ok) throw new Error("Failed to load evaluations");
-      return response.json();
-    },
+    queryFn: () => api.listEvaluations({ limit: 30 }),
     staleTime: 30000,
   });
 

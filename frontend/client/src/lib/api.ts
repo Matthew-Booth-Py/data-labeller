@@ -140,6 +140,16 @@ export interface DeploymentExtractResponse {
   extracted_data: Record<string, unknown>;
 }
 
+export interface DashboardEvaluationSummary {
+  f1_score?: number;
+}
+
+export interface DashboardEvaluation {
+  id: string;
+  evaluated_at: string;
+  metrics?: DashboardEvaluationSummary;
+}
+
 export type EntityType = 'Person' | 'Organization' | 'Location' | 'Event';
 
 export interface Entity {
@@ -1097,6 +1107,23 @@ class ApiClient {
   }
 
   // Evaluation
+  async listEvaluations(params?: {
+    document_id?: string;
+    document_type_id?: string;
+    prompt_version_id?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ evaluations: DashboardEvaluation[]; total: number }> {
+    const query = new URLSearchParams();
+    if (params?.document_id) query.append("document_id", params.document_id);
+    if (params?.document_type_id) query.append("document_type_id", params.document_type_id);
+    if (params?.prompt_version_id) query.append("prompt_version_id", params.prompt_version_id);
+    if (typeof params?.limit === "number") query.append("limit", String(params.limit));
+    if (typeof params?.offset === "number") query.append("offset", String(params.offset));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return this.request(`${API_PREFIX}/evaluation${suffix}`);
+  }
+
   async deleteEvaluation(evaluationId: string): Promise<{ message: string }> {
     return this.request(`${API_PREFIX}/evaluation/results/${evaluationId}`, {
       method: 'DELETE',
