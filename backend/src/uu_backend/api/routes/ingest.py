@@ -1,5 +1,6 @@
 """Document ingestion endpoints."""
 
+import logging
 import time
 import uuid
 from pathlib import Path
@@ -10,14 +11,14 @@ from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from uu_backend.config import get_settings
 from uu_backend.database.neo4j_client import get_neo4j_client
 from uu_backend.database.vector_store import get_vector_store
-from uu_backend.extraction.entities import extract_entities
-from uu_backend.extraction.relationships import store_entities_and_relationships
 from uu_backend.ingestion.chunker import get_chunker
 from uu_backend.ingestion.converter import get_converter
 from uu_backend.ingestion.dates import extract_date
 from uu_backend.models.document import Document, IngestResponse
+from uu_backend.services.graph_ingestion_service import get_graph_ingestion_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def process_entity_extraction(
@@ -27,20 +28,17 @@ def process_entity_extraction(
 ) -> None:
     """Background task to extract entities and store in Neo4j."""
     try:
-        # Extract entities using LLM
-        extracted = extract_entities(content, doc_id)
-
-        # Store in Neo4j
-        if extracted.entities or extracted.relationships:
-            store_entities_and_relationships(
-                entities=extracted.entities,
-                relationships=extracted.relationships,
-                document_id=doc_id,
-                document_date=date_extracted,
-            )
+        graph_service = get_graph_ingestion_service()
+        graph_service.extract_and_store_entities(
+            doc_id=doc_id,
+            content=content,
+            document_date=date_extracted,
+        )
     except Exception:
-        # Log error but don't fail the ingestion
-        pass
+        logger.exception(
+            "graph_entity_extraction_failed",
+            extra={"document_id": doc_id},
+        )
 
 
 @router.post("/ingest", response_model=IngestResponse)
@@ -64,7 +62,7 @@ async def ingest_documents(
     converter = get_converter()
     chunker = get_chunker()
     vector_store = get_vector_store()
-    neo4j_client = get_neo4j_client()
+    graph_service = get_graph_ingestion_service()
 
     documents_processed = 0
     chunks_created = 0
@@ -133,7 +131,7 @@ async def ingest_documents(
             vector_store.add_document(document)
 
             # Store document in Neo4j (for timeline/graph)
-            neo4j_client.create_document(
+            graph_service.upsert_document(
                 doc_id=doc_id,
                 filename=filename,
                 file_type=result.metadata.file_type,

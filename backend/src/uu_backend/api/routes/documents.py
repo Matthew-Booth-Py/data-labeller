@@ -1,16 +1,19 @@
 """Document retrieval endpoints."""
 
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from uu_backend.config import get_settings
-from uu_backend.database.vector_store import get_vector_store
+from uu_backend.database.neo4j_client import get_neo4j_client
 from uu_backend.database.sqlite_client import get_sqlite_client
+from uu_backend.database.vector_store import get_vector_store
 from uu_backend.models.document import DocumentListResponse, DocumentResponse
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def get_original_file_path(document_id: str, file_type: str) -> Path | None:
@@ -181,6 +184,7 @@ async def delete_document(document_id: str):
     Raises 404 if document not found.
     """
     store = get_vector_store()
+    neo4j_client = get_neo4j_client()
     document = store.get_document(document_id)
 
     if document:
@@ -197,7 +201,21 @@ async def delete_document(document_id: str):
             detail=f"Document not found: {document_id}",
         )
 
-    return {"status": "deleted", "document_id": document_id}
+    graph_cleanup: dict[str, str | int]
+    try:
+        graph_cleanup = neo4j_client.delete_document_graph_data(document_id)
+    except Exception as exc:
+        logger.exception(
+            "graph_document_delete_failed",
+            extra={"document_id": document_id},
+        )
+        graph_cleanup = {"error": str(exc)}
+
+    return {
+        "status": "deleted",
+        "document_id": document_id,
+        "graph_cleanup": graph_cleanup,
+    }
 
 
 @router.post("/documents/{document_id}/reprocess")
@@ -208,41 +226,39 @@ async def reprocess_document(document_id: str):
     Useful after converter improvements to update existing documents.
     """
     from uu_backend.ingestion.converter import get_converter
-    from uu_backend.database.sqlite_client import get_sqlite_client
-    
+
     store = get_vector_store()
     document = store.get_document(document_id)
-    
+
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    
+
     # Get original file
     file_path = get_original_file_path(document_id, document.file_type)
     if not file_path:
         raise HTTPException(status_code=404, detail="Original file not found")
-    
+
     try:
         # Re-convert the document
         converter = get_converter()
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             result = converter.convert(f, document.filename)
-        
+
         if not result.success:
             raise HTTPException(status_code=500, detail=f"Conversion failed: {result.error}")
-        
+
         # Update document content in vector store
         store.update_document_content(document_id, result.content)
-        
-        # Clear any existing annotations since content changed
-        sqlite_client = get_sqlite_client()
-        # Note: You might want to keep annotations, but content offsets may be invalid now
-        
+
         return {
             "status": "reprocessed",
             "document_id": document_id,
             "content_length": len(result.content),
-            "message": "Document reprocessed successfully. Note: Existing annotations may have invalid offsets."
+            "message": (
+                "Document reprocessed successfully. "
+                "Note: Existing annotations may have invalid offsets."
+            ),
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Reprocessing failed: {str(e)}")
