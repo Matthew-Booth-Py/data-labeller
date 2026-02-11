@@ -182,7 +182,7 @@ def test_bordered_table_extraction():
         Path(pdf_path).unlink(missing_ok=True)
 
 
-def test_layout_preservation(pdf_path: str):
+def run_layout_preservation(pdf_path: str):
     """Test that financial tables preserve column alignment through spacing."""
     if not Path(pdf_path).exists():
         print(f"File not found: {pdf_path}")
@@ -233,7 +233,7 @@ if __name__ == "__main__":
 
     print("=" * 60)
     print("PDF TABLE EXTRACTION TESTS")
-    print("=" * 60) to 
+    print("=" * 60)
 
     # Test 1: Bordered tables -> markdown
     print("\n" + "=" * 60)
@@ -246,6 +246,6 @@ if __name__ == "__main__":
         print("\n" + "=" * 60)
         print("TEST 2: Layout Preservation for Financial Tables")
         print("=" * 60)
-        test_layout_preservation(sys.argv[1])
+        run_layout_preservation(sys.argv[1])
     else:
         print("\n(Skipping real PDF test - no file path provided)")

@@ -397,6 +397,8 @@ Extract all fields according to the schema. Return null for fields that cannot b
     ) -> list[SchemaField]:
         """Overlay active field prompt versions onto schema field definitions."""
         sqlite_client = get_sqlite_client()
+        if not hasattr(sqlite_client, "list_active_field_prompt_versions"):
+            return schema_fields
         active_prompts = sqlite_client.list_active_field_prompt_versions(document_type_id)
         if not active_prompts:
             return schema_fields
