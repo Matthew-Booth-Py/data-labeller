@@ -12,3 +12,7 @@ class SQLiteRepository:
             "backend": "sqlite",
             "path": str(client.db_path),
         }
+
+    def __getattr__(self, name: str):
+        """Delegate unknown operations to the existing SQLite client."""
+        return getattr(get_sqlite_client(), name)

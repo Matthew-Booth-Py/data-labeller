@@ -1,0 +1,2 @@
+"""Taxonomy endpoint group."""
+

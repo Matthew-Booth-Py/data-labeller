@@ -19,8 +19,8 @@
 - [x] Ingest async executor supports `inline`/`celery`
 - [x] Docker Compose includes Redis + celery worker
 - [x] Wave B migrated (`documents`, `graph`, `providers`)
-- [ ] Wave C migrated
-- [ ] Wave D migrated
+- [x] Wave C migrated (`ingest`, `suggestions`, `tutorial`)
+- [x] Wave D migrated (`taxonomy`, `annotations`, `deployments`, `evaluation`)
 
 ## Phase 3
 - [x] Repository abstraction scaffold added
