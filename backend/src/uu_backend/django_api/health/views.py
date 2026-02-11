@@ -10,7 +10,7 @@ from uu_backend.llm.openai_client import get_openai_client
 
 
 class HealthView(APIView):
-    """Health status endpoint preserving FastAPI response contract."""
+    """Health status endpoint preserving API response contract."""
 
     authentication_classes: list = []
     permission_classes: list = []

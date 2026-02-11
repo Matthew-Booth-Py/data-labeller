@@ -9,7 +9,7 @@ from uu_backend.database.vector_store import get_vector_store
 
 
 class TimelineView(APIView):
-    """Timeline endpoint preserving FastAPI contract."""
+    """Timeline endpoint preserving API contract."""
 
     authentication_classes: list = []
     permission_classes: list = []
@@ -33,7 +33,7 @@ class TimelineView(APIView):
 
 
 class TimelineRangeView(APIView):
-    """Timeline range endpoint preserving FastAPI contract."""
+    """Timeline range endpoint preserving API contract."""
 
     authentication_classes: list = []
     permission_classes: list = []

@@ -16,8 +16,8 @@ flowchart LR
 ```
 
 - Dispatcher entrypoint: `uu_backend.asgi_dispatcher:application`
-- SQL backend control: `DATA_BACKEND=django` (required)
-- Async control: `ASYNC_EXECUTOR=celery` (required)
+- SQL backend: Django ORM + Postgres
+- Async backend: Celery workers via Redis
 
 ## Quick Start
 
@@ -106,26 +106,15 @@ backend/
 | `CHUNK_SIZE` | `1000` | Characters per chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between chunks |
 | `CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed CORS origins |
-| `DATA_BACKEND` | `django` | Persistence backend mode (must be `django`) |
-| `ASYNC_EXECUTOR` | `celery` | Background executor (must be `celery`) |
 
 ## Migration Utilities
 
 ```bash
-# Regenerate endpoint inventory and docs
-python scripts/generate_endpoint_inventory.py
-
 # Run smoke checks against a running backend (default localhost:8000)
 ./scripts/smoke_frontend_flows.sh
 
-# Apply Django migrations (ORM parity tables)
+# Apply Django migrations
 PYTHONPATH=src uv run python manage.py migrate
-
-# Import legacy SQLite data into Django ORM tables
-PYTHONPATH=src uv run python manage.py import_sqlite --tables all
-
-# Validate row-count parity between SQLite and Django ORM
-PYTHONPATH=src uv run python manage.py validate_sql_parity
 ```
 
 ## Development

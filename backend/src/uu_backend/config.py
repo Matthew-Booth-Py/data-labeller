@@ -33,9 +33,6 @@ class Settings(BaseModel):
     # File Storage Settings
     file_storage_directory: str = "./data/files"
 
-    # SQLite Settings
-    sqlite_database_path: str = "./data/taxonomy.db"
-
     # Document Processing Settings
     chunk_size: int = 1000
     chunk_overlap: int = 200
@@ -53,10 +50,6 @@ class Settings(BaseModel):
     openai_model: str = "gpt-5-mini"
     openai_tagging_model: str = "gpt-5-mini"
     openai_reasoning_effort: str = "low"
-
-    # Migration rollout controls
-    data_backend: str = "django"
-    async_executor: str = "celery"
 
     @property
     def chroma_path(self) -> Path:
@@ -80,7 +73,6 @@ _ENV_TO_FIELD = {
     "CHROMA_PERSIST_DIRECTORY": "chroma_persist_directory",
     "CHROMA_COLLECTION_NAME": "chroma_collection_name",
     "FILE_STORAGE_DIRECTORY": "file_storage_directory",
-    "SQLITE_DATABASE_PATH": "sqlite_database_path",
     "CHUNK_SIZE": "chunk_size",
     "CHUNK_OVERLAP": "chunk_overlap",
     "CORS_ORIGINS": "cors_origins",
@@ -91,8 +83,6 @@ _ENV_TO_FIELD = {
     "OPENAI_MODEL": "openai_model",
     "OPENAI_TAGGING_MODEL": "openai_tagging_model",
     "OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
-    "DATA_BACKEND": "data_backend",
-    "ASYNC_EXECUTOR": "async_executor",
 }
 
 

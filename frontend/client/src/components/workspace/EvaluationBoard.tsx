@@ -315,8 +315,8 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
       const markerMatch = notes.match(/project_run:([A-Za-z0-9-]+)/);
       const marker = markerMatch ? markerMatch[1] : null;
       const evaluatedAt = new Date(evaluation.evaluated_at).getTime();
-      const fallbackMinuteBucket = new Date(evaluation.evaluated_at).toISOString().slice(0, 16);
-      const key = marker || `${evaluation.prompt_version_id || "default"}:${fallbackMinuteBucket}`;
+      const minuteBucket = new Date(evaluation.evaluated_at).toISOString().slice(0, 16);
+      const key = marker || `${evaluation.prompt_version_id || "default"}:${minuteBucket}`;
 
       const current = groups.get(key) || {
         key,

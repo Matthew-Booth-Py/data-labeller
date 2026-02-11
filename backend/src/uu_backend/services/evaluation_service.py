@@ -307,7 +307,7 @@ class EvaluationService:
                     )
                     rows_data[group_key][prop_name] = value
         elif use_row_index:
-            # Use row_index for grouping (fallback)
+            # Use row_index for grouping when group_id is not broadly present.
             for prop_name, anns in property_annotations.items():
                 prop_schema = properties[prop_name]
                 for ann in anns:
@@ -322,7 +322,7 @@ class EvaluationService:
                     )
                     rows_data[row_idx][prop_name] = value
         else:
-            # Fallback: assume annotations are in document order and group by index
+            # As a last resort, assume annotations are in document order and group by index.
             # This assumes each property has the same number of annotations in the same order
             max_count = max(len(anns) for anns in property_annotations.values())
             

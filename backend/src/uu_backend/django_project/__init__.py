@@ -1,4 +1,4 @@
-"""Django project package for staged FastAPI-to-Django migration."""
+"""Django project package."""
 
 from .celery_app import app as celery_app
 

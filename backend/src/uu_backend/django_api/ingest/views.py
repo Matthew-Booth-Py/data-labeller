@@ -27,17 +27,6 @@ class IngestView(APIView):
 
         start_time = time.time()
         settings = get_settings()
-        async_executor = settings.async_executor.strip().lower()
-        if async_executor != "celery":
-            return Response(
-                {
-                    "detail": (
-                        f"Unsupported ASYNC_EXECUTOR='{async_executor}'. "
-                        "This runtime is Celery-only; set ASYNC_EXECUTOR=celery."
-                    )
-                },
-                status=500,
-            )
 
         from uu_backend.tasks.extraction_tasks import process_entity_extraction_task
 

@@ -7,7 +7,7 @@ from uu_backend.services.qa_service import get_qa_service
 
 
 class SearchView(APIView):
-    """Semantic search endpoint preserving FastAPI contract."""
+    """Semantic search endpoint preserving API contract."""
 
     authentication_classes: list = []
     permission_classes: list = []
@@ -47,7 +47,7 @@ class SearchView(APIView):
 
 
 class AskView(APIView):
-    """RAG question-answer endpoint preserving FastAPI contract."""
+    """RAG question-answer endpoint preserving API contract."""
 
     authentication_classes: list = []
     permission_classes: list = []

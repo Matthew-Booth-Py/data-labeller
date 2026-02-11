@@ -18,13 +18,13 @@ It is organized as a practical build plan with clear code touchpoints and accept
 
 Key existing modules:
 
-- Backend API: `backend/src/uu_backend/api/routes/taxonomy.py`
-- Backend API: `backend/src/uu_backend/api/routes/annotations.py`
-- Backend API: `backend/src/uu_backend/api/routes/evaluation.py`
+- Backend API: `backend/src/uu_backend/django_api/taxonomy.py`
+- Backend API: `backend/src/uu_backend/django_api/annotations.py`
+- Backend API: `backend/src/uu_backend/django_api/evaluation.py`
 - Backend services: `backend/src/uu_backend/services/extraction_service.py`
 - Backend services: `backend/src/uu_backend/services/schema_based_suggestion_service.py`
 - Backend services: `backend/src/uu_backend/services/evaluation_service.py`
-- Persistence: `backend/src/uu_backend/database/sqlite_client.py`
+- Persistence: `backend/src/uu_backend/repositories/django_repo.py`
 - Frontend UI: `frontend/client/src/pages/FieldsLibrary.tsx`
 - Frontend UI: `frontend/client/src/pages/Evaluation.tsx`
 - Frontend API client: `frontend/client/src/lib/api.ts`
@@ -49,10 +49,10 @@ Touchpoints:
 
 - `backend/src/uu_backend/models/taxonomy.py`
 - `backend/src/uu_backend/models/evaluation.py`
-- `backend/src/uu_backend/database/sqlite_client.py`
-- `backend/scripts/migrate_evaluation_tables.py`
-- `backend/src/uu_backend/api/routes/taxonomy.py`
-- `backend/src/uu_backend/api/routes/evaluation.py`
+- `backend/src/uu_backend/repositories/django_repo.py`
+- `backend/scripts/smoke_frontend_flows.sh`
+- `backend/src/uu_backend/django_api/taxonomy.py`
+- `backend/src/uu_backend/django_api/evaluation.py`
 
 Acceptance:
 
@@ -72,8 +72,8 @@ Touchpoints:
 
 - `backend/src/uu_backend/services/evaluation_service.py`
 - `backend/src/uu_backend/models/evaluation.py`
-- `backend/src/uu_backend/api/routes/evaluation.py`
-- `backend/tests/test_benchmark_evaluation.py`
+- `backend/src/uu_backend/django_api/evaluation.py`
+- `backend/tests/test_evaluation.py`
 
 Acceptance:
 
@@ -118,9 +118,9 @@ Touchpoints:
 - `frontend/client/src/pages/FieldsLibrary.tsx`
 - `frontend/client/src/lib/api.ts`
 - `frontend/server/routes.ts` (if proxy routing needed)
-- `backend/src/uu_backend/api/routes/taxonomy.py` (or new `fields.py`)
+- `backend/src/uu_backend/django_api/taxonomy.py` (or new `fields.py`)
 - `backend/src/uu_backend/models/taxonomy.py`
-- `backend/src/uu_backend/database/sqlite_client.py`
+- `backend/src/uu_backend/repositories/django_repo.py`
 
 Acceptance:
 
@@ -140,7 +140,7 @@ Build:
 
 Touchpoints:
 
-- `backend/src/uu_backend/api/routes/tutorial.py` (extend or split)
+- `backend/src/uu_backend/django_api/tutorial.py` (extend or split)
 - `backend/src/uu_backend/services/suggestion_service.py`
 - `backend/src/uu_backend/services/schema_based_suggestion_service.py`
 - `frontend/client/src/components/onboarding/GettingStartedWizard.tsx`
@@ -169,7 +169,7 @@ Touchpoints:
 - `backend/src/uu_backend/services/schema_based_suggestion_service.py`
 - `backend/src/uu_backend/services/evaluation_service.py`
 - `backend/src/uu_backend/models/suggestion.py`
-- `backend/src/uu_backend/database/sqlite_client.py`
+- `backend/src/uu_backend/repositories/django_repo.py`
 - `frontend/client/src/components/workspace/LabelStudio.tsx`
 
 Acceptance:
@@ -218,8 +218,8 @@ Build:
 Touchpoints:
 
 - `backend/src/uu_backend/models/evaluation.py`
-- `backend/src/uu_backend/database/sqlite_client.py`
-- `backend/src/uu_backend/api/routes/evaluation.py`
+- `backend/src/uu_backend/repositories/django_repo.py`
+- `backend/src/uu_backend/django_api/evaluation.py`
 - `frontend/client/src/pages/Dashboard.tsx`
 - `frontend/client/src/components/workspace/DriftMap.tsx`
 
@@ -240,7 +240,7 @@ Build:
 
 Touchpoints:
 
-- `backend/tests/test_benchmark_evaluation.py`
+- `backend/tests/test_evaluation.py`
 - `backend/scripts/` (new CI evaluation runner)
 - `.github/workflows/` (new workflow)
 

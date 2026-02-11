@@ -1,4 +1,4 @@
-"""Django ORM-backed repository adapter (no SQLite fallback)."""
+"""Django ORM-backed repository adapter."""
 
 import os
 from datetime import datetime

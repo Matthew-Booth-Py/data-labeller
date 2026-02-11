@@ -183,7 +183,7 @@ export default function Dashboard() {
           <Card>
             <CardHeader>
               <CardTitle>Project Health</CardTitle>
-              <CardDescription>Not implemented yet (no mock fallback).</CardDescription>
+              <CardDescription>Not implemented yet (no mock data).</CardDescription>
             </CardHeader>
             <CardContent className="px-6 py-8 text-sm text-muted-foreground">
               This panel intentionally shows no synthetic data. Add project-level risk/coverage metrics when backend signals are available.
