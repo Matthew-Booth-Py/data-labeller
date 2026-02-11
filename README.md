@@ -100,6 +100,40 @@ All routes are served by FastAPI under `/api/v1`.
 - `POST /api/v1/deployments/projects/{project_id}/v/{version}/extract`
   - Extract with a pinned version.
 
+## Endpoint Dependencies
+
+### Core Runtime Dependencies
+- FastAPI backend running (`backend`)
+- SQLite available at configured `SQLITE_DATABASE_PATH`
+- File storage path writable for document uploads
+- Chroma available for chunk/embedding retrieval
+- Neo4j available for graph-backed features
+- LLM credentials/config present in `.env`
+
+### Route Group Dependency Map
+
+| Endpoint Group | Key Routes | Depends On |
+|---|---|---|
+| Health | `/docs`, `/api/v1/health` | FastAPI process, service checks |
+| Documents/Ingestion | `/api/v1/ingest`, `/api/v1/documents*` | File storage, converter/chunker, Chroma, SQLite metadata |
+| Taxonomy/Schema | `/api/v1/document-types*`, `/api/v1/labels*`, `/api/v1/fields*` | SQLite |
+| Classification/Suggestions | `/api/v1/documents/{id}/classify`, `/api/v1/documents/{id}/suggest*` | SQLite, document content, LLM |
+| Annotations | `/api/v1/documents/{id}/annotations*`, `/api/v1/annotations*` | SQLite |
+| Extraction | `/api/v1/extraction*` and workspace extraction actions | SQLite schema/prompts, document content, LLM |
+| Evaluation | `/api/v1/evaluation*` | SQLite evaluations + annotations + schema metadata, extraction pipeline, LLM (when enabled) |
+| Deployments | `/api/v1/deployments*` | SQLite deployment snapshots, extraction service, active/pinned version resolution, LLM |
+| Timeline/Graph/Search | `/api/v1/timeline`, `/api/v1/graph*`, `/api/v1/search*`, `/api/v1/ask` | Chroma, Neo4j, SQLite metadata, LLM (for Q&A) |
+| Tutorial Setup | `/api/v1/tutorial*` | `backend/sample_docs`, SQLite, file storage, converter/chunker |
+
+### Deployment Endpoint-Specific Requirements
+- `POST /api/v1/deployments/versions`
+  - Requires valid `project_id` + `document_type_id` and existing schema fields.
+- `POST /api/v1/deployments/projects/{project_id}/extract`
+  - Requires an active deployment version for that project.
+- `POST /api/v1/deployments/projects/{project_id}/v/{version}/extract`
+  - Requires the specified saved version to exist.
+- All extract endpoints require multipart file payload and a configured extraction model.
+
 ## Tech Stack
 
 - Frontend
