@@ -82,7 +82,6 @@ Once running, visit:
 backend/
 ├── src/uu_backend/
 │   ├── asgi_dispatcher.py    # Composite ASGI routing
-│   ├── api/                  # Legacy FastAPI app and route modules
 │   ├── django_project/       # Django settings/asgi/wsgi
 │   ├── django_api/           # Django DRF route groups
 │   ├── repositories/         # DATA_BACKEND abstraction

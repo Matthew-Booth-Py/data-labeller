@@ -214,17 +214,17 @@ GET /api/evaluation/compare/prompts
 
 ### API Integration
 
-The evaluation system is fully integrated into the main FastAPI app:
+The evaluation system is integrated into the Django API runtime:
 
 ```python
-# backend/src/uu_backend/api/main.py
-from uu_backend.api.routes import evaluation
+# backend/src/uu_backend/django_api/evaluation/urls.py
+from django.urls import path, re_path
+from .views import EvaluationRootView, EvaluationPrefixView
 
-app.include_router(
-    evaluation.router,
-    prefix=settings.api_prefix,
-    tags=["evaluation"],
-)
+urlpatterns = [
+    path("evaluation", EvaluationRootView.as_view(), name="evaluation-root"),
+    re_path(r"^evaluation/(?P<subpath>.+)$", EvaluationPrefixView.as_view(), name="evaluation-prefix"),
+]
 ```
 
 ## Key Benefits

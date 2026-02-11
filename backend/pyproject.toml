@@ -5,7 +5,6 @@ description = "Unstructured Unlocked - Document intelligence backend"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "django>=5.0,<6.0",
     "djangorestframework>=3.15.0",
