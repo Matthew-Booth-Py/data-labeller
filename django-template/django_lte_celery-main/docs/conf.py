@@ -22,7 +22,10 @@ if os.getenv("READTHEDOCS", default="False") == "True":
     os.environ["USE_DOCKER"] = "no"
 else:
     sys.path.insert(0, os.path.abspath("/app"))
-os.environ["DATABASE_URL"] = "sqlite:///readthedocs.db"
+os.environ.setdefault(
+    "DATABASE_URL",
+    os.getenv("DJANGO_DATABASE_URL", "postgres://uu:uu@localhost:5432/uu_django"),
+)
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.local")
 django.setup()
 
