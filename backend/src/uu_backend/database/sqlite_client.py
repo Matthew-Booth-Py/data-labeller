@@ -445,6 +445,49 @@ class SQLiteClient:
                 """
             )
 
+            # Deployable endpoint versions per project
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS deployment_versions (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    document_type_id TEXT NOT NULL,
+                    document_type_name TEXT NOT NULL,
+                    schema_version_id TEXT,
+                    prompt_version_id TEXT,
+                    system_prompt TEXT,
+                    user_prompt_template TEXT,
+                    schema_fields TEXT NOT NULL,
+                    field_prompt_versions TEXT NOT NULL DEFAULT '{}',
+                    model TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 0,
+                    created_by TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (document_type_id) REFERENCES document_types(id) ON DELETE CASCADE,
+                    FOREIGN KEY (prompt_version_id) REFERENCES prompt_versions(id) ON DELETE SET NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_deployment_versions_project_version
+                ON deployment_versions(project_id, version)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_deployment_versions_project_created
+                ON deployment_versions(project_id, created_at DESC)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_deployment_versions_project_active
+                ON deployment_versions(project_id, is_active)
+                """
+            )
+
             # Reusable global field templates
             cursor.execute(
                 """
@@ -841,6 +884,176 @@ class SQLiteClient:
             }
             for row in rows
         ]
+
+    # Deployment version CRUD operations
+
+    def _next_deployment_version_name_from_cursor(self, cursor: sqlite3.Cursor, project_id: str) -> str:
+        cursor.execute(
+            "SELECT version FROM deployment_versions WHERE project_id = ?",
+            (project_id,),
+        )
+        minors = [
+            parsed
+            for parsed in (
+                self._parse_incremental_version(row["version"]) for row in cursor.fetchall()
+            )
+            if parsed is not None
+        ]
+        next_minor = (max(minors) + 1) if minors else 0
+        return self._format_incremental_version(next_minor)
+
+    def create_deployment_version(
+        self,
+        *,
+        project_id: str,
+        document_type_id: str,
+        prompt_version_id: Optional[str] = None,
+        created_by: Optional[str] = None,
+        set_active: bool = True,
+    ) -> dict:
+        """Create a deployable endpoint version from current config snapshot."""
+        doc_type = self.get_document_type(document_type_id)
+        if not doc_type:
+            raise ValueError(f"Document type {document_type_id} not found")
+
+        prompt_version = self.get_prompt_version(prompt_version_id) if prompt_version_id else None
+        active_field_prompts = self.list_active_field_prompt_versions(document_type_id)
+        active_field_prompt_versions = self.list_active_field_prompt_version_names(document_type_id)
+
+        snapshot_schema_fields = []
+        for field in doc_type.schema_fields:
+            field_payload = field.model_dump()
+            prompt_override = active_field_prompts.get(field.name)
+            if prompt_override:
+                field_payload["extraction_prompt"] = prompt_override
+            snapshot_schema_fields.append(field_payload)
+
+        now = datetime.utcnow()
+        deployment_id = str(uuid4())
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            version = self._next_deployment_version_name_from_cursor(cursor, project_id)
+            if set_active:
+                cursor.execute(
+                    "UPDATE deployment_versions SET is_active = 0 WHERE project_id = ?",
+                    (project_id,),
+                )
+
+            cursor.execute(
+                """
+                INSERT INTO deployment_versions (
+                    id, project_id, version, document_type_id, document_type_name,
+                    schema_version_id, prompt_version_id, system_prompt, user_prompt_template,
+                    schema_fields, field_prompt_versions, model, is_active, created_by, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    deployment_id,
+                    project_id,
+                    version,
+                    document_type_id,
+                    doc_type.name,
+                    doc_type.schema_version_id,
+                    prompt_version_id,
+                    (prompt_version.system_prompt if prompt_version else doc_type.system_prompt),
+                    (prompt_version.user_prompt_template if prompt_version else None),
+                    json.dumps(snapshot_schema_fields),
+                    json.dumps(active_field_prompt_versions),
+                    "gpt-5-mini",
+                    1 if set_active else 0,
+                    created_by,
+                    now.isoformat(),
+                ),
+            )
+            conn.commit()
+
+        created = self.get_deployment_version(deployment_id)
+        if not created:
+            raise ValueError("Failed to load created deployment version")
+        return created
+
+    def get_deployment_version(self, deployment_version_id: str) -> Optional[dict]:
+        """Get one deployment version snapshot by ID."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM deployment_versions WHERE id = ?", (deployment_version_id,))
+            row = cursor.fetchone()
+        return self._row_to_deployment_version(row) if row else None
+
+    def list_deployment_versions(self, project_id: str) -> list[dict]:
+        """List all deployment versions for a project."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT * FROM deployment_versions
+                WHERE project_id = ?
+                ORDER BY datetime(created_at) DESC, id DESC
+                """,
+                (project_id,),
+            )
+            rows = cursor.fetchall()
+        return [self._row_to_deployment_version(row) for row in rows]
+
+    def get_active_deployment_version(self, project_id: str) -> Optional[dict]:
+        """Get active deployment version for a project."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT * FROM deployment_versions
+                WHERE project_id = ? AND is_active = 1
+                ORDER BY datetime(created_at) DESC, id DESC
+                LIMIT 1
+                """,
+                (project_id,),
+            )
+            row = cursor.fetchone()
+        return self._row_to_deployment_version(row) if row else None
+
+    def activate_deployment_version(self, project_id: str, deployment_version_id: str) -> Optional[dict]:
+        """Mark one project deployment version as active."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id FROM deployment_versions WHERE id = ? AND project_id = ?",
+                (deployment_version_id, project_id),
+            )
+            if not cursor.fetchone():
+                return None
+            cursor.execute(
+                "UPDATE deployment_versions SET is_active = 0 WHERE project_id = ?",
+                (project_id,),
+            )
+            cursor.execute(
+                "UPDATE deployment_versions SET is_active = 1 WHERE id = ? AND project_id = ?",
+                (deployment_version_id, project_id),
+            )
+            conn.commit()
+        return self.get_deployment_version(deployment_version_id)
+
+    def _row_to_deployment_version(self, row: sqlite3.Row) -> dict:
+        """Convert deployment_versions row to dictionary payload."""
+        return {
+            "id": row["id"],
+            "project_id": row["project_id"],
+            "version": row["version"],
+            "document_type_id": row["document_type_id"],
+            "document_type_name": row["document_type_name"],
+            "schema_version_id": row["schema_version_id"],
+            "prompt_version_id": row["prompt_version_id"],
+            "system_prompt": row["system_prompt"],
+            "user_prompt_template": row["user_prompt_template"],
+            "schema_fields": json.loads(row["schema_fields"]) if row["schema_fields"] else [],
+            "field_prompt_versions": (
+                json.loads(row["field_prompt_versions"]) if row["field_prompt_versions"] else {}
+            ),
+            "model": row["model"],
+            "is_active": bool(row["is_active"]),
+            "created_by": row["created_by"],
+            "created_at": datetime.fromisoformat(row["created_at"]),
+        }
 
     # Global Field Library CRUD Operations
 

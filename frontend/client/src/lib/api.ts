@@ -104,6 +104,42 @@ export interface TimelineResponse {
   total_documents: number;
 }
 
+export interface DeploymentVersion {
+  id: string;
+  project_id: string;
+  version: string;
+  document_type_id: string;
+  document_type_name: string;
+  schema_version_id?: string | null;
+  prompt_version_id?: string | null;
+  system_prompt?: string | null;
+  user_prompt_template?: string | null;
+  schema_fields: Record<string, unknown>[];
+  field_prompt_versions: Record<string, string>;
+  model?: string | null;
+  is_active: boolean;
+  created_by?: string | null;
+  created_at: string;
+}
+
+export interface DeploymentVersionCreate {
+  project_id: string;
+  document_type_id: string;
+  prompt_version_id?: string | null;
+  created_by?: string;
+  set_active?: boolean;
+}
+
+export interface DeploymentExtractResponse {
+  project_id: string;
+  deployment_version_id: string;
+  deployment_version: string;
+  document_type_id: string;
+  document_type_name: string;
+  filename: string;
+  extracted_data: Record<string, unknown>;
+}
+
 export type EntityType = 'Person' | 'Organization' | 'Location' | 'Event';
 
 export interface Entity {
@@ -1115,6 +1151,46 @@ class ApiClient {
     return this.request(
       `${API_PREFIX}/evaluation/field-prompts/active/by-document-type?document_type_id=${encodeURIComponent(documentTypeId)}`
     );
+  }
+
+  // Deployments
+  async createDeploymentVersion(data: DeploymentVersionCreate): Promise<{ version: DeploymentVersion }> {
+    return this.request(`${API_PREFIX}/deployments/versions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listDeploymentVersions(projectId: string): Promise<{ versions: DeploymentVersion[]; total: number }> {
+    return this.request(`${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/versions`);
+  }
+
+  async getActiveDeploymentVersion(projectId: string): Promise<{ version: DeploymentVersion }> {
+    return this.request(`${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/active`);
+  }
+
+  async activateDeploymentVersion(projectId: string, versionId: string): Promise<{ status: string; active_version: DeploymentVersion }> {
+    return this.request(`${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}/activate`, {
+      method: 'POST',
+    });
+  }
+
+  async extractWithDeploymentVersion(projectId: string, versionId: string, file: File): Promise<DeploymentExtractResponse> {
+    const formData = new FormData();
+    formData.append("file", file);
+    return this.request(`${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}/extract`, {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
+  async extractWithActiveDeployment(projectId: string, file: File): Promise<DeploymentExtractResponse> {
+    const formData = new FormData();
+    formData.append("file", file);
+    return this.request(`${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/extract`, {
+      method: 'POST',
+      body: formData,
+    });
   }
 }
 

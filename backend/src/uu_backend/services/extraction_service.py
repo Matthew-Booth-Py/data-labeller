@@ -179,6 +179,61 @@ Extract all fields accurately from the document. Pay special attention to:
 
 If a field cannot be found, return null. Do not make up data."""
 
+    def extract_structured_from_snapshot(
+        self,
+        *,
+        content: str,
+        filename: str,
+        document_type_name: str,
+        schema_fields: list[SchemaField],
+        system_prompt: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        Extract structured data using a deployable schema/prompt snapshot.
+
+        This does not require document ingestion, classification, or annotation persistence.
+        """
+        if not schema_fields:
+            raise ValueError("Deployment snapshot has no schema fields")
+
+        ExtractionModel = generate_pydantic_schema(
+            schema_fields,
+            model_name=f"{document_type_name.replace(' ', '')}DeploymentExtraction",
+        )
+
+        trimmed_content = content or ""
+        if len(trimmed_content) > 8000:
+            trimmed_content = trimmed_content[:4000] + "\n...[truncated]...\n" + trimmed_content[-4000:]
+
+        effective_system_prompt = (
+            system_prompt
+            or f"You are an expert at extracting structured data from {document_type_name} documents."
+        )
+        effective_system_prompt = f"{effective_system_prompt}\n\n{self._raw_guardrails}"
+
+        user_prompt = f"""Extract structured data from the following document.
+
+Document Type: {document_type_name}
+Filename: {filename}
+
+Document Content:
+```
+{trimmed_content}
+```
+
+Extract all fields according to the schema. Return null for fields that cannot be found."""
+
+        response = self.client.beta.chat.completions.parse(
+            model="gpt-4o-2024-08-06",
+            messages=[
+                {"role": "system", "content": effective_system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format=ExtractionModel,
+        )
+        parsed = response.choices[0].message.parsed
+        return parsed.model_dump() if parsed else {}
+
     def extract_from_annotations(
         self, 
         document_id: str,

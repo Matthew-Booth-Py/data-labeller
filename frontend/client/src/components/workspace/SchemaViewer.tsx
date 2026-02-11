@@ -700,8 +700,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
 
         <div className="space-y-4 overflow-auto max-h-[calc(100vh-12rem)] pr-2">
           {selectedType?.schema_fields?.map((field) => (
-            <div key={field.name} className="flex flex-col rounded-lg border bg-white shadow-sm hover:shadow-md hover:border-accent/40 transition-all overflow-hidden group">
-              <div className="flex items-center gap-3 p-3 bg-muted/10 border-b">
+            <div key={field.name} className="flex flex-col rounded-lg border bg-card shadow-sm hover:shadow-md hover:border-accent/40 transition-all overflow-hidden group">
+              <div className="flex items-center gap-3 p-3 bg-card border-b">
                 <div className="cursor-grab text-muted-foreground/30 hover:text-muted-foreground">
                   <GripVertical className="h-4 w-4" />
                 </div>

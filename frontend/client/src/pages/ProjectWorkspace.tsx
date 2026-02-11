@@ -264,7 +264,7 @@ export default function ProjectWorkspace() {
               <ExtractionRunner projectId={id} />
             </TabsContent>
             <TabsContent value="timeline" className="h-full m-0 p-6 overflow-auto">
-              <Timeline onDocumentClick={handleDocumentClick} />
+              <Timeline projectId={id} onDocumentClick={handleDocumentClick} />
             </TabsContent>
             <TabsContent value="graph" className="h-full m-0 p-6 overflow-auto">
               <KnowledgeGraph onDocumentClick={handleDocumentClick} />
