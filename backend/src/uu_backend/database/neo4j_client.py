@@ -34,15 +34,26 @@ class Neo4jClient:
 
     def __init__(self, driver: Any | None = None):
         """Initialize Neo4j connection."""
+        settings = get_settings()
+        self._database = settings.neo4j_database
         if driver is not None:
             self._driver = driver
         else:
-            settings = get_settings()
             self._driver = GraphDatabase.driver(
                 settings.neo4j_uri,
                 auth=(settings.neo4j_user, settings.neo4j_password),
             )
         self._initialized = False
+
+    def _session(self):
+        """Open a Neo4j session honoring configured database when supported."""
+        if self._database:
+            try:
+                return self._driver.session(database=self._database)
+            except TypeError:
+                # Test doubles or older driver shims may not accept `database`.
+                pass
+        return self._driver.session()
 
     def close(self):
         """Close the driver connection."""
@@ -61,7 +72,7 @@ class Neo4jClient:
         if self._initialized:
             return
 
-        with self._driver.session() as session:
+        with self._session() as session:
             session.run(
                 "CREATE CONSTRAINT document_id IF NOT EXISTS "
                 "FOR (d:Document) REQUIRE d.id IS UNIQUE"
@@ -112,7 +123,7 @@ class Neo4jClient:
         properties: dict[str, Any] | None = None,
     ) -> None:
         """Create or update a document node."""
-        with self._driver.session() as session:
+        with self._session() as session:
             now_iso = (created_at or datetime.utcnow()).isoformat()
             props: dict[str, Any] = {
                 "id": doc_id,
@@ -139,7 +150,7 @@ class Neo4jClient:
 
     def get_document(self, doc_id: str) -> dict[str, Any] | None:
         """Get a document by ID."""
-        with self._driver.session() as session:
+        with self._session() as session:
             result = session.run(
                 "MATCH (d:Document {id: $id}) RETURN d",
                 id=doc_id,
@@ -156,7 +167,7 @@ class Neo4jClient:
 
     def delete_document_graph_data(self, doc_id: str) -> dict[str, int]:
         """Delete one document and graph data derived from it."""
-        with self._driver.session() as session:
+        with self._session() as session:
             record = session.run(
                 """
                 MATCH (d:Document {id: $id})
@@ -255,7 +266,7 @@ class Neo4jClient:
         """
         valid_ids = [doc_id for doc_id in valid_document_ids if doc_id]
 
-        with self._driver.session() as session:
+        with self._session() as session:
             stale_record = session.run(
                 """
                 MATCH (d:Document)
@@ -296,7 +307,7 @@ class Neo4jClient:
 
     def clear_all_data(self) -> dict[str, int]:
         """Delete all graph nodes and relationships."""
-        with self._driver.session() as session:
+        with self._session() as session:
             rel_record = session.run(
                 """
                 MATCH ()-[r]->()
@@ -323,7 +334,7 @@ class Neo4jClient:
         """Delete entity nodes no longer connected to lexical/custom graph."""
         owns_session = session is None
         if owns_session:
-            session = self._driver.session()
+            session = self._session()
 
         try:
             legacy_record = session.run(
@@ -358,7 +369,7 @@ class Neo4jClient:
         """Delete chunk nodes that are no longer connected to any document."""
         owns_session = session is None
         if owns_session:
-            session = self._driver.session()
+            session = self._session()
 
         try:
             record = session.run(
@@ -391,7 +402,7 @@ class Neo4jClient:
         properties: dict[str, Any] | None = None,
     ) -> str:
         """Create or merge an entity node by canonical key."""
-        with self._driver.session() as session:
+        with self._session() as session:
             now = datetime.utcnow().isoformat()
             label = entity_type.value
             aliases = [alias for alias in (aliases or []) if alias]
@@ -465,7 +476,7 @@ class Neo4jClient:
 
     def get_entity(self, entity_id: str) -> Entity | None:
         """Get an entity by ID."""
-        with self._driver.session() as session:
+        with self._session() as session:
             result = session.run(
                 """
                 MATCH (e {id: $id})
@@ -486,7 +497,7 @@ class Neo4jClient:
         limit: int = 100,
     ) -> list[Entity]:
         """Get all entities, optionally filtered by type."""
-        with self._driver.session() as session:
+        with self._session() as session:
             result = session.run(
                 """
                 MATCH (e)
@@ -511,7 +522,7 @@ class Neo4jClient:
         document_date: datetime | None = None,
     ) -> None:
         """Refresh mention tracking for an entity."""
-        with self._driver.session() as session:
+        with self._session() as session:
             session.run(
                 """
                 MATCH (e:Entity {id: $id})
@@ -552,7 +563,7 @@ class Neo4jClient:
         now = datetime.utcnow().isoformat()
         props["graph_version"] = GRAPH_VERSION
 
-        with self._driver.session() as session:
+        with self._session() as session:
             query = f"""
                 MATCH (a:Entity {{id: $source_id}})
                 MATCH (b:Entity {{id: $target_id}})
@@ -586,7 +597,7 @@ class Neo4jClient:
         rel_props["graph_version"] = GRAPH_VERSION
         date_iso = document_date.isoformat() if document_date else None
 
-        with self._driver.session() as session:
+        with self._session() as session:
             session.run(
                 """
                 MATCH (d:Document {id: $doc_id})
@@ -634,7 +645,7 @@ class Neo4jClient:
         entity_id: str,
     ) -> list[Relationship]:
         """Get all relationships for an entity with relationship metadata."""
-        with self._driver.session() as session:
+        with self._session() as session:
             result = session.run(
                 """
                 MATCH (e {id: $id})
@@ -684,7 +695,7 @@ class Neo4jClient:
         entity_id: str,
     ) -> list[dict[str, Any]]:
         """Get all documents that mention an entity."""
-        with self._driver.session() as session:
+        with self._session() as session:
             result = session.run(
                 """
                 MATCH (e {id: $id})
@@ -720,7 +731,7 @@ class Neo4jClient:
         max_nodes: int = 100,
     ) -> GraphData:
         """Get graph data for visualization."""
-        with self._driver.session() as session:
+        with self._session() as session:
             result = session.run(
                 """
                 MATCH (n)
@@ -816,7 +827,7 @@ class Neo4jClient:
         end_date: date | None = None,
     ) -> TimelineResponse:
         """Get documents grouped by date for timeline visualization."""
-        with self._driver.session() as session:
+        with self._session() as session:
             where_clauses = ["d.date IS NOT NULL"]
             params: dict[str, Any] = {}
 
@@ -883,7 +894,7 @@ class Neo4jClient:
 
     def get_stats(self) -> dict[str, int]:
         """Get graph statistics."""
-        with self._driver.session() as session:
+        with self._session() as session:
             result = session.run(
                 """
                 OPTIONAL MATCH (d:Document)

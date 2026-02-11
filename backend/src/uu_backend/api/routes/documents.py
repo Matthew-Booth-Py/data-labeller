@@ -184,7 +184,6 @@ async def delete_document(document_id: str):
     Raises 404 if document not found.
     """
     store = get_vector_store()
-    neo4j_client = get_neo4j_client()
     document = store.get_document(document_id)
 
     if document:
@@ -203,6 +202,7 @@ async def delete_document(document_id: str):
 
     graph_cleanup: dict[str, object]
     try:
+        neo4j_client = get_neo4j_client()
         graph_cleanup = neo4j_client.delete_document_graph_data(document_id)
         valid_doc_ids = [doc.id for doc in store.get_all_documents()]
         reconcile_summary = neo4j_client.reconcile_documents(valid_doc_ids)

@@ -126,6 +126,13 @@ async def ingest_documents(
                     "graph_indexing_failed",
                     extra={"document_id": doc_id, "document_filename": filename},
                 )
+                try:
+                    get_neo4j_client().delete_document_graph_data(doc_id)
+                except Exception:
+                    logger.exception(
+                        "graph_indexing_rollback_failed",
+                        extra={"document_id": doc_id},
+                    )
                 vector_store.delete_document(doc_id)
                 original_file_path.unlink(missing_ok=True)
                 errors.append(f"{filename}: Graph indexing failed: {str(graph_exc)}")
