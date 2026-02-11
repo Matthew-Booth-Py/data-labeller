@@ -6,7 +6,8 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from uu_backend.config import get_settings
 from uu_backend.database.neo4j_client import get_neo4j_client
@@ -21,30 +22,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def process_entity_extraction(
-    doc_id: str,
-    content: str,
-    date_extracted,
-) -> None:
-    """Background task to extract entities and store in Neo4j."""
-    try:
-        graph_service = get_graph_ingestion_service()
-        graph_service.extract_and_store_entities(
-            doc_id=doc_id,
-            content=content,
-            document_date=date_extracted,
-        )
-    except Exception:
-        logger.exception(
-            "graph_entity_extraction_failed",
-            extra={"document_id": doc_id},
-        )
-
-
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest_documents(
     files: Annotated[list[UploadFile], File(description="Documents to ingest")],
-    background_tasks: BackgroundTasks,
 ):
     """
     Ingest one or more documents.
@@ -52,7 +32,7 @@ async def ingest_documents(
     Accepts multiple files, converts them to markdown, extracts dates,
     chunks the content, and stores in the vector database.
 
-    Entity extraction runs in the background after ingestion.
+    Entity extraction and graph indexing run during ingestion.
 
     Supported formats: PDF, DOCX, XLSX, PPTX, HTML, TXT, MD, images, and more.
     """
@@ -130,22 +110,26 @@ async def ingest_documents(
             # Store in vector database (for RAG/Q&A)
             vector_store.add_document(document)
 
-            # Store document in Neo4j (for timeline/graph)
-            graph_service.upsert_document(
-                doc_id=doc_id,
-                filename=filename,
-                file_type=result.metadata.file_type,
-                date_extracted=date_extracted,
-                created_at=document.created_at,
-            )
-
-            # Queue background entity extraction
-            background_tasks.add_task(
-                process_entity_extraction,
-                doc_id,
-                result.content,
-                date_extracted,
-            )
+            try:
+                await run_in_threadpool(
+                    graph_service.extract_and_store_entities,
+                    doc_id=doc_id,
+                    content=result.content,
+                    document_date=date_extracted,
+                    filename=filename,
+                    file_type=result.metadata.file_type,
+                    file_path=str(original_file_path),
+                    created_at=document.created_at,
+                )
+            except Exception as graph_exc:
+                logger.exception(
+                    "graph_indexing_failed",
+                    extra={"document_id": doc_id, "document_filename": filename},
+                )
+                vector_store.delete_document(doc_id)
+                original_file_path.unlink(missing_ok=True)
+                errors.append(f"{filename}: Graph indexing failed: {str(graph_exc)}")
+                continue
 
             documents_processed += 1
             chunks_created += len(chunks)

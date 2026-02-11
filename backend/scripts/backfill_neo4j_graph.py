@@ -17,6 +17,7 @@ from pathlib import Path
 # Allow script execution from backend root.
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from uu_backend.config import get_settings
 from uu_backend.database.neo4j_client import get_neo4j_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.services.graph_ingestion_service import get_graph_ingestion_service
@@ -75,6 +76,21 @@ def chunked(items: list, batch_size: int):
     """Yield list slices."""
     for start in range(0, len(items), batch_size):
         yield items[start : start + batch_size]
+
+
+def resolve_original_file_path(document_id: str, file_type: str) -> str | None:
+    """Resolve stored source file path for a document id."""
+    settings = get_settings()
+    storage_path = settings.file_storage_path
+
+    candidate = storage_path / f"{document_id}.{(file_type or '').lower()}"
+    if candidate.exists():
+        return str(candidate)
+
+    for match in storage_path.glob(f"{document_id}.*"):
+        if match.is_file():
+            return str(match)
+    return None
 
 
 def main() -> int:
@@ -143,6 +159,10 @@ def main() -> int:
                     doc_id=document.id,
                     content=document.content,
                     document_date=document.date_extracted,
+                    filename=document.filename,
+                    file_type=document.file_type,
+                    file_path=resolve_original_file_path(document.id, document.file_type),
+                    created_at=document.created_at,
                 )
 
                 stats.documents_processed += 1

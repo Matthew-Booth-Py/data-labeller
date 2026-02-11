@@ -1,5 +1,5 @@
 import { Shell } from "@/components/layout/Shell";
-import { useParams, useLocation } from "wouter";
+import { useParams } from "wouter";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +28,6 @@ import { DeploymentView } from "@/components/workspace/DeploymentView";
 import { DriftMap } from "@/components/workspace/DriftMap";
 import { APIManagement } from "@/components/workspace/APIManagement";
 import { Timeline } from "@/components/workspace/Timeline";
-import { KnowledgeGraph } from "@/components/workspace/KnowledgeGraph";
 import { SearchPanel } from "@/components/workspace/SearchPanel";
 import { ExtractionRunner } from "@/components/workspace/ExtractionRunner";
 
@@ -46,13 +45,26 @@ interface Project {
 
 export default function ProjectWorkspace() {
   const { id } = useParams();
-  const [location, setLocation] = useLocation();
   const { toast } = useToast();
+  const validTabs = new Set([
+    "schema",
+    "documents",
+    "label",
+    "labeled-data",
+    "evaluation",
+    "extraction",
+    "timeline",
+    "search",
+    "drift",
+    "api",
+    "deployment",
+  ]);
   
   // Get tab from URL hash or default to "documents"
   const getTabFromUrl = () => {
     const hash = window.location.hash.slice(1); // Remove the '#'
-    return hash || "documents";
+    if (!hash) return "documents";
+    return validTabs.has(hash) ? hash : "documents";
   };
   
   const [activeTab, setActiveTab] = useState(getTabFromUrl());
@@ -259,12 +271,6 @@ export default function ProjectWorkspace() {
                 Timeline
               </TabsTrigger>
               <TabsTrigger 
-                value="graph" 
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
-              >
-                Knowledge Graph
-              </TabsTrigger>
-              <TabsTrigger 
                 value="search" 
                 className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
               >
@@ -312,9 +318,6 @@ export default function ProjectWorkspace() {
             </TabsContent>
             <TabsContent value="timeline" className="h-full m-0 p-6 overflow-auto">
               <Timeline projectId={id} onDocumentClick={handleDocumentClick} />
-            </TabsContent>
-            <TabsContent value="graph" className="h-full m-0 p-6 overflow-auto">
-              <KnowledgeGraph onDocumentClick={handleDocumentClick} />
             </TabsContent>
             <TabsContent value="search" className="h-full m-0 p-6 overflow-auto">
               <SearchPanel onDocumentClick={handleDocumentClick} />

@@ -161,20 +161,19 @@ class Neo4jClient:
                 """
                 MATCH (d:Document {id: $id})
                 OPTIONAL MATCH (d)-[:MENTIONS]->(e:Entity)
-                RETURN count(d) as docs, collect(DISTINCT e.id) as entity_ids
+                OPTIONAL MATCH (c:Chunk)-[:FROM_DOCUMENT]->(d)
+                RETURN count(DISTINCT d) as docs,
+                       collect(DISTINCT e.id) as entity_ids,
+                       collect(DISTINCT elementId(c)) as chunk_ids
                 """,
                 id=doc_id,
             ).single()
 
             doc_count = int(record["docs"] or 0) if record else 0
-            if doc_count == 0:
-                return {
-                    "deleted_documents": 0,
-                    "deleted_document_relationships": 0,
-                    "pruned_entities": 0,
-                }
-
-            entity_ids = [eid for eid in (record["entity_ids"] or []) if eid]
+            entity_ids = [
+                eid for eid in ((record.get("entity_ids") if record else []) or []) if eid
+            ]
+            chunk_ids = [cid for cid in ((record.get("chunk_ids") if record else []) or []) if cid]
 
             rel_record = session.run(
                 """
@@ -188,13 +187,29 @@ class Neo4jClient:
             ).single()
             deleted_doc_rels = int(rel_record["rel_count"] or 0) if rel_record else 0
 
-            session.run(
-                """
-                MATCH (d:Document {id: $id})
-                DETACH DELETE d
-                """,
-                id=doc_id,
-            )
+            deleted_chunks = 0
+            if chunk_ids:
+                chunk_record = session.run(
+                    """
+                    UNWIND $chunk_ids AS chunk_id
+                    MATCH (c:Chunk)
+                    WHERE elementId(c) = chunk_id
+                    WITH collect(c) as chunks, size(collect(c)) as chunk_count
+                    FOREACH (chunk IN chunks | DETACH DELETE chunk)
+                    RETURN chunk_count
+                    """,
+                    chunk_ids=chunk_ids,
+                ).single()
+                deleted_chunks = int(chunk_record["chunk_count"] or 0) if chunk_record else 0
+
+            if doc_count > 0:
+                session.run(
+                    """
+                    MATCH (d:Document {id: $id})
+                    DETACH DELETE d
+                    """,
+                    id=doc_id,
+                )
 
             if entity_ids:
                 session.run(
@@ -213,12 +228,71 @@ class Neo4jClient:
                     now=datetime.utcnow().isoformat(),
                 )
 
+            if doc_count == 0 and deleted_doc_rels == 0:
+                return {
+                    "deleted_documents": 0,
+                    "deleted_chunks": deleted_chunks,
+                    "deleted_document_relationships": 0,
+                    "pruned_entities": 0,
+                }
+
             pruned = self.prune_orphan_entities(session=session)
+            pruned_chunks = self.prune_orphan_chunks(session=session)
             return {
                 "deleted_documents": doc_count,
+                "deleted_chunks": deleted_chunks + pruned_chunks,
                 "deleted_document_relationships": deleted_doc_rels,
                 "pruned_entities": pruned,
             }
+
+    def reconcile_documents(self, valid_document_ids: list[str]) -> dict[str, int]:
+        """
+        Remove stale graph documents absent from the source document store.
+
+        This is a safety net for historical partial failures where a Document
+        node may have been written to Neo4j but the source document no longer
+        exists in the vector store.
+        """
+        valid_ids = [doc_id for doc_id in valid_document_ids if doc_id]
+
+        with self._driver.session() as session:
+            stale_record = session.run(
+                """
+                MATCH (d:Document)
+                WHERE NOT d.id IN $valid_ids
+                RETURN collect(d.id) as stale_ids
+                """,
+                valid_ids=valid_ids,
+            ).single()
+
+        stale_ids = (
+            [doc_id for doc_id in (stale_record["stale_ids"] or []) if doc_id]
+            if stale_record
+            else []
+        )
+        if not stale_ids:
+            return {
+                "stale_documents_found": 0,
+                "deleted_documents": 0,
+                "deleted_document_relationships": 0,
+                "pruned_entities": 0,
+            }
+
+        summary = {
+            "stale_documents_found": len(stale_ids),
+            "deleted_documents": 0,
+            "deleted_document_relationships": 0,
+            "pruned_entities": 0,
+        }
+        for stale_id in stale_ids:
+            deleted = self.delete_document_graph_data(stale_id)
+            summary["deleted_documents"] += int(deleted.get("deleted_documents", 0))
+            summary["deleted_document_relationships"] += int(
+                deleted.get("deleted_document_relationships", 0)
+            )
+            summary["pruned_entities"] += int(deleted.get("pruned_entities", 0))
+
+        return summary
 
     def clear_all_data(self) -> dict[str, int]:
         """Delete all graph nodes and relationships."""
@@ -246,7 +320,42 @@ class Neo4jClient:
             return {"deleted_nodes": node_count, "deleted_relationships": rel_count}
 
     def prune_orphan_entities(self, session=None) -> int:
-        """Delete entity nodes no longer connected to documents/entities."""
+        """Delete entity nodes no longer connected to lexical/custom graph."""
+        owns_session = session is None
+        if owns_session:
+            session = self._driver.session()
+
+        try:
+            legacy_record = session.run(
+                """
+                MATCH (e:Entity)
+                WHERE NOT (:Document)-[:MENTIONS]->(e)
+                  AND NOT (e)--(:Entity)
+                WITH collect(e) as entities, size(collect(e)) as pruned
+                FOREACH (entity IN entities | DELETE entity)
+                RETURN pruned
+                """
+            ).single()
+
+            graphrag_record = session.run(
+                """
+                MATCH (e:__Entity__)
+                WHERE NOT (e)--()
+                WITH collect(e) as entities, size(collect(e)) as pruned
+                FOREACH (entity IN entities | DELETE entity)
+                RETURN pruned
+                """
+            ).single()
+
+            legacy_pruned = int(legacy_record["pruned"] or 0) if legacy_record else 0
+            graphrag_pruned = int(graphrag_record["pruned"] or 0) if graphrag_record else 0
+            return legacy_pruned + graphrag_pruned
+        finally:
+            if owns_session:
+                session.close()
+
+    def prune_orphan_chunks(self, session=None) -> int:
+        """Delete chunk nodes that are no longer connected to any document."""
         owns_session = session is None
         if owns_session:
             session = self._driver.session()
@@ -254,11 +363,10 @@ class Neo4jClient:
         try:
             record = session.run(
                 """
-                MATCH (e:Entity)
-                WHERE NOT (:Document)-[:MENTIONS]->(e)
-                  AND NOT (e)--(:Entity)
-                WITH collect(e) as entities, size(collect(e)) as pruned
-                FOREACH (entity IN entities | DELETE entity)
+                MATCH (c:Chunk)
+                WHERE NOT (c)-[:FROM_DOCUMENT]->(:Document)
+                WITH collect(c) as chunks, size(collect(c)) as pruned
+                FOREACH (chunk IN chunks | DELETE chunk)
                 RETURN pruned
                 """
             ).single()
@@ -360,7 +468,8 @@ class Neo4jClient:
         with self._driver.session() as session:
             result = session.run(
                 """
-                MATCH (e:Entity {id: $id})
+                MATCH (e {id: $id})
+                WHERE e:Entity OR e:__Entity__
                 RETURN e, labels(e) as labels
                 """,
                 id=entity_id,
@@ -380,8 +489,13 @@ class Neo4jClient:
         with self._driver.session() as session:
             result = session.run(
                 """
-                MATCH (e:Entity)
-                WHERE $entity_type IS NULL OR e.type = $entity_type
+                MATCH (e)
+                WHERE (e:Entity OR e:__Entity__)
+                  AND (
+                      $entity_type IS NULL
+                      OR e.type = $entity_type
+                      OR $entity_type IN labels(e)
+                  )
                 RETURN e, labels(e) as labels
                 ORDER BY coalesce(e.mention_count, 0) DESC, e.name
                 LIMIT $limit
@@ -523,7 +637,9 @@ class Neo4jClient:
         with self._driver.session() as session:
             result = session.run(
                 """
-                MATCH (e:Entity {id: $id})-[r]-(other)
+                MATCH (e {id: $id})
+                WHERE e:Entity OR e:__Entity__
+                MATCH (e)-[r]-(other)
                 RETURN type(r) as rel_type,
                        startNode(r).id as source_id,
                        endNode(r).id as target_id,
@@ -571,8 +687,15 @@ class Neo4jClient:
         with self._driver.session() as session:
             result = session.run(
                 """
-                MATCH (d:Document)-[m:MENTIONS]->(e:Entity {id: $id})
-                RETURN d, properties(m) as mention_props
+                MATCH (e {id: $id})
+                WHERE e:Entity OR e:__Entity__
+                OPTIONAL MATCH (d:Document)-[m:MENTIONS]->(e)
+                OPTIONAL MATCH (e)-[:FROM_CHUNK]->(:Chunk)-[:FROM_DOCUMENT]->(d2:Document)
+                WITH collect(DISTINCT {doc: d, mention_props: properties(m)}) +
+                     collect(DISTINCT {doc: d2, mention_props: {}}) AS rows
+                UNWIND rows AS row
+                WITH row WHERE row.doc IS NOT NULL
+                RETURN row.doc as d, row.mention_props as mention_props
                 ORDER BY coalesce(d.date, d.created_at) DESC
                 """,
                 id=entity_id,
@@ -600,8 +723,13 @@ class Neo4jClient:
         with self._driver.session() as session:
             result = session.run(
                 """
-                MATCH (n:Entity)
-                WHERE $entity_types IS NULL OR n.type IN $entity_types
+                MATCH (n)
+                WHERE (n:Entity OR n:__Entity__)
+                  AND (
+                      $entity_types IS NULL
+                      OR n.type IN $entity_types
+                      OR any(label IN labels(n) WHERE label IN $entity_types)
+                  )
                 RETURN n, labels(n) as labels
                 ORDER BY coalesce(n.mention_count, 0) DESC, n.name
                 LIMIT $limit
@@ -637,9 +765,11 @@ class Neo4jClient:
 
             edge_result = session.run(
                 """
-                MATCH (a:Entity)-[r]->(b:Entity)
+                MATCH (a)-[r]->(b)
                 WHERE a.id IN $ids
                   AND b.id IN $ids
+                  AND (a:Entity OR a:__Entity__)
+                  AND (b:Entity OR b:__Entity__)
                   AND type(r) <> 'MENTIONS'
                 RETURN a.id as source,
                        b.id as target,
@@ -756,13 +886,20 @@ class Neo4jClient:
         with self._driver.session() as session:
             result = session.run(
                 """
-                MATCH (d:Document) WITH count(d) as docs
-                MATCH (p:Person) WITH docs, count(p) as persons
-                MATCH (o:Organization) WITH docs, persons, count(o) as orgs
-                MATCH (l:Location) WITH docs, persons, orgs, count(l) as locations
-                MATCH (e:Event) WITH docs, persons, orgs, locations, count(e) as events
-                MATCH (:Entity)-[r]->(:Entity)
-                WHERE type(r) <> 'MENTIONS'
+                OPTIONAL MATCH (d:Document)
+                WITH count(d) as docs
+                OPTIONAL MATCH (p:Person)
+                WITH docs, count(p) as persons
+                OPTIONAL MATCH (o:Organization)
+                WITH docs, persons, count(o) as orgs
+                OPTIONAL MATCH (l:Location)
+                WITH docs, persons, orgs, count(l) as locations
+                OPTIONAL MATCH (e:Event)
+                WITH docs, persons, orgs, locations, count(e) as events
+                OPTIONAL MATCH (a)-[r]->(b)
+                WHERE (a:Entity OR a:__Entity__)
+                  AND (b:Entity OR b:__Entity__)
+                  AND type(r) <> 'MENTIONS'
                 WITH docs, persons, orgs, locations, events, count(r) as rels
                 RETURN docs, persons, orgs, locations, events, rels
                 """

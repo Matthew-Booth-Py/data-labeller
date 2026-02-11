@@ -201,9 +201,12 @@ async def delete_document(document_id: str):
             detail=f"Document not found: {document_id}",
         )
 
-    graph_cleanup: dict[str, str | int]
+    graph_cleanup: dict[str, object]
     try:
         graph_cleanup = neo4j_client.delete_document_graph_data(document_id)
+        valid_doc_ids = [doc.id for doc in store.get_all_documents()]
+        reconcile_summary = neo4j_client.reconcile_documents(valid_doc_ids)
+        graph_cleanup["reconcile"] = reconcile_summary
     except Exception as exc:
         logger.exception(
             "graph_document_delete_failed",
