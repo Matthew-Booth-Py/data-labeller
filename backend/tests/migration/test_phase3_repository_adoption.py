@@ -2,10 +2,11 @@
 
 from pathlib import Path
 
+import pytest
+
 from uu_backend.config import get_settings
-from uu_backend.repositories.factory import DualRepository, get_repository
+from uu_backend.repositories.factory import get_repository
 from uu_backend.repositories.django_repo import DjangoORMRepository
-from uu_backend.repositories.sqlite_repo import SQLiteRepository
 
 
 def test_django_api_has_no_direct_sqlite_client_usage():
@@ -29,16 +30,18 @@ def test_services_have_no_direct_sqlite_client_usage():
 
 
 def test_repository_factory_respects_data_backend_env(monkeypatch):
-    monkeypatch.setenv("DATA_BACKEND", "sqlite")
-    get_settings.cache_clear()
-    assert isinstance(get_repository(), SQLiteRepository)
-
-    monkeypatch.setenv("DATA_BACKEND", "dual")
-    get_settings.cache_clear()
-    assert isinstance(get_repository(), DualRepository)
-
     monkeypatch.setenv("DATA_BACKEND", "django")
     get_settings.cache_clear()
     assert isinstance(get_repository(), DjangoORMRepository)
+
+    monkeypatch.setenv("DATA_BACKEND", "sqlite")
+    get_settings.cache_clear()
+    with pytest.raises(ValueError):
+        get_repository()
+
+    monkeypatch.setenv("DATA_BACKEND", "dual")
+    get_settings.cache_clear()
+    with pytest.raises(ValueError):
+        get_repository()
 
     get_settings.cache_clear()

@@ -23,5 +23,5 @@ openai_tagging_model: "gpt-5-mini"
 openai_reasoning_effort: "low"
 
 django_migrated_groups: []
-data_backend: "sqlite"
-async_executor: "inline"
+data_backend: "django"
+async_executor: "celery"

@@ -55,8 +55,8 @@ class Settings(BaseModel):
     openai_reasoning_effort: str = "low"
 
     # Migration rollout controls
-    data_backend: str = "sqlite"
-    async_executor: str = "inline"
+    data_backend: str = "django"
+    async_executor: str = "celery"
 
     @property
     def chroma_path(self) -> Path:

@@ -9,15 +9,15 @@ flowchart LR
     REQ[HTTP Request] --> DISP[uu_backend.asgi_dispatcher]
     DISP --> DJ[Django + DRF]
     DJ --> REPO[Repository Factory]
-    REPO --> SQL[(SQLite today / Django ORM target)]
+    REPO --> SQL[(Postgres via Django ORM)]
     DJ --> CH[(Chroma)]
     DJ --> NEO[(Neo4j)]
-    DJ --> RQ[(Redis + Celery optional)]
+    DJ --> RQ[(Redis + Celery workers)]
 ```
 
 - Dispatcher entrypoint: `uu_backend.asgi_dispatcher:application`
-- SQL backend control: `DATA_BACKEND` (`sqlite`, `dual`, `django`)
-- Async control: `ASYNC_EXECUTOR` (`inline`, `celery`)
+- SQL backend control: `DATA_BACKEND=django` (required)
+- Async control: `ASYNC_EXECUTOR=celery` (required)
 
 ## Quick Start
 
@@ -81,11 +81,11 @@ Once running, visit:
 ```
 backend/
 ├── src/uu_backend/
-│   ├── asgi_dispatcher.py    # Composite ASGI routing
+│   ├── asgi_dispatcher.py    # ASGI entrypoint (Django-only)
 │   ├── django_project/       # Django settings/asgi/wsgi
 │   ├── django_api/           # Django DRF route groups
-│   ├── repositories/         # DATA_BACKEND abstraction
-│   ├── database/             # SQLite/Chroma/Neo4j clients
+│   ├── repositories/         # Django ORM repository layer
+│   ├── database/             # Chroma/Neo4j clients
 │   ├── ingestion/
 │   ├── services/
 │   ├── tasks/                # Celery tasks
@@ -106,8 +106,8 @@ backend/
 | `CHUNK_SIZE` | `1000` | Characters per chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between chunks |
 | `CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed CORS origins |
-| `DATA_BACKEND` | `sqlite` | Persistence backend mode (`sqlite`, `dual`, `django`) |
-| `ASYNC_EXECUTOR` | `inline` | Background executor (`inline`, `celery`) |
+| `DATA_BACKEND` | `django` | Persistence backend mode (must be `django`) |
+| `ASYNC_EXECUTOR` | `celery` | Background executor (must be `celery`) |
 
 ## Migration Utilities
 

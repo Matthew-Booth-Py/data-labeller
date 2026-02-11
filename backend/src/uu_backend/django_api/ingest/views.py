@@ -2,7 +2,6 @@
 
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from rest_framework.response import Response
@@ -11,47 +10,10 @@ from rest_framework.views import APIView
 from uu_backend.config import get_settings
 from uu_backend.database.neo4j_client import get_neo4j_client
 from uu_backend.database.vector_store import get_vector_store
-from uu_backend.extraction.entities import extract_entities
-from uu_backend.extraction.relationships import store_entities_and_relationships
 from uu_backend.ingestion.chunker import get_chunker
 from uu_backend.ingestion.converter import get_converter
 from uu_backend.ingestion.dates import extract_date
 from uu_backend.models.document import Document, IngestResponse
-
-_BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=4)
-
-
-def process_entity_extraction(doc_id: str, content: str, date_extracted) -> None:
-    """Background task to extract entities and store in Neo4j."""
-    try:
-        extracted = extract_entities(content, doc_id)
-        if extracted.entities or extracted.relationships:
-            store_entities_and_relationships(
-                entities=extracted.entities,
-                relationships=extracted.relationships,
-                document_id=doc_id,
-                document_date=date_extracted,
-            )
-    except Exception:
-        pass
-
-
-def dispatch_entity_extraction(doc_id: str, content: str, date_extracted) -> None:
-    """Dispatch entity extraction according to configured async executor."""
-    settings = get_settings()
-    executor = settings.async_executor.strip().lower()
-
-    if executor == "celery":
-        try:
-            from uu_backend.tasks.extraction_tasks import process_entity_extraction_task
-
-            date_iso = date_extracted.isoformat() if date_extracted else None
-            process_entity_extraction_task.delay(doc_id=doc_id, content=content, date_extracted_iso=date_iso)
-            return
-        except Exception:
-            pass
-
-    process_entity_extraction(doc_id=doc_id, content=content, date_extracted=date_extracted)
 
 
 class IngestView(APIView):
@@ -66,6 +28,19 @@ class IngestView(APIView):
         start_time = time.time()
         settings = get_settings()
         async_executor = settings.async_executor.strip().lower()
+        if async_executor != "celery":
+            return Response(
+                {
+                    "detail": (
+                        f"Unsupported ASYNC_EXECUTOR='{async_executor}'. "
+                        "This runtime is Celery-only; set ASYNC_EXECUTOR=celery."
+                    )
+                },
+                status=500,
+            )
+
+        from uu_backend.tasks.extraction_tasks import process_entity_extraction_task
+
         converter = get_converter()
         chunker = get_chunker()
         vector_store = get_vector_store()
@@ -127,10 +102,12 @@ class IngestView(APIView):
                     created_at=document.created_at,
                 )
 
-                if async_executor == "inline":
-                    _BACKGROUND_EXECUTOR.submit(process_entity_extraction, doc_id, result.content, date_extracted)
-                else:
-                    _BACKGROUND_EXECUTOR.submit(dispatch_entity_extraction, doc_id, result.content, date_extracted)
+                date_iso = date_extracted.isoformat() if date_extracted else None
+                process_entity_extraction_task.delay(
+                    doc_id=doc_id,
+                    content=result.content,
+                    date_extracted_iso=date_iso,
+                )
 
                 documents_processed += 1
                 chunks_created += len(chunks)
@@ -180,4 +157,3 @@ class IngestStatusView(APIView):
                 "graph": graph_stats,
             }
         )
-

@@ -60,13 +60,10 @@ TEMPLATES = [
     },
 ]
 
-# Minimal DB for framework internals in phase 1. Domain data stays in existing stores.
-django_db_default = BASE_DIR / "data" / "django.db"
-django_db_default.parent.mkdir(parents=True, exist_ok=True)
 DATABASES = {
     "default": env.db(
         "DJANGO_DATABASE_URL",
-        default=f"sqlite:///{django_db_default.as_posix()}",
+        default="postgres://uu:uu@localhost:5432/uu_django",
     )
 }
 
