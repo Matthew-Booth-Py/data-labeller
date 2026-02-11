@@ -32,6 +32,49 @@ Unstructured Unlocked is a document extraction workbench focused on two outcomes
 7. Run evaluation across labeled docs.
 8. Save a new deployment version and promote active version.
 
+## Architecture (Current)
+
+```mermaid
+flowchart LR
+    UI[React Frontend] --> API[FastAPI Backend]
+    API --> SQLITE[(SQLite taxonomy.db)]
+    API --> CHROMA[(Chroma Vector Store)]
+    API --> NEO4J[(Neo4j Graph DB)]
+    API --> FILES[(File Storage)]
+    API --> LLM[LLM Provider via API]
+```
+
+- Frontend (`frontend/client`): schema builder, labeling UI, extraction runner, evaluation board, deployment manager.
+- Backend (`backend/src/uu_backend`): ingestion, classification, suggestions, extraction, evaluation, deployments.
+- Persistence:
+  - SQLite: schemas, labels, annotations, evaluations, versions, deployment snapshots.
+  - Chroma: chunk embeddings and semantic retrieval.
+  - Neo4j: entity/relationship graph features.
+  - File storage: uploaded source documents.
+
+## Data Flow (Current)
+
+```mermaid
+flowchart TD
+    A[Upload Document] --> B[Convert + Chunk]
+    B --> C[Store File + Chunks]
+    C --> D[Classify Document Type]
+    D --> E[Schema-Derived Labels]
+    E --> F[Human Annotation + AI Suggestions]
+    D --> G[Extraction using Field Prompts]
+    F --> H[Ground Truth]
+    G --> I[Predictions]
+    H --> J[Evaluation Engine]
+    I --> J
+    J --> K[Run Metrics: per-field + combined]
+    K --> L[Save New Deployment Version]
+    L --> M[Active/Pinned Extraction API Endpoints]
+```
+
+- Labels are generated from schema fields.
+- Evaluation compares extraction output vs. labeled ground truth.
+- Deployment versions freeze schema + prompts + field prompt versions.
+
 ## What “Save as New Version” Does
 
 Saving a new version creates a deployable extraction snapshot for the selected project/document type:
@@ -56,6 +99,25 @@ All routes are served by FastAPI under `/api/v1`.
   - Extract with active version.
 - `POST /api/v1/deployments/projects/{project_id}/v/{version}/extract`
   - Extract with a pinned version.
+
+## Tech Stack
+
+- Frontend
+  - React + TypeScript
+  - Vite
+  - Tailwind CSS + shadcn/ui
+  - Recharts
+- Backend
+  - FastAPI (Python)
+  - Pydantic models
+  - Service-layer extraction/evaluation pipelines
+- Data + Infra
+  - SQLite (`taxonomy.db`)
+  - ChromaDB
+  - Neo4j
+  - Docker Compose
+- AI/LLM
+  - OpenAI-compatible API configuration via `.env` / runtime settings
 
 ## Run Locally (Docker)
 

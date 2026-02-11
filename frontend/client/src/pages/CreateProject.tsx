@@ -73,7 +73,7 @@ export default function CreateProject() {
               </Label>
               <Input
                 id="name"
-                placeholder="e.g., Epstein Files Investigation"
+                placeholder="e.g., Insurance Claims 2024"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="h-11"
