@@ -7,6 +7,7 @@ from pathlib import Path
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils.dateparse import parse_datetime
+from django.utils import timezone
 
 from uu_backend.config import get_settings
 from uu_backend.django_data import models as orm
@@ -15,10 +16,21 @@ from uu_backend.django_data import models as orm
 def _parse_json_value(raw, default):
     if raw in (None, ""):
         return default
+
+    def _strip_nul(value):
+        if isinstance(value, str):
+            return value.replace("\x00", "")
+        if isinstance(value, list):
+            return [_strip_nul(item) for item in value]
+        if isinstance(value, dict):
+            return {str(key): _strip_nul(item) for key, item in value.items()}
+        return value
+
     if isinstance(raw, (dict, list)):
-        return raw
+        return _strip_nul(raw)
     try:
-        return json.loads(raw)
+        parsed = json.loads(str(raw).replace("\x00", ""))
+        return _strip_nul(parsed)
     except Exception:
         return default
 
@@ -27,8 +39,10 @@ def _parse_dt(raw):
     if raw in (None, ""):
         return None
     if hasattr(raw, "tzinfo"):
-        return raw
+        return timezone.make_aware(raw, timezone.utc) if timezone.is_naive(raw) else raw
     parsed = parse_datetime(str(raw))
+    if parsed and timezone.is_naive(parsed):
+        return timezone.make_aware(parsed, timezone.utc)
     return parsed
 
 

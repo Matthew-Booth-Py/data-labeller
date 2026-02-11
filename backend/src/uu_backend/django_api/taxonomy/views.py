@@ -1,9 +1,9 @@
 """DRF views for taxonomy and extraction endpoints."""
 
 import json
-from sqlite3 import IntegrityError
 
 from asgiref.sync import async_to_sync
+from django.db import IntegrityError
 from openai import OpenAI
 from pydantic import ValidationError
 from rest_framework.response import Response
