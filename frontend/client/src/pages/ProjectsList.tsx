@@ -39,6 +39,15 @@ interface ProjectLiveMetrics {
   driftRisk: DriftRisk;
 }
 
+const getProjectDisplayMetrics = (
+  project: Project,
+  live?: ProjectLiveMetrics
+): ProjectLiveMetrics => ({
+  coverage: live?.coverage ?? project.coverage ?? 0,
+  lastEval: live?.lastEval ?? project.lastEval ?? "Never",
+  driftRisk: live?.driftRisk ?? project.driftRisk ?? "Unknown",
+});
+
 export default function ProjectsList() {
   const [_, setLocation] = useLocation();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -70,54 +79,58 @@ export default function ProjectsList() {
         const next: Record<string, ProjectLiveMetrics> = {};
 
         for (const project of projects) {
-          const documentIds = project.documentIds || [];
-          const docCount = documentIds.length || project.docCount || 0;
-          if (docCount === 0) {
-            next[project.id] = { coverage: 0, lastEval: "Never", driftRisk: "Unknown" };
-            continue;
+          try {
+            const documentIds = project.documentIds || [];
+            const docCount = documentIds.length || project.docCount || 0;
+            if (docCount === 0) {
+              next[project.id] = { coverage: 0, lastEval: "Never", driftRisk: "Unknown" };
+              continue;
+            }
+
+            // Primary path: strict project doc IDs.
+            const docSet = new Set(documentIds);
+            let evals = allEvals.filter((e: any) => docSet.has(e.document_id));
+
+            // Fallback for legacy projects that tracked docCount but not documentIds.
+            if (!documentIds.length) {
+              evals = allEvals;
+            }
+
+            const evaluatedDocs = new Set(evals.map((e: any) => e.document_id));
+            const coverage = Math.min(100, Math.round((evaluatedDocs.size / docCount) * 100));
+            const latestEval = evals
+              .map((e: any) => e.evaluated_at)
+              .filter(Boolean)
+              .sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime())[0];
+
+            const sortedByDate = [...evals].sort(
+              (a: any, b: any) => new Date(a.evaluated_at).getTime() - new Date(b.evaluated_at).getTime()
+            );
+            const f1Series = sortedByDate
+              .map((e: any) => Number(e.metrics?.f1_score ?? 0))
+              .filter((v: number) => Number.isFinite(v));
+
+            let driftRisk: DriftRisk = "Unknown";
+            if (f1Series.length >= 2) {
+              const recent = f1Series.slice(-5);
+              const previous = f1Series.slice(-10, -5);
+              const avg = (arr: number[]) => (arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : 0);
+              const recentAvg = avg(recent);
+              const previousAvg = previous.length ? avg(previous) : recentAvg;
+              const delta = Math.abs(recentAvg - previousAvg);
+              if (recentAvg < 0.75 || delta > 0.15) driftRisk = "High";
+              else if (recentAvg < 0.9 || delta > 0.08) driftRisk = "Medium";
+              else driftRisk = "Low";
+            }
+
+            next[project.id] = {
+              coverage,
+              lastEval: latestEval ? new Date(latestEval).toLocaleDateString() : "Never",
+              driftRisk,
+            };
+          } catch {
+            next[project.id] = getProjectDisplayMetrics(project);
           }
-
-          // Primary path: strict project doc IDs.
-          const docSet = new Set(documentIds);
-          let evals = allEvals.filter((e: any) => docSet.has(e.document_id));
-
-          // Fallback for legacy projects that tracked docCount but not documentIds.
-          if (!documentIds.length) {
-            evals = allEvals;
-          }
-
-          const evaluatedDocs = new Set(evals.map((e: any) => e.document_id));
-          const coverage = Math.min(100, Math.round((evaluatedDocs.size / docCount) * 100));
-          const latestEval = evals
-            .map((e: any) => e.evaluated_at)
-            .filter(Boolean)
-            .sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime())[0];
-
-          const sortedByDate = [...evals].sort(
-            (a: any, b: any) => new Date(a.evaluated_at).getTime() - new Date(b.evaluated_at).getTime()
-          );
-          const f1Series = sortedByDate
-            .map((e: any) => Number(e.metrics?.f1_score ?? 0))
-            .filter((v: number) => Number.isFinite(v));
-
-          let driftRisk: DriftRisk = "Unknown";
-          if (f1Series.length >= 2) {
-            const recent = f1Series.slice(-5);
-            const previous = f1Series.slice(-10, -5);
-            const avg = (arr: number[]) => (arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : 0);
-            const recentAvg = avg(recent);
-            const previousAvg = previous.length ? avg(previous) : recentAvg;
-            const delta = Math.abs(recentAvg - previousAvg);
-            if (recentAvg < 0.75 || delta > 0.15) driftRisk = "High";
-            else if (recentAvg < 0.9 || delta > 0.08) driftRisk = "Medium";
-            else driftRisk = "Low";
-          }
-
-          next[project.id] = {
-            coverage,
-            lastEval: latestEval ? new Date(latestEval).toLocaleDateString() : "Never",
-            driftRisk,
-          };
         }
 
         setProjectMetrics(next);
@@ -225,6 +238,10 @@ export default function ProjectsList() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {projects.map((project) => (
             <Card key={project.id} className="group hover:border-primary/20 transition-all bg-white border-muted shadow-sm flex flex-col relative overflow-visible">
+              {(() => {
+                const display = getProjectDisplayMetrics(project, projectMetrics[project.id]);
+                return (
+                  <>
               <CardHeader className="pb-4">
                 <div className="flex items-start justify-between">
                   <div className="space-y-1">
@@ -234,13 +251,13 @@ export default function ProjectsList() {
                         </Badge>
                         <Badge
                           variant={
-                            (projectMetrics[project.id]?.driftRisk || "Unknown") === "High"
+                            display.driftRisk === "High"
                               ? "destructive"
                               : "secondary"
                           }
                           className="text-[10px]"
                         >
-                           {(projectMetrics[project.id]?.driftRisk || "Unknown")} Risk
+                           {display.driftRisk} Risk
                         </Badge>
                      </div>
                      <CardTitle className="text-xl font-bold text-foreground group-hover:text-primary transition-colors flex items-center gap-2">
@@ -283,7 +300,7 @@ export default function ProjectsList() {
                     <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Coverage</p>
                       <div className="flex items-center gap-2 font-mono text-sm font-medium">
                         <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      {projectMetrics[project.id]?.coverage ?? 0}%
+                      {display.coverage}%
                     </div>
                   </div>
                   <div className="space-y-1">
@@ -300,7 +317,7 @@ export default function ProjectsList() {
                     <Clock className="h-3.5 w-3.5" />
                     {project.createdAt 
                       ? `Created: ${new Date(project.createdAt).toLocaleDateString()}` 
-                      : `Last eval: ${projectMetrics[project.id]?.lastEval || "Never"}`
+                      : `Last eval: ${display.lastEval}`
                     }
                  </div>
                  
@@ -317,6 +334,9 @@ export default function ProjectsList() {
                     Open
                   </Button>
               </CardFooter>
+                  </>
+                );
+              })()}
             </Card>
           ))}
 

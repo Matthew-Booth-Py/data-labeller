@@ -129,6 +129,26 @@ export default function ProjectWorkspace() {
   }, []);
 
   useEffect(() => {
+    const persistProjectMetrics = (coverage: number, lastEval: string, driftRisk: "Low" | "Medium" | "High" | "Unknown") => {
+      if (!id) return;
+      try {
+        const stored = localStorage.getItem("uu-projects");
+        if (!stored) return;
+        const projects = JSON.parse(stored);
+        const idx = projects.findIndex((p: any) => p.id === id);
+        if (idx < 0) return;
+        projects[idx] = {
+          ...projects[idx],
+          coverage,
+          lastEval,
+          driftRisk,
+        };
+        localStorage.setItem("uu-projects", JSON.stringify(projects));
+      } catch {
+        // ignore persistence errors
+      }
+    };
+
     const loadLiveMetrics = async () => {
       if (!id) return;
       let documentIds: string[] = [];
@@ -145,7 +165,9 @@ export default function ProjectWorkspace() {
 
       const docCount = documentIds.length;
       if (docCount === 0) {
-        setLiveMetrics({ coverage: 0, lastEval: "Never", driftRisk: "Unknown" });
+        const next = { coverage: 0, lastEval: "Never", driftRisk: "Unknown" as const };
+        setLiveMetrics(next);
+        persistProjectMetrics(next.coverage, next.lastEval, next.driftRisk);
         return;
       }
 
@@ -181,13 +203,17 @@ export default function ProjectWorkspace() {
           else driftRisk = "Low";
         }
 
-        setLiveMetrics({
+        const next = {
           coverage,
           lastEval: latestEval ? new Date(latestEval).toLocaleString() : "Never",
           driftRisk,
-        });
+        };
+        setLiveMetrics(next);
+        persistProjectMetrics(next.coverage, next.lastEval, next.driftRisk);
       } catch {
-        setLiveMetrics({ coverage: 0, lastEval: "Never", driftRisk: "Unknown" });
+        const next = { coverage: 0, lastEval: "Never", driftRisk: "Unknown" as const };
+        setLiveMetrics(next);
+        persistProjectMetrics(next.coverage, next.lastEval, next.driftRisk);
       }
     };
 
