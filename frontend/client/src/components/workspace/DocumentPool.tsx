@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useQueries } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import {
   X,
   Sparkles,
   Edit2,
+  Tags,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -46,6 +47,8 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
   const [localStorageVersion, setLocalStorageVersion] = useState(0);
   const [classifying, setClassifying] = useState(false);
   const [classifyingDocs, setClassifyingDocs] = useState<Set<string>>(new Set());
+  const [suggestingLabels, setSuggestingLabels] = useState(false);
+  const [suggestingLabelDocs, setSuggestingLabelDocs] = useState<Set<string>>(new Set());
   const [editingDoc, setEditingDoc] = useState<string | null>(null);
   const [classifications, setClassifications] = useState<Map<string, {
     type: string;
@@ -215,6 +218,24 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     doc.filename.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // Fetch per-document annotation stats to show label counts in table/grid
+  const annotationStatsQueries = useQueries({
+    queries: filteredDocs.map((doc) => ({
+      queryKey: ["annotation-stats", doc.id],
+      queryFn: () => api.getAnnotationStats(doc.id),
+      staleTime: 0,
+    })),
+  });
+
+  const annotationCountByDoc = useMemo(() => {
+    const counts = new Map<string, number>();
+    filteredDocs.forEach((doc, idx) => {
+      const total = annotationStatsQueries[idx]?.data?.total_annotations ?? 0;
+      counts.set(doc.id, total);
+    });
+    return counts;
+  }, [filteredDocs, annotationStatsQueries]);
+
   const formatDate = (dateStr: string | undefined) => {
     if (!dateStr) return "—";
     try {
@@ -302,6 +323,97 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     toast({
       title: "Classification Complete",
       description: `Successfully classified ${successCount} of ${unclassified.length} documents in ${totalElapsed}s`,
+    });
+  };
+
+  // Suggest labels (schema-based annotations) for all classified documents asynchronously
+  const handleSuggestLabelsAll = async () => {
+    const eligible = filteredDocs.filter((doc) => !!doc.document_type);
+    if (eligible.length === 0) {
+      toast({
+        title: "No Eligible Documents",
+        description: "Classify documents first, then run label suggestions.",
+      });
+      return;
+    }
+
+    setSuggestingLabels(true);
+    setSuggestingLabelDocs(new Set(eligible.map((doc) => doc.id)));
+
+    const start = Date.now();
+    const results = await Promise.all(
+      eligible.map(async (doc) => {
+        try {
+          const documentTypeId = doc.document_type?.id;
+          if (!documentTypeId) {
+            throw new Error("Document has no document type id");
+          }
+
+          // Use the exact schema-derived labels for this document type.
+          const labelsResponse = await api.listLabels(documentTypeId, false);
+          const labelIds = (labelsResponse.labels || []).map((label) => label.id);
+          
+          // Use the exact same suggestion call shape as Label Studio.
+          const response = await api.suggestAnnotations(
+            doc.id,
+            {
+              label_ids: labelIds,
+              max_suggestions: 20,
+              min_confidence: 0.5,
+            },
+            false
+          );
+
+          let createdCount = 0;
+          await Promise.all(
+            (response.suggestions || []).map(async (suggestion) => {
+              try {
+                await api.createAnnotation(doc.id, {
+                  label_id: suggestion.label_id,
+                  annotation_type: "text_span",
+                  start_offset: suggestion.start_offset,
+                  end_offset: suggestion.end_offset,
+                  text: suggestion.text,
+                  metadata: suggestion.metadata,
+                  created_by: "ai_batch_suggestion",
+                });
+                createdCount += 1;
+              } catch (error) {
+                // Skip duplicates/invalid suggestions and continue batch.
+                console.warn(`Failed creating annotation for ${doc.filename}`, error);
+              }
+            })
+          );
+
+          setSuggestingLabelDocs((prev) => {
+            const next = new Set(prev);
+            next.delete(doc.id);
+            return next;
+          });
+          return { success: true, docId: doc.id, created: createdCount };
+        } catch (error) {
+          console.error(`Failed label suggestion for ${doc.filename}`, error);
+          setSuggestingLabelDocs((prev) => {
+            const next = new Set(prev);
+            next.delete(doc.id);
+            return next;
+          });
+          return { success: false, docId: doc.id };
+        }
+      })
+    );
+
+    const successCount = results.filter((r) => r.success).length;
+    const createdTotal = results.reduce((acc, r) => acc + (r.success ? r.created : 0), 0);
+    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+
+    setSuggestingLabels(false);
+    queryClient.invalidateQueries({ queryKey: ["annotation-stats"] });
+    queryClient.invalidateQueries({ queryKey: ["annotations"] });
+
+    toast({
+      title: "Label Suggestions Complete",
+      description: `Processed ${successCount}/${eligible.length} documents, created ${createdTotal} annotations in ${elapsed}s`,
     });
   };
 
@@ -412,6 +524,19 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
             )}
             Classify Documents
           </Button>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={handleSuggestLabelsAll}
+            disabled={suggestingLabels || filteredDocs.filter((d) => !d.document_type).length === filteredDocs.length}
+          >
+            {suggestingLabels ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Tags className="h-4 w-4" />
+            )}
+            Suggest Labels
+          </Button>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" onClick={() => refetch()}>
@@ -491,7 +616,7 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
                       <Calendar className="h-3 w-3" /> 
                       {formatDate(doc.date_extracted || doc.created_at)}
                     </span>
-                    <span>{doc.chunk_count} chunks</span>
+                    <span>{(doc.token_count || 0).toLocaleString()} tokens</span>
                   </div>
                 </div>
               </CardContent>
@@ -508,6 +633,8 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
                 <TableHead>Classification</TableHead>
                 <TableHead>Date Extracted</TableHead>
                 <TableHead>Chunks</TableHead>
+                <TableHead>Tokens</TableHead>
+                <TableHead>Labels</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -680,6 +807,23 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
                   </TableCell>
                   <TableCell>
                     <span className="font-mono text-sm">{doc.chunk_count}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-sm">
+                      {(doc.token_count || 0).toLocaleString()}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    {suggestingLabelDocs.has(doc.id) ? (
+                      <div className="flex items-center gap-1 text-muted-foreground text-sm">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        suggesting...
+                      </div>
+                    ) : (
+                      <span className="font-mono text-sm">
+                        {annotationCountByDoc.get(doc.id) ?? 0}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <Button 

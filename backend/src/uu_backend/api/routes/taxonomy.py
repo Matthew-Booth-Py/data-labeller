@@ -1,10 +1,15 @@
 """Taxonomy API routes for document type management."""
 
+import json
+
 from fastapi import APIRouter, HTTPException, Query
+from openai import OpenAI
 from sqlite3 import IntegrityError
 from uuid import uuid4
 
 from uu_backend.database.sqlite_client import get_sqlite_client
+from uu_backend.config import get_settings
+from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.services.classification_service import get_classification_service
 from uu_backend.services.extraction_service import get_extraction_service
 from uu_backend.models.taxonomy import (
@@ -16,14 +21,131 @@ from uu_backend.models.taxonomy import (
     DocumentTypeListResponse,
     DocumentTypeResponse,
     DocumentTypeUpdate,
+    FieldAssistantRequest,
+    FieldAssistantResponse,
     GlobalField,
     GlobalFieldCreate,
     GlobalFieldListResponse,
+    FieldType,
+    FieldPropertySuggestion,
     GlobalFieldUpdate,
 )
 from uu_backend.models.annotation import LabelCreate
 
 router = APIRouter()
+
+
+@router.post("/taxonomy/field-assistant", response_model=FieldAssistantResponse)
+async def suggest_field_definition(request: FieldAssistantRequest):
+    """Use LLM to suggest field configuration from natural language."""
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=400, detail="OPENAI_API_KEY is not configured")
+
+    client = get_sqlite_client()
+    doc_type = (
+        client.get_document_type(request.document_type_id)
+        if request.document_type_id
+        else None
+    )
+    existing_names = request.existing_field_names or []
+    if doc_type:
+        existing_names = sorted(
+            {*(f.name for f in (doc_type.schema_fields or [])), *existing_names}
+        )
+
+    system_prompt = (
+        "You are a document extraction schema assistant.\n"
+        "Generate one field suggestion from user intent.\n"
+        "Rules:\n"
+        "1) Output valid JSON only.\n"
+        "2) Field name must be snake_case and not collide with existing_field_names.\n"
+        "3) Type must be one of: string, number, date, boolean, object, array.\n"
+        "4) extraction_prompt must enforce RAW extraction (no interpretation).\n"
+        "5) If type=array and array of objects is appropriate, set items_type=object and include object_properties.\n"
+        "6) For non-array fields set items_type=null and object_properties=[].\n"
+        "7) Keep output concise and practical for production extraction.\n"
+    )
+
+    user_prompt = (
+        f"Document type: {doc_type.name if doc_type else 'N/A'}\n"
+        f"Document type description: {doc_type.description if doc_type else 'N/A'}\n"
+        f"Existing field names: {existing_names}\n"
+        f"User intent: {request.user_input}\n\n"
+        "Return JSON with keys:\n"
+        "{\n"
+        '  "name": "snake_case_name",\n'
+        '  "type": "string|number|date|boolean|object|array",\n'
+        '  "description": "short description",\n'
+        '  "extraction_prompt": "field extraction prompt",\n'
+        '  "items_type": "string|number|date|boolean|object|null",\n'
+        '  "object_properties": [{"name":"...","type":"string|number|date|boolean","description":"..."}]\n'
+        "}\n"
+    )
+
+    model = settings.openai_tagging_model or settings.openai_model
+    try:
+        response = OpenAI(api_key=settings.openai_api_key).chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format={"type": "json_object"},
+            **reasoning_options_for_model(model),
+        )
+        payload = json.loads(response.choices[0].message.content or "{}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Field assistant failed: {e}")
+
+    try:
+        name = str(payload.get("name", "")).strip().lower().replace(" ", "_")
+        if not name:
+            raise ValueError("Missing suggested field name")
+        if name in set(existing_names):
+            suffix = 1
+            candidate = f"{name}_{suffix}"
+            while candidate in set(existing_names):
+                suffix += 1
+                candidate = f"{name}_{suffix}"
+            name = candidate
+
+        field_type = FieldType(str(payload.get("type", "string")).strip().lower())
+        description = payload.get("description") or None
+        extraction_prompt = (
+            str(payload.get("extraction_prompt", "")).strip()
+            or f"Extract the {name.replace('_', ' ')} from the document exactly as shown (RAW)."
+        )
+
+        items_raw = payload.get("items_type")
+        items_type = None
+        if items_raw is not None and str(items_raw).lower() != "null":
+            items_type = FieldType(str(items_raw).strip().lower())
+
+        object_properties = []
+        for prop in payload.get("object_properties", []) or []:
+            prop_name = str(prop.get("name", "")).strip().lower().replace(" ", "_")
+            prop_type = FieldType(str(prop.get("type", "string")).strip().lower())
+            if not prop_name:
+                continue
+            object_properties.append(
+                FieldPropertySuggestion(
+                    name=prop_name,
+                    type=prop_type,
+                    description=prop.get("description") or None,
+                )
+            )
+
+        return FieldAssistantResponse(
+            name=name,
+            type=field_type,
+            description=description,
+            extraction_prompt=extraction_prompt,
+            items_type=items_type,
+            object_properties=object_properties,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Invalid assistant response: {e}")
 
 
 @router.get("/taxonomy/fields", response_model=GlobalFieldListResponse)

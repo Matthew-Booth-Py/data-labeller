@@ -101,9 +101,12 @@ export default function CreateProject() {
               <h4 className="font-medium text-sm">What happens next?</h4>
               <ul className="text-sm text-muted-foreground space-y-1">
                 <li>• Upload documents to your project</li>
-                <li>• Documents are converted and analyzed</li>
-                <li>• Entities and relationships are extracted</li>
-                <li>• Explore your data via Timeline and Knowledge Graph</li>
+                <li>• Open Schema → Document Types → Fields Definition</li>
+                <li>• Click Add Field and use AI Field Assistant to generate field + Extraction Prompt</li>
+                <li>• Classify one document manually to set a strong baseline</li>
+                <li>• Classify remaining documents with the LLM</li>
+                <li>• Annotate with AI suggestions and confirm labels</li>
+                <li>• Run extraction and inspect raw output</li>
               </ul>
             </div>
           </CardContent>

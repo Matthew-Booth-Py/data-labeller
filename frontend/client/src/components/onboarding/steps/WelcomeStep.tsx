@@ -26,8 +26,8 @@ export function WelcomeStep({ onSetup, isSettingUp, isSetup }: WelcomeStepProps)
       <div className="text-center space-y-4">
         <h2 className="text-3xl font-bold">Welcome to Unstructured Unlocked</h2>
         <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-          Learn how to classify, label, and extract structured data from your documents
-          using AI-powered tools.
+          Follow the production workflow: upload, use Add Field + AI Field Assistant, classify manually, classify with AI,
+          annotate with suggestions, then extract raw structured output.
         </p>
       </div>
 
@@ -51,7 +51,7 @@ export function WelcomeStep({ onSetup, isSettingUp, isSetup }: WelcomeStepProps)
               <div>
                 <h4 className="font-medium">Document Classification</h4>
                 <p className="text-sm text-muted-foreground">
-                  Organize documents by type (claims, policies, invoices)
+                  Classify one document manually to set a reliable baseline
                 </p>
               </div>
             </div>
@@ -63,7 +63,7 @@ export function WelcomeStep({ onSetup, isSettingUp, isSetup }: WelcomeStepProps)
               <div>
                 <h4 className="font-medium">Annotation & Labeling</h4>
                 <p className="text-sm text-muted-foreground">
-                  Mark and label key information in documents
+                  Build ground truth with schema-derived labels from your fields
                 </p>
               </div>
             </div>
@@ -75,7 +75,7 @@ export function WelcomeStep({ onSetup, isSettingUp, isSetup }: WelcomeStepProps)
               <div>
                 <h4 className="font-medium">AI Auto-Classification</h4>
                 <p className="text-sm text-muted-foreground">
-                  Let AI automatically classify your documents
+                  Use the LLM to classify the remaining documents
                 </p>
               </div>
             </div>
@@ -85,9 +85,9 @@ export function WelcomeStep({ onSetup, isSettingUp, isSetup }: WelcomeStepProps)
                 <Brain className="h-5 w-5 text-amber-500" />
               </div>
               <div>
-                <h4 className="font-medium">Smart Suggestions</h4>
+                <h4 className="font-medium">Fields Definition + AI + Raw Output</h4>
                 <p className="text-sm text-muted-foreground">
-                  Get AI-powered label suggestions as you work
+                  In Schema Configuration, use Add Field + AI Field Assistant, then inspect extraction output
                 </p>
               </div>
             </div>

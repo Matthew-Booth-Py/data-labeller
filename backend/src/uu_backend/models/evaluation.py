@@ -135,6 +135,10 @@ class ExtractionEvaluation(BaseModel):
     document_type_id: str = Field(..., description="Document type")
     prompt_version_id: Optional[str] = Field(None, description="Prompt version used")
     prompt_version_name: Optional[str] = Field(None, description="Prompt version name (joined)")
+    field_prompt_versions: dict[str, str] = Field(
+        default_factory=dict,
+        description="Snapshot of field prompt versions used for this run keyed by field name",
+    )
     schema_version_id: Optional[str] = Field(None, description="Schema version used for extraction/evaluation")
     
     # Metrics

@@ -44,6 +44,8 @@ interface Evaluation {
   document_type_id: string;
   prompt_version_id: string | null;
   prompt_version_name: string | null;
+  notes?: string | null;
+  field_prompt_versions?: Record<string, string>;
   metrics: {
     f1_score: number;
     accuracy: number;
@@ -55,6 +57,20 @@ interface Evaluation {
   };
   extraction_time_ms: number;
   evaluated_at: string;
+}
+
+interface AggregatedRun {
+  runKey: string;
+  promptVersionName: string;
+  evaluatedAt: string;
+  documentCount: number;
+  accuracy: number;
+  recall: number;
+  f1Score: number;
+  latencyMs: number;
+  correctFields: number;
+  incorrectFields: number;
+  evaluations: Evaluation[];
 }
 
 interface PromptVersion {
@@ -77,7 +93,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
   const [selectedDocument, setSelectedDocument] = useState<string>('');
   const [useStructuredOutput, setUseStructuredOutput] = useState(true);
   const [documentTypeId, setDocumentTypeId] = useState<string | null>(null);
-  const [selectedEvaluation, setSelectedEvaluation] = useState<Evaluation | null>(null);
+  const [selectedRun, setSelectedRun] = useState<AggregatedRun | null>(null);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [showRawJson, setShowRawJson] = useState(false);
   const [promptVersions, setPromptVersions] = useState<PromptVersion[]>([]);
@@ -195,6 +211,11 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
         throw new Error('Document type not found');
       }
 
+      const runMarker =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
       // Run evaluation on all documents in the project
       const response = await fetch(`${getApiUrl()}/api/v1/evaluation/run-project`, {
         method: 'POST',
@@ -204,6 +225,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
           prompt_version_id: selectedPromptVersion === "default" ? null : selectedPromptVersion,
           use_structured_output: useStructuredOutput,
           use_llm_refinement: !useStructuredOutput,
+          notes: `project_run:${runMarker}`,
         }),
       });
 
@@ -276,14 +298,85 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
     return na === nb;
   };
 
-  // Prepare chart data
-  const chartData = evaluations.slice(0, 5).reverse().map((evaluation, idx) => ({
-    promptVersion: evaluation.prompt_version_name || `Run ${idx + 1}`,
-    accuracy: evaluation.metrics.accuracy * 100,
-    completeness: evaluation.metrics.recall * 100,
-    latency: evaluation.extraction_time_ms,
-    cost: 0.45, // Mock cost for now
-  }));
+  const aggregatedRuns: AggregatedRun[] = (() => {
+    const groups = new Map<
+      string,
+      {
+        key: string;
+        evaluations: Evaluation[];
+        latestTimestamp: number;
+        versionLabel: string;
+      }
+    >();
+
+    evaluations.forEach((evaluation) => {
+      const notes = evaluation.notes || "";
+      const markerMatch = notes.match(/project_run:([A-Za-z0-9-]+)/);
+      const marker = markerMatch ? markerMatch[1] : null;
+      const evaluatedAt = new Date(evaluation.evaluated_at).getTime();
+      const fallbackMinuteBucket = new Date(evaluation.evaluated_at).toISOString().slice(0, 16);
+      const key = marker || `${evaluation.prompt_version_id || "default"}:${fallbackMinuteBucket}`;
+
+      const current = groups.get(key) || {
+        key,
+        evaluations: [],
+        latestTimestamp: evaluatedAt,
+        versionLabel: evaluation.prompt_version_name || "Default",
+      };
+
+      current.evaluations.push(evaluation);
+      current.latestTimestamp = Math.max(current.latestTimestamp, evaluatedAt);
+      if (!current.versionLabel && evaluation.prompt_version_name) {
+        current.versionLabel = evaluation.prompt_version_name;
+      }
+      groups.set(key, current);
+    });
+
+    return Array.from(groups.values())
+      .sort((a, b) => b.latestTimestamp - a.latestTimestamp)
+      .map((group) => {
+        const count = group.evaluations.length || 1;
+        const accuracy = group.evaluations.reduce((sum, e) => sum + e.metrics.accuracy, 0) / count;
+        const recall = group.evaluations.reduce((sum, e) => sum + e.metrics.recall, 0) / count;
+        const f1Score = group.evaluations.reduce((sum, e) => sum + e.metrics.f1_score, 0) / count;
+        const latencyMs = group.evaluations.reduce((sum, e) => sum + e.extraction_time_ms, 0) / count;
+        const correctFields = group.evaluations.reduce((sum, e) => sum + e.metrics.correct_fields, 0);
+        const incorrectFields = group.evaluations.reduce((sum, e) => sum + e.metrics.incorrect_fields, 0);
+        const newestEvaluation = group.evaluations.reduce((latest, current) =>
+          new Date(current.evaluated_at).getTime() > new Date(latest.evaluated_at).getTime() ? current : latest
+        , group.evaluations[0]);
+
+        return {
+          runKey: group.key,
+          promptVersionName: group.versionLabel || "Default",
+          evaluatedAt: newestEvaluation?.evaluated_at || new Date(group.latestTimestamp).toISOString(),
+          documentCount: group.evaluations.length,
+          accuracy,
+          recall,
+          f1Score,
+          latencyMs,
+          correctFields,
+          incorrectFields,
+          evaluations: group.evaluations,
+        };
+      });
+  })();
+
+  // Prepare chart data by aggregate evaluation run (one run click across all docs)
+  const chartData = aggregatedRuns
+    .slice(0, 5)
+    .reverse()
+    .map((run, idx) => {
+      return {
+        promptVersion: `Run ${idx + 1}`,
+        versionLabel: run.promptVersionName || "Default",
+        docs: run.documentCount,
+        accuracy: run.accuracy * 100,
+        completeness: run.recall * 100,
+        latency: run.latencyMs,
+        cost: 0.45,
+      };
+    });
 
   const fieldScorecard = (() => {
     const stats = new Map<string, {
@@ -366,12 +459,15 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
         groundTruthData.forEach((item) => {
           gtMap.set(String(normalizeComparable(item[primaryKey] ?? "")), item);
         });
+        const extMap = new Map<string, Record<string, unknown>>();
+        extractedData.forEach((item) => {
+          extMap.set(String(normalizeComparable(item[primaryKey] ?? "")), item);
+        });
+        const rowKeys = new Set<string>([...gtMap.keys(), ...extMap.keys()]);
 
-        extractedData.forEach((extItem) => {
-          const rowKey = String(normalizeComparable(extItem[primaryKey] ?? ""));
-          const gtItem = gtMap.get(rowKey);
-          if (!gtItem) return;
-
+        rowKeys.forEach((rowKey) => {
+          const extItem = extMap.get(rowKey) || {};
+          const gtItem = gtMap.get(rowKey) || {};
           allKeys.forEach((component) => {
             const key = `${field.field_name}.${component}`;
             const current = stats.get(key) || { total: 0, correct: 0 };
@@ -395,28 +491,83 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
       .sort((a, b) => b.accuracy - a.accuracy);
   })();
 
-  const recentEvaluations = evaluations.slice(0, 10);
+  const fieldVersionScorecard = (() => {
+    const stats = new Map<string, {
+      fieldName: string;
+      version: string;
+      total: number;
+      correct: number;
+      present: number;
+      extracted: number;
+      avgScore: number;
+      scoreCount: number;
+    }>();
+
+    evaluations.forEach((evaluation) => {
+      const versionMap = evaluation.field_prompt_versions || {};
+      (evaluation.metrics.field_evaluations || []).forEach((field) => {
+        const version = versionMap[field.field_name] || "0.0";
+        const key = `${field.field_name}@@${version}`;
+        const current = stats.get(key) || {
+          fieldName: field.field_name,
+          version,
+          total: 0,
+          correct: 0,
+          present: 0,
+          extracted: 0,
+          avgScore: 0,
+          scoreCount: 0,
+        };
+        current.total += 1;
+        if (field.is_correct) current.correct += 1;
+        if (field.is_present) current.present += 1;
+        if (field.is_extracted) current.extracted += 1;
+        if (typeof field.comparison_score === "number") {
+          current.avgScore += field.comparison_score;
+          current.scoreCount += 1;
+        }
+        stats.set(key, current);
+      });
+    });
+
+    return Array.from(stats.values())
+      .map((s) => ({
+        fieldName: s.fieldName,
+        version: s.version,
+        accuracy: s.total > 0 ? s.correct / s.total : 0,
+        extractionRate: s.present > 0 ? s.extracted / s.present : 0,
+        avgSimilarity: s.scoreCount > 0 ? s.avgScore / s.scoreCount : 0,
+        runs: s.total,
+        correct: s.correct,
+      }))
+      .sort((a, b) => {
+        if (a.fieldName !== b.fieldName) return a.fieldName.localeCompare(b.fieldName);
+        return b.version.localeCompare(a.version, undefined, { numeric: true });
+      });
+  })();
+
+  const recentEvaluations = aggregatedRuns.slice(0, 10);
   const allRecentSelected =
     recentEvaluations.length > 0 &&
-    recentEvaluations.every((evaluation) => selectedEvaluationIds.has(evaluation.id));
+    recentEvaluations.every((run) => selectedEvaluationIds.has(run.runKey));
   const someRecentSelected =
-    recentEvaluations.some((evaluation) => selectedEvaluationIds.has(evaluation.id)) && !allRecentSelected;
+    recentEvaluations.some((run) => selectedEvaluationIds.has(run.runKey)) && !allRecentSelected;
 
   const toggleSelectAllRecent = (checked: boolean) => {
     if (checked) {
-      setSelectedEvaluationIds(new Set(recentEvaluations.map((e) => e.id)));
+      setSelectedEvaluationIds(new Set(recentEvaluations.map((run) => run.runKey)));
     } else {
       setSelectedEvaluationIds(new Set());
     }
   };
 
-  const toggleSelectEvaluation = (evaluationId: string, checked: boolean) => {
+  const toggleSelectEvaluation = (runKey: string, checked: boolean) => {
     setSelectedEvaluationIds((prev) => {
       const next = new Set(prev);
       if (checked) {
-        next.add(evaluationId);
+        next.add(runKey);
       } else {
-        next.delete(evaluationId);
+        next.delete(runKey);
       }
       return next;
     });
@@ -424,10 +575,15 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
 
   const deleteSelectedEvaluations = async () => {
     if (selectedEvaluationIds.size === 0) return;
-    if (!confirm(`Delete ${selectedEvaluationIds.size} selected evaluation run(s)?`)) return;
+    if (!confirm(`Delete ${selectedEvaluationIds.size} selected aggregated run(s)?`)) return;
     try {
-      await Promise.all(Array.from(selectedEvaluationIds).map((id) => api.deleteEvaluation(id)));
-      toast({ title: "Evaluations deleted", description: `Deleted ${selectedEvaluationIds.size} run(s)` });
+      const selectedRuns = aggregatedRuns.filter((run) => selectedEvaluationIds.has(run.runKey));
+      const evaluationIdsToDelete = selectedRuns.flatMap((run) => run.evaluations.map((e) => e.id));
+      await Promise.all(evaluationIdsToDelete.map((id) => api.deleteEvaluation(id)));
+      toast({
+        title: "Runs deleted",
+        description: `Deleted ${selectedRuns.length} run(s), ${evaluationIdsToDelete.length} document eval(s)`,
+      });
       await loadEvaluations();
     } catch (error: any) {
       toast({
@@ -552,6 +708,11 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                             <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
                             <Tooltip 
                                 contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                                formatter={(value: number, name: string) => [`${Number(value).toFixed(1)}%`, name]}
+                                labelFormatter={(_label, payload) => {
+                                  const row = payload?.[0]?.payload;
+                                  return `${row?.promptVersion || "Run"} • ${row?.versionLabel || "Default"} • ${row?.docs || 0} docs`;
+                                }}
                             />
                             <Legend />
                             <Bar dataKey="accuracy" name="Field Accuracy" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} barSize={40} />
@@ -571,7 +732,13 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))" />
                             <XAxis dataKey="promptVersion" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
                             <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                            <Tooltip />
+                            <Tooltip
+                              formatter={(value: number) => [`${Math.round(Number(value))} ms`, "Latency"]}
+                              labelFormatter={(_label, payload) => {
+                                const row = payload?.[0]?.payload;
+                                return `${row?.promptVersion || "Run"} • ${row?.versionLabel || "Default"} • ${row?.docs || 0} docs`;
+                              }}
+                            />
                             <Line type="monotone" dataKey="latency" stroke="hsl(var(--chart-3))" strokeWidth={3} dot={{r: 6, fill: 'hsl(var(--chart-3))'}} />
                         </LineChart>
                     </ResponsiveContainer>
@@ -588,7 +755,13 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))" />
                             <XAxis dataKey="promptVersion" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
                             <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                            <Tooltip />
+                            <Tooltip
+                              formatter={(value: number) => [`$${Number(value).toFixed(2)}`, "Cost"]}
+                              labelFormatter={(_label, payload) => {
+                                const row = payload?.[0]?.payload;
+                                return `${row?.promptVersion || "Run"} • ${row?.versionLabel || "Default"} • ${row?.docs || 0} docs`;
+                              }}
+                            />
                             <Line type="monotone" dataKey="cost" stroke="hsl(var(--chart-5))" strokeWidth={3} dot={{r: 6, fill: 'hsl(var(--chart-5))'}} />
                         </LineChart>
                     </ResponsiveContainer>
@@ -658,6 +831,41 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
             </CardContent>
           </Card>
 
+          <Card className="border-muted bg-white">
+            <CardHeader>
+              <CardTitle className="text-primary">Field Version Scorecard</CardTitle>
+              <CardDescription>
+                Score breakdown by exact field prompt version used in each run.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {fieldVersionScorecard.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No version-attributed field data yet.</p>
+              ) : (
+                <div className="rounded-md border overflow-hidden">
+                  <div className="grid grid-cols-6 p-3 text-[10px] uppercase tracking-wider font-bold text-muted-foreground bg-muted/30">
+                    <div>Field</div>
+                    <div>Version</div>
+                    <div>Accuracy</div>
+                    <div>Extraction Rate</div>
+                    <div>Avg Similarity</div>
+                    <div>Runs</div>
+                  </div>
+                  {fieldVersionScorecard.map((row, idx) => (
+                    <div key={`${row.fieldName}-${row.version}-${idx}`} className="grid grid-cols-6 p-3 border-t text-sm items-center">
+                      <div className="font-mono text-primary">{row.fieldName}</div>
+                      <div className="font-mono">{row.version}</div>
+                      <div className="font-mono">{(row.accuracy * 100).toFixed(1)}%</div>
+                      <div className="font-mono">{(row.extractionRate * 100).toFixed(1)}%</div>
+                      <div className="font-mono">{(row.avgSimilarity * 100).toFixed(1)}%</div>
+                      <div className="font-mono">{row.correct}/{row.runs}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h4 className="font-medium">Recent Runs</h4>
@@ -681,48 +889,49 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                         className={someRecentSelected ? "opacity-60" : ""}
                       />
                     </div>
-                    <div className="col-span-2">Document / Version</div>
+                    <div className="col-span-2">Run / Version</div>
                     <div>Date</div>
                     <div>F1 Score</div>
                     <div>Accuracy</div>
                     <div>Time (ms)</div>
                     <div className="text-right">Actions</div>
                 </div>
-                {recentEvaluations.map((evaluation) => (
-                    <div key={evaluation.id} className="grid grid-cols-8 p-4 border-b last:border-0 text-sm hover:bg-accent/5 transition-colors items-center">
+                {recentEvaluations.map((run, idx) => (
+                    <div key={run.runKey} className="grid grid-cols-8 p-4 border-b last:border-0 text-sm hover:bg-accent/5 transition-colors items-center">
                         <div className="flex items-center">
                           <Checkbox
-                            checked={selectedEvaluationIds.has(evaluation.id)}
-                            onCheckedChange={(checked) => toggleSelectEvaluation(evaluation.id, !!checked)}
-                            aria-label={`Select evaluation ${evaluation.id}`}
+                            checked={selectedEvaluationIds.has(run.runKey)}
+                            onCheckedChange={(checked) => toggleSelectEvaluation(run.runKey, !!checked)}
+                            aria-label={`Select run ${run.runKey}`}
                           />
                         </div>
                         <div className="col-span-2">
-                            <div className="font-medium text-primary truncate">{evaluation.document_id.slice(0, 12)}...</div>
+                            <div className="font-medium text-primary truncate">Run {recentEvaluations.length - idx}</div>
                             <div className="text-xs text-muted-foreground">
                               <Badge variant="outline" className="text-[10px] border-accent/20 text-accent font-mono">
-                                {evaluation.prompt_version_name || 'Default'}
+                                {run.promptVersionName || 'Default'}
                               </Badge>
+                              <span className="ml-2">{run.documentCount} docs</span>
                             </div>
                         </div>
                         <div className="flex items-center text-muted-foreground text-xs">
-                          {new Date(evaluation.evaluated_at).toLocaleDateString()}
+                          {new Date(run.evaluatedAt).toLocaleDateString()}
                         </div>
                         <div className="flex items-center font-mono font-bold text-accent">
-                          {formatPercentage(evaluation.metrics.f1_score)}
+                          {formatPercentage(run.f1Score)}
                         </div>
                         <div className="flex items-center font-mono font-medium">
-                          {formatPercentage(evaluation.metrics.accuracy)}
+                          {formatPercentage(run.accuracy)}
                         </div>
                         <div className="flex items-center font-mono text-muted-foreground text-xs">
-                          {evaluation.extraction_time_ms}ms
+                          {Math.round(run.latencyMs)}ms
                         </div>
                         <div className="flex items-center justify-end gap-1">
                           <Button 
                             variant="ghost" 
                             size="sm"
                             onClick={() => {
-                              setSelectedEvaluation(evaluation);
+                              setSelectedRun(run);
                               setShowDetailsDialog(true);
                             }}
                           >
@@ -733,11 +942,11 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                             size="sm"
                             className="text-destructive hover:text-destructive hover:bg-destructive/10"
                             onClick={async () => {
-                              if (confirm('Delete this evaluation run?')) {
+                              if (confirm('Delete this aggregated run?')) {
                                 try {
-                                  await api.deleteEvaluation(evaluation.id);
-                                  loadEvaluations();
-                                  toast({ title: "Evaluation deleted" });
+                                  await Promise.all(run.evaluations.map((e) => api.deleteEvaluation(e.id)));
+                                  await loadEvaluations();
+                                  toast({ title: "Run deleted" });
                                 } catch (error: any) {
                                   toast({ 
                                     title: "Failed to delete", 
@@ -766,14 +975,14 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                 </DialogDescription>
               </DialogHeader>
               
-              {selectedEvaluation && (
+              {selectedRun && (
                 <div className="space-y-6">
                   {/* Summary */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <Card>
                       <CardContent className="pt-6">
                         <div className="text-2xl font-bold text-accent">
-                          {formatPercentage(selectedEvaluation.metrics.f1_score)}
+                          {formatPercentage(selectedRun.f1Score)}
                         </div>
                         <p className="text-xs text-muted-foreground">F1 Score</p>
                       </CardContent>
@@ -781,7 +990,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                     <Card>
                       <CardContent className="pt-6">
                         <div className="text-2xl font-bold">
-                          {formatPercentage(selectedEvaluation.metrics.accuracy)}
+                          {formatPercentage(selectedRun.accuracy)}
                         </div>
                         <p className="text-xs text-muted-foreground">Accuracy</p>
                       </CardContent>
@@ -789,7 +998,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                     <Card>
                       <CardContent className="pt-6">
                         <div className="text-2xl font-bold text-green-600">
-                          {selectedEvaluation.metrics.correct_fields}
+                          {selectedRun.correctFields}
                         </div>
                         <p className="text-xs text-muted-foreground">Correct</p>
                       </CardContent>
@@ -797,17 +1006,26 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                     <Card>
                       <CardContent className="pt-6">
                         <div className="text-2xl font-bold text-red-600">
-                          {selectedEvaluation.metrics.incorrect_fields}
+                          {selectedRun.incorrectFields}
                         </div>
                         <p className="text-xs text-muted-foreground">Incorrect</p>
                       </CardContent>
                     </Card>
                   </div>
 
-                  {/* Field Evaluations */}
+                  <div className="flex items-center justify-between rounded-md border p-3 bg-muted/20">
+                    <div className="text-sm">
+                      <span className="font-semibold">Version:</span> {selectedRun.promptVersionName}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {selectedRun.documentCount} documents • {new Date(selectedRun.evaluatedAt).toLocaleString()}
+                    </div>
+                  </div>
+
+                  {/* Per-document details */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                      <h4 className="font-semibold">Field Predictions</h4>
+                      <h4 className="font-semibold">Document Predictions</h4>
                       <Button
                         variant="outline"
                         size="sm"
@@ -816,7 +1034,22 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                         {showRawJson ? 'Show Table View' : 'Show Raw JSON'}
                       </Button>
                     </div>
-                    {selectedEvaluation.metrics.field_evaluations?.map((field, idx) => {
+                    {selectedRun.evaluations.map((evaluation, evalIdx) => (
+                      <Card key={`${evaluation.id}-${evalIdx}`} className="border-muted">
+                        <CardHeader className="pb-2">
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="text-sm font-mono">
+                              {evaluation.document_id.slice(0, 12)}...
+                            </CardTitle>
+                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                              <span>F1 {formatPercentage(evaluation.metrics.f1_score)}</span>
+                              <span>Acc {formatPercentage(evaluation.metrics.accuracy)}</span>
+                              <span>{evaluation.extraction_time_ms}ms</span>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {(evaluation.metrics.field_evaluations || []).map((field, idx) => {
                       // Check if this is an array of objects (table data)
                       const isArrayOfObjects = Array.isArray(field.extracted_value) && 
                                                field.extracted_value.length > 0 && 
@@ -889,19 +1122,23 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
 
                         // Component-level (column) accuracy so prompts can be optimized per item.
                         const componentStats = columns.map((col) => {
-                          let present = 0;
+                          let total = 0;
                           let correct = 0;
-                          extractedData.forEach((extItem) => {
-                            const itemKey = String(normalizeComparable(extItem[primaryKey] ?? ""));
-                            const gtItem = gtMap.get(itemKey);
-                            if (!gtItem) return;
-                            present += 1;
+                          const extMap = new Map<string, Record<string, unknown>>();
+                          extractedData.forEach((item) => {
+                            extMap.set(String(normalizeComparable(item[primaryKey] ?? "")), item);
+                          });
+                          const rowKeys = new Set<string>([...gtMap.keys(), ...extMap.keys()]);
+                          rowKeys.forEach((rowKey) => {
+                            const gtItem = gtMap.get(rowKey) || {};
+                            const extItem = extMap.get(rowKey) || {};
+                            total += 1;
                             if (valuesMatch(extItem[col], gtItem[col])) {
                               correct += 1;
                             }
                           });
-                          const accuracy = present > 0 ? correct / present : 0;
-                          return { col, present, correct, accuracy };
+                          const accuracy = total > 0 ? correct / total : 0;
+                          return { col, total, correct, accuracy };
                         });
 
                         return (
@@ -925,7 +1162,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                               <div className="mb-3 flex flex-wrap gap-2">
                                 {componentStats.map((s) => (
                                   <Badge key={s.col} variant="outline" className="font-mono">
-                                    {s.col}: {(s.accuracy * 100).toFixed(0)}% ({s.correct}/{s.present})
+                                    {s.col}: {(s.accuracy * 100).toFixed(0)}% ({s.correct}/{s.total})
                                   </Badge>
                                 ))}
                               </div>
@@ -1009,6 +1246,9 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                         );
                       }
                     })}
+                        </CardContent>
+                      </Card>
+                    ))}
                   </div>
                 </div>
               )}

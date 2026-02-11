@@ -321,6 +321,10 @@ class SQLiteClient:
                 cursor.execute(
                     "ALTER TABLE evaluations ADD COLUMN comparator_mode TEXT NOT NULL DEFAULT 'normalized'"
                 )
+            if "field_prompt_versions" not in evaluation_columns:
+                cursor.execute(
+                    "ALTER TABLE evaluations ADD COLUMN field_prompt_versions TEXT NOT NULL DEFAULT '{}'"
+                )
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_evaluations_document
                 ON evaluations(document_id)
@@ -2097,6 +2101,26 @@ class SQLiteClient:
                 versions_by_field[row["field_name"]] = row["name"]
         return versions_by_field
 
+    def list_active_field_prompt_version_timestamps(self, document_type_id: str) -> dict[str, str]:
+        """Get active field prompt version timestamps keyed by field name."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT field_name, created_at
+                FROM field_prompt_versions
+                WHERE is_active = 1 AND document_type_id = ?
+                ORDER BY created_at DESC
+                """,
+                (document_type_id,),
+            )
+            rows = cursor.fetchall()
+        timestamps_by_field: dict[str, str] = {}
+        for row in rows:
+            if row["field_name"] not in timestamps_by_field:
+                timestamps_by_field[row["field_name"]] = row["created_at"]
+        return timestamps_by_field
+
     def list_field_prompt_versions(
         self,
         document_type_id: Optional[str] = None,
@@ -2206,9 +2230,9 @@ class SQLiteClient:
             cursor.execute(
                 """
                 INSERT INTO evaluations 
-                (id, document_id, document_type_id, prompt_version_id, schema_version_id, comparator_mode, metrics, 
+                (id, document_id, document_type_id, prompt_version_id, schema_version_id, comparator_mode, field_prompt_versions, metrics, 
                  extraction_time_ms, evaluated_by, evaluated_at, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     evaluation.id,
@@ -2217,6 +2241,7 @@ class SQLiteClient:
                     evaluation.prompt_version_id,
                     evaluation.schema_version_id,
                     evaluation.metrics.comparator_mode,
+                    json.dumps(evaluation.field_prompt_versions or {}),
                     metrics_json,
                     evaluation.extraction_time_ms,
                     evaluation.evaluated_by,
@@ -2254,6 +2279,11 @@ class SQLiteClient:
             document_type_id=row["document_type_id"],
             prompt_version_id=row["prompt_version_id"],
             prompt_version_name=row["prompt_version_name"],
+            field_prompt_versions=(
+                json.loads(row["field_prompt_versions"])
+                if "field_prompt_versions" in row.keys() and row["field_prompt_versions"]
+                else {}
+            ),
             schema_version_id=row["schema_version_id"] if "schema_version_id" in row.keys() else None,
             metrics=metrics,
             extraction_time_ms=row["extraction_time_ms"],
@@ -2327,6 +2357,11 @@ class SQLiteClient:
                     document_type_id=row["document_type_id"],
                     prompt_version_id=row["prompt_version_id"],
                     prompt_version_name=row["prompt_version_name"],
+                    field_prompt_versions=(
+                        json.loads(row["field_prompt_versions"])
+                        if "field_prompt_versions" in row.keys() and row["field_prompt_versions"]
+                        else {}
+                    ),
                     schema_version_id=row["schema_version_id"] if "schema_version_id" in row.keys() else None,
                     metrics=metrics,
                     extraction_time_ms=row["extraction_time_ms"],

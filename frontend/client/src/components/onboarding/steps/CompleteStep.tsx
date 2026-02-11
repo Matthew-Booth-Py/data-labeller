@@ -114,7 +114,7 @@ export function CompleteStep({ onComplete }: CompleteStepProps) {
             </div>
 
             <div className="flex items-start gap-4 p-4 rounded-lg border bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer"
-                 onClick={() => setLocation("/project/tutorial/schema")}>
+                 onClick={() => setLocation("/project/tutorial#schema")}>
               <div className="p-2 rounded-lg bg-purple-500/10">
                 <Tag className="h-5 w-5 text-purple-500" />
               </div>
@@ -128,7 +128,7 @@ export function CompleteStep({ onComplete }: CompleteStepProps) {
             </div>
 
             <div className="flex items-start gap-4 p-4 rounded-lg border bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer"
-                 onClick={() => setLocation("/project/tutorial/search")}>
+                 onClick={() => setLocation("/project/tutorial#search")}>
               <div className="p-2 rounded-lg bg-amber-500/10">
                 <Brain className="h-5 w-5 text-amber-500" />
               </div>
@@ -188,7 +188,7 @@ export function CompleteStep({ onComplete }: CompleteStepProps) {
           <BookOpen className="h-4 w-4 mr-2" />
           Back to Dashboard
         </Button>
-        <Button onClick={() => navigate("/project/tutorial")} className="gap-2">
+        <Button onClick={() => setLocation("/project/tutorial")} className="gap-2">
           Go to Workspace
           <ArrowRight className="h-4 w-4" />
         </Button>

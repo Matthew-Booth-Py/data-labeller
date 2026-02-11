@@ -222,6 +222,19 @@ flowchart TB
 
 ## 🚀 Getting Started
 
+### Recommended First Pipeline
+
+Use this workflow for new projects:
+
+1. Upload documents.
+2. Go to `Schema` -> `Document Types` -> `Fields Definition`.
+3. Click `Add Field` and use `AI Field Assistant` to generate each field + `Extraction Prompt`.
+4. Classify one document manually (baseline).
+5. Classify remaining documents with the LLM document-type classifier.
+6. Annotate with AI suggestions and confirm/edit schema-derived labels.
+7. Run extraction and review raw output.
+8. Done. Move to evaluation/version iteration.
+
 ### Prerequisites
 
 1. **Docker & Docker Compose** installed on your system

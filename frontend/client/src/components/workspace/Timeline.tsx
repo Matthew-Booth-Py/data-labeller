@@ -1,10 +1,9 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar, FileText, ZoomIn, ZoomOut, RefreshCw } from "lucide-react";
+import { Calendar, FileText, RefreshCw } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -13,9 +12,8 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Cell,
 } from "recharts";
-import { api, TimelineEntry, TimelineDocument } from "@/lib/api";
+import { api } from "@/lib/api";
 import { format, parseISO } from "date-fns";
 
 interface TimelineProps {
@@ -24,13 +22,10 @@ interface TimelineProps {
 }
 
 export function Timeline({ onDocumentClick, highlightedDocuments = [] }: TimelineProps) {
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [dateRange, setDateRange] = useState<{ start?: string; end?: string }>({});
-
   // Fetch timeline data
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["timeline", dateRange.start, dateRange.end],
-    queryFn: () => api.getGraphTimeline(dateRange.start, dateRange.end),
+    queryKey: ["timeline"],
+    queryFn: () => api.getGraphTimeline(),
     staleTime: 30000, // 30 seconds
   });
 
@@ -38,29 +33,14 @@ export function Timeline({ onDocumentClick, highlightedDocuments = [] }: Timelin
   const chartData = useMemo(() => {
     if (!data?.timeline) return [];
     
-    return data.timeline.map((entry) => ({
+    return [...data.timeline]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((entry) => ({
       date: entry.date,
       count: entry.document_count,
-      documents: entry.documents,
       label: format(parseISO(entry.date), "MMM d, yyyy"),
     }));
   }, [data]);
-
-  // Get documents for selected date
-  const selectedDocuments = useMemo(() => {
-    if (!selectedDate || !data?.timeline) return [];
-    const entry = data.timeline.find((e) => e.date === selectedDate);
-    return entry?.documents || [];
-  }, [selectedDate, data]);
-
-  // Check if a document is highlighted
-  const isHighlighted = (docId: string) => highlightedDocuments.includes(docId);
-
-  const handleBarClick = (data: any) => {
-    if (data?.date) {
-      setSelectedDate(data.date === selectedDate ? null : data.date);
-    }
-  };
 
   if (error) {
     return (
@@ -85,10 +65,10 @@ export function Timeline({ onDocumentClick, highlightedDocuments = [] }: Timelin
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Calendar className="h-5 w-5 text-primary" />
-            Document Timeline
+            Upload Histogram
           </h2>
           <p className="text-sm text-muted-foreground">
-            {data?.total_documents || 0} documents from{" "}
+            {data?.total_documents || 0} documents uploaded from{" "}
             {data?.date_range.earliest
               ? format(parseISO(data.date_range.earliest), "MMM yyyy")
               : "—"}{" "}
@@ -131,7 +111,6 @@ export function Timeline({ onDocumentClick, highlightedDocuments = [] }: Timelin
               <BarChart
                 data={chartData}
                 margin={{ top: 10, right: 30, left: 0, bottom: 30 }}
-                onClick={(e) => e?.activePayload?.[0] && handleBarClick(e.activePayload[0].payload)}
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))" />
                 <XAxis
@@ -164,66 +143,13 @@ export function Timeline({ onDocumentClick, highlightedDocuments = [] }: Timelin
                 <Bar
                   dataKey="count"
                   radius={[4, 4, 0, 0]}
-                  cursor="pointer"
-                >
-                  {chartData.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={
-                        entry.date === selectedDate
-                          ? "hsl(var(--primary))"
-                          : "hsl(var(--primary) / 0.6)"
-                      }
-                    />
-                  ))}
-                </Bar>
+                  fill="hsl(var(--primary) / 0.7)"
+                />
               </BarChart>
             </ResponsiveContainer>
           )}
         </CardContent>
       </Card>
-
-      {/* Document List for Selected Date */}
-      {selectedDate && (
-        <Card>
-          <CardHeader className="py-3">
-            <CardTitle className="text-sm flex items-center justify-between">
-              <span>
-                Documents from {format(parseISO(selectedDate), "MMMM d, yyyy")}
-              </span>
-              <Badge variant="secondary">{selectedDocuments.length}</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="py-2">
-            <div className="space-y-2 max-h-[200px] overflow-auto">
-              {selectedDocuments.map((doc) => (
-                <div
-                  key={doc.id}
-                  className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
-                    isHighlighted(doc.id)
-                      ? "bg-primary/10 border border-primary/20"
-                      : "hover:bg-muted"
-                  }`}
-                  onClick={() => onDocumentClick?.(doc.id)}
-                >
-                  <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{doc.filename}</p>
-                    {doc.excerpt && (
-                      <p className="text-xs text-muted-foreground truncate">
-                        {doc.excerpt}
-                      </p>
-                    )}
-                  </div>
-                  <Badge variant="outline" className="text-[10px] shrink-0">
-                    {doc.file_type}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

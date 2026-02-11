@@ -67,6 +67,7 @@ export interface DocumentSummary {
   date_extracted?: string;
   created_at: string;
   chunk_count: number;
+  token_count?: number;
 }
 
 export interface IngestResponse {
@@ -211,6 +212,27 @@ export interface GlobalFieldCreate {
   prompt: string;
   description?: string;
   created_by?: string;
+}
+
+export interface FieldAssistantProperty {
+  name: string;
+  type: FieldType;
+  description?: string;
+}
+
+export interface FieldAssistantRequest {
+  user_input: string;
+  document_type_id?: string;
+  existing_field_names?: string[];
+}
+
+export interface FieldAssistantResponse {
+  name: string;
+  type: FieldType;
+  description?: string;
+  extraction_prompt: string;
+  items_type?: FieldType | null;
+  object_properties: FieldAssistantProperty[];
 }
 
 export interface Classification {
@@ -401,6 +423,24 @@ export interface SuggestionResponse {
   examples_used: number;
   model: string;
   generated_at: string;
+}
+
+export interface SchemaSuggestionResponse {
+  document_id: string;
+  document_type_id: string;
+  suggestions: Array<{
+    field_name: string;
+    label_name: string;
+    spans: Array<{
+      text: string;
+      start_char: number;
+      end_char: number;
+    }>;
+    confidence: number;
+    reasoning?: string;
+    metadata?: Record<string, unknown>;
+  }>;
+  extraction_preview: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -752,6 +792,13 @@ class ApiClient {
     });
   }
 
+  async suggestFieldDefinition(data: FieldAssistantRequest): Promise<FieldAssistantResponse> {
+    return this.request(`${API_PREFIX}/taxonomy/field-assistant`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   async deleteGlobalField(id: string): Promise<{ status: string; message: string }> {
     return this.request(`${API_PREFIX}/taxonomy/fields/${id}`, {
       method: 'DELETE',
@@ -935,6 +982,16 @@ class ApiClient {
     });
   }
 
+  async suggestSchemaAnnotations(
+    documentId: string,
+    autoAccept: boolean = true
+  ): Promise<SchemaSuggestionResponse> {
+    const query = `?auto_accept=${String(autoAccept)}`;
+    return this.request(`${API_PREFIX}/documents/${documentId}/suggest-annotations${query}`, {
+      method: 'POST',
+    });
+  }
+
   // Feedback
   async submitFeedback(data: FeedbackCreate): Promise<FeedbackResponse> {
     return this.request(`${API_PREFIX}/feedback`, {
@@ -1005,7 +1062,7 @@ class ApiClient {
 
   // Evaluation
   async deleteEvaluation(evaluationId: string): Promise<{ message: string }> {
-    return this.request(`${API_PREFIX}/evaluation/${evaluationId}`, {
+    return this.request(`${API_PREFIX}/evaluation/results/${evaluationId}`, {
       method: 'DELETE',
     });
   }
@@ -1049,7 +1106,12 @@ class ApiClient {
 
   async listActiveFieldPromptsByDocumentType(
     documentTypeId: string
-  ): Promise<{ field_prompts: Record<string, string>; field_versions: Record<string, string>; total: number }> {
+  ): Promise<{
+    field_prompts: Record<string, string>;
+    field_versions: Record<string, string>;
+    field_version_updated_at: Record<string, string>;
+    total: number;
+  }> {
     return this.request(
       `${API_PREFIX}/evaluation/field-prompts/active/by-document-type?document_type_id=${encodeURIComponent(documentTypeId)}`
     );
