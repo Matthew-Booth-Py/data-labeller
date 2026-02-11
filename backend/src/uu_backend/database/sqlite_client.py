@@ -69,6 +69,8 @@ class SQLiteClient:
                     schema_fields TEXT NOT NULL DEFAULT '[]',
                     system_prompt TEXT,
                     post_processing TEXT,
+                    extraction_model TEXT,
+                    ocr_engine TEXT,
                     schema_version_id TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -78,6 +80,10 @@ class SQLiteClient:
             doc_type_columns = [row[1] for row in cursor.fetchall()]
             if "schema_version_id" not in doc_type_columns:
                 cursor.execute("ALTER TABLE document_types ADD COLUMN schema_version_id TEXT")
+            if "extraction_model" not in doc_type_columns:
+                cursor.execute("ALTER TABLE document_types ADD COLUMN extraction_model TEXT")
+            if "ocr_engine" not in doc_type_columns:
+                cursor.execute("ALTER TABLE document_types ADD COLUMN ocr_engine TEXT")
 
             # Classifications table
             cursor.execute("""
@@ -432,12 +438,20 @@ class SQLiteClient:
                     schema_fields TEXT NOT NULL,
                     system_prompt TEXT,
                     post_processing TEXT,
+                    extraction_model TEXT,
+                    ocr_engine TEXT,
                     created_at TEXT NOT NULL,
                     created_by TEXT,
                     FOREIGN KEY (document_type_id) REFERENCES document_types(id) ON DELETE CASCADE
                 )
                 """
             )
+            cursor.execute("PRAGMA table_info(schema_versions)")
+            schema_version_columns = [row[1] for row in cursor.fetchall()]
+            if "extraction_model" not in schema_version_columns:
+                cursor.execute("ALTER TABLE schema_versions ADD COLUMN extraction_model TEXT")
+            if "ocr_engine" not in schema_version_columns:
+                cursor.execute("ALTER TABLE schema_versions ADD COLUMN ocr_engine TEXT")
             cursor.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_schema_versions_document_type
@@ -488,6 +502,54 @@ class SQLiteClient:
                 """
             )
 
+            # LLM provider settings (for UI-driven provider key management + health status)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS llm_provider_settings (
+                    provider TEXT PRIMARY KEY,
+                    api_key_override TEXT,
+                    last_test_status TEXT NOT NULL DEFAULT 'unknown',
+                    last_tested_at TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS llm_provider_models (
+                    provider TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    display_name TEXT,
+                    is_enabled INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (provider, model_id)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_llm_provider_models_provider_enabled
+                ON llm_provider_models(provider, is_enabled)
+                """
+            )
+            now_iso = datetime.utcnow().isoformat()
+            default_models = [
+                ("openai", "gpt-5-mini", "GPT-5 mini"),
+                ("openai", "gpt-5", "GPT-5"),
+                ("openai", "gpt-4o", "GPT-4o"),
+            ]
+            for provider, model_id, display_name in default_models:
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO llm_provider_models
+                    (provider, model_id, display_name, is_enabled, created_at, updated_at)
+                    VALUES (?, ?, ?, 1, ?, ?)
+                    """,
+                    (provider, model_id, display_name, now_iso, now_iso),
+                )
+
             # Reusable global field templates
             cursor.execute(
                 """
@@ -497,12 +559,20 @@ class SQLiteClient:
                     type TEXT NOT NULL,
                     prompt TEXT NOT NULL,
                     description TEXT,
+                    extraction_model TEXT,
+                    ocr_engine TEXT,
                     created_by TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
                 """
             )
+            cursor.execute("PRAGMA table_info(global_fields)")
+            global_field_columns = [row[1] for row in cursor.fetchall()]
+            if "extraction_model" not in global_field_columns:
+                cursor.execute("ALTER TABLE global_fields ADD COLUMN extraction_model TEXT")
+            if "ocr_engine" not in global_field_columns:
+                cursor.execute("ALTER TABLE global_fields ADD COLUMN ocr_engine TEXT")
             cursor.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_global_fields_name
@@ -663,6 +733,8 @@ class SQLiteClient:
             schema_fields=data.schema_fields,
             system_prompt=data.system_prompt,
             post_processing=data.post_processing,
+            extraction_model=data.extraction_model or "gpt-5-mini",
+            ocr_engine=data.ocr_engine or "azure-di-prebuilt",
             schema_version_id=schema_version_id,
             created_at=now,
             updated_at=now,
@@ -673,8 +745,8 @@ class SQLiteClient:
             cursor.execute(
                 """
                 INSERT INTO document_types
-                (id, name, description, schema_fields, system_prompt, post_processing, schema_version_id, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, name, description, schema_fields, system_prompt, post_processing, extraction_model, ocr_engine, schema_version_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     doc_type.id,
@@ -683,6 +755,8 @@ class SQLiteClient:
                     json.dumps([f.model_dump() for f in doc_type.schema_fields]),
                     doc_type.system_prompt,
                     doc_type.post_processing,
+                    doc_type.extraction_model,
+                    doc_type.ocr_engine,
                     doc_type.schema_version_id,
                     doc_type.created_at.isoformat(),
                     doc_type.updated_at.isoformat(),
@@ -691,8 +765,8 @@ class SQLiteClient:
             cursor.execute(
                 """
                 INSERT INTO schema_versions
-                (id, document_type_id, schema_fields, system_prompt, post_processing, created_at, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (id, document_type_id, schema_fields, system_prompt, post_processing, extraction_model, ocr_engine, created_at, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     schema_version_id,
@@ -700,6 +774,8 @@ class SQLiteClient:
                     json.dumps([f.model_dump() for f in doc_type.schema_fields]),
                     doc_type.system_prompt,
                     doc_type.post_processing,
+                    doc_type.extraction_model,
+                    doc_type.ocr_engine,
                     now.isoformat(),
                     None,
                 ),
@@ -770,9 +846,13 @@ class SQLiteClient:
             updates["system_prompt"] = data.system_prompt
         if data.post_processing is not None:
             updates["post_processing"] = data.post_processing
+        if data.extraction_model is not None:
+            updates["extraction_model"] = data.extraction_model
+        if data.ocr_engine is not None:
+            updates["ocr_engine"] = data.ocr_engine
 
         requires_new_schema_version = any(
-            key in updates for key in ("schema_fields", "system_prompt", "post_processing")
+            key in updates for key in ("schema_fields", "system_prompt", "post_processing", "extraction_model", "ocr_engine")
         )
 
         if not updates:
@@ -797,11 +877,17 @@ class SQLiteClient:
                 next_post_processing = (
                     data.post_processing if data.post_processing is not None else existing.post_processing
                 )
+                next_extraction_model = (
+                    data.extraction_model if data.extraction_model is not None else existing.extraction_model
+                )
+                next_ocr_engine = (
+                    data.ocr_engine if data.ocr_engine is not None else existing.ocr_engine
+                )
                 cursor.execute(
                     """
                     INSERT INTO schema_versions
-                    (id, document_type_id, schema_fields, system_prompt, post_processing, created_at, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (id, document_type_id, schema_fields, system_prompt, post_processing, extraction_model, ocr_engine, created_at, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         updates["schema_version_id"],
@@ -809,6 +895,8 @@ class SQLiteClient:
                         json.dumps([f.model_dump() for f in next_schema_fields]),
                         next_system_prompt,
                         next_post_processing,
+                        next_extraction_model,
+                        next_ocr_engine,
                         updates["updated_at"],
                         None,
                     ),
@@ -854,6 +942,8 @@ class SQLiteClient:
             schema_fields=schema_fields,
             system_prompt=row["system_prompt"],
             post_processing=row["post_processing"],
+            extraction_model=row["extraction_model"] if "extraction_model" in row.keys() else None,
+            ocr_engine=row["ocr_engine"] if "ocr_engine" in row.keys() else None,
             schema_version_id=row["schema_version_id"] if "schema_version_id" in row.keys() else None,
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
@@ -879,6 +969,8 @@ class SQLiteClient:
                 "schema_fields": json.loads(row["schema_fields"]),
                 "system_prompt": row["system_prompt"],
                 "post_processing": row["post_processing"],
+                "extraction_model": row["extraction_model"] if "extraction_model" in row.keys() else None,
+                "ocr_engine": row["ocr_engine"] if "ocr_engine" in row.keys() else None,
                 "created_at": row["created_at"],
                 "created_by": row["created_by"],
             }
@@ -960,7 +1052,7 @@ class SQLiteClient:
                     (prompt_version.user_prompt_template if prompt_version else None),
                     json.dumps(snapshot_schema_fields),
                     json.dumps(active_field_prompt_versions),
-                    "gpt-5-mini",
+                    doc_type.extraction_model or "gpt-5-mini",
                     1 if set_active else 0,
                     created_by,
                     now.isoformat(),
@@ -1066,6 +1158,194 @@ class SQLiteClient:
             "created_at": datetime.fromisoformat(row["created_at"]),
         }
 
+    # LLM provider settings
+
+    def get_llm_provider_settings(self, provider: str) -> Optional[dict]:
+        """Fetch persisted settings for an LLM provider."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT provider, api_key_override, last_test_status, last_tested_at, updated_at
+                FROM llm_provider_settings
+                WHERE provider = ?
+                """,
+                (provider,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                "provider": row["provider"],
+                "api_key_override": row["api_key_override"],
+                "last_test_status": row["last_test_status"],
+                "last_tested_at": row["last_tested_at"],
+                "updated_at": row["updated_at"],
+            }
+
+    def upsert_llm_provider_api_key(self, provider: str, api_key_override: Optional[str]) -> dict:
+        """Persist provider API key override (or clear with None)."""
+        now = datetime.utcnow().isoformat()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO llm_provider_settings (provider, api_key_override, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(provider) DO UPDATE SET
+                    api_key_override = excluded.api_key_override,
+                    updated_at = excluded.updated_at
+                """,
+                (provider, api_key_override, now),
+            )
+            conn.commit()
+
+        return self.get_llm_provider_settings(provider) or {
+            "provider": provider,
+            "api_key_override": api_key_override,
+            "last_test_status": "unknown",
+            "last_tested_at": None,
+            "updated_at": now,
+        }
+
+    def update_llm_provider_test_status(self, provider: str, status: str) -> dict:
+        """Persist latest provider connectivity test status."""
+        now = datetime.utcnow().isoformat()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO llm_provider_settings (provider, last_test_status, last_tested_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(provider) DO UPDATE SET
+                    last_test_status = excluded.last_test_status,
+                    last_tested_at = excluded.last_tested_at,
+                    updated_at = excluded.updated_at
+                """,
+                (provider, status, now, now),
+            )
+            conn.commit()
+
+        return self.get_llm_provider_settings(provider) or {
+            "provider": provider,
+            "api_key_override": None,
+            "last_test_status": status,
+            "last_tested_at": now,
+            "updated_at": now,
+        }
+
+    def list_llm_provider_models(self, provider: str, enabled_only: bool = False) -> list[dict]:
+        """List configured models for a provider."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if enabled_only:
+                cursor.execute(
+                    """
+                    SELECT provider, model_id, display_name, is_enabled, created_at, updated_at
+                    FROM llm_provider_models
+                    WHERE provider = ? AND is_enabled = 1
+                    ORDER BY model_id
+                    """,
+                    (provider,),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT provider, model_id, display_name, is_enabled, created_at, updated_at
+                    FROM llm_provider_models
+                    WHERE provider = ?
+                    ORDER BY model_id
+                    """,
+                    (provider,),
+                )
+            rows = cursor.fetchall()
+        return [
+            {
+                "provider": row["provider"],
+                "model_id": row["model_id"],
+                "display_name": row["display_name"],
+                "is_enabled": bool(row["is_enabled"]),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+    def upsert_llm_provider_model(
+        self,
+        provider: str,
+        model_id: str,
+        display_name: Optional[str] = None,
+        is_enabled: bool = True,
+    ) -> dict:
+        """Create or update a provider model entry."""
+        now = datetime.utcnow().isoformat()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO llm_provider_models
+                (provider, model_id, display_name, is_enabled, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(provider, model_id) DO UPDATE SET
+                    display_name = COALESCE(excluded.display_name, llm_provider_models.display_name),
+                    is_enabled = excluded.is_enabled,
+                    updated_at = excluded.updated_at
+                """,
+                (provider, model_id, display_name, 1 if is_enabled else 0, now, now),
+            )
+            conn.commit()
+        models = self.list_llm_provider_models(provider)
+        for model in models:
+            if model["model_id"] == model_id:
+                return model
+        raise ValueError("Failed to persist provider model")
+
+    def update_llm_provider_model(
+        self,
+        provider: str,
+        model_id: str,
+        display_name: Optional[str] = None,
+        is_enabled: Optional[bool] = None,
+    ) -> Optional[dict]:
+        """Update a provider model entry."""
+        updates = {}
+        if display_name is not None:
+            updates["display_name"] = display_name
+        if is_enabled is not None:
+            updates["is_enabled"] = 1 if is_enabled else 0
+        if not updates:
+            models = self.list_llm_provider_models(provider)
+            return next((m for m in models if m["model_id"] == model_id), None)
+
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        set_clause = ", ".join(f"{key} = ?" for key in updates.keys())
+        values = list(updates.values()) + [provider, model_id]
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"UPDATE llm_provider_models SET {set_clause} WHERE provider = ? AND model_id = ?",
+                values,
+            )
+            updated = cursor.rowcount > 0
+            conn.commit()
+        if not updated:
+            return None
+        models = self.list_llm_provider_models(provider)
+        return next((m for m in models if m["model_id"] == model_id), None)
+
+    def delete_llm_provider_model(self, provider: str, model_id: str) -> bool:
+        """Delete a provider model entry."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM llm_provider_models WHERE provider = ? AND model_id = ?",
+                (provider, model_id),
+            )
+            deleted = cursor.rowcount > 0
+            conn.commit()
+        return deleted
+
     # Global Field Library CRUD Operations
 
     def create_global_field(self, data: GlobalFieldCreate) -> GlobalField:
@@ -1077,6 +1357,8 @@ class SQLiteClient:
             type=data.type,
             prompt=data.prompt,
             description=data.description,
+            extraction_model=data.extraction_model or "gpt-5-mini",
+            ocr_engine=data.ocr_engine or "azure-di-prebuilt",
             created_by=data.created_by,
             created_at=now,
             updated_at=now,
@@ -1086,8 +1368,8 @@ class SQLiteClient:
             cursor.execute(
                 """
                 INSERT INTO global_fields
-                (id, name, type, prompt, description, created_by, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, name, type, prompt, description, extraction_model, ocr_engine, created_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     field.id,
@@ -1095,6 +1377,8 @@ class SQLiteClient:
                     field.type.value,
                     field.prompt,
                     field.description,
+                    field.extraction_model,
+                    field.ocr_engine,
                     field.created_by,
                     field.created_at.isoformat(),
                     field.updated_at.isoformat(),
@@ -1152,6 +1436,10 @@ class SQLiteClient:
             updates["prompt"] = data.prompt
         if data.description is not None:
             updates["description"] = data.description
+        if data.extraction_model is not None:
+            updates["extraction_model"] = data.extraction_model
+        if data.ocr_engine is not None:
+            updates["ocr_engine"] = data.ocr_engine
         if not updates:
             return existing
         updates["updated_at"] = datetime.utcnow().isoformat()
@@ -1181,6 +1469,8 @@ class SQLiteClient:
             type=FieldType(row["type"]),
             prompt=row["prompt"],
             description=row["description"],
+            extraction_model=row["extraction_model"] if "extraction_model" in row.keys() else None,
+            ocr_engine=row["ocr_engine"] if "ocr_engine" in row.keys() else None,
             created_by=row["created_by"],
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),

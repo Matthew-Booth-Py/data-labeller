@@ -53,6 +53,12 @@ class DocumentTypeCreate(BaseModel):
     post_processing: Optional[str] = Field(
         None, description="Post-processing code (Python/JS)"
     )
+    extraction_model: Optional[str] = Field(
+        None, description="LLM model used for extraction for this document type"
+    )
+    ocr_engine: Optional[str] = Field(
+        None, description="OCR engine selection for this document type"
+    )
 
 
 class DocumentTypeUpdate(BaseModel):
@@ -63,6 +69,8 @@ class DocumentTypeUpdate(BaseModel):
     schema_fields: Optional[list[SchemaField]] = None
     system_prompt: Optional[str] = None
     post_processing: Optional[str] = None
+    extraction_model: Optional[str] = None
+    ocr_engine: Optional[str] = None
 
 
 class DocumentType(BaseModel):
@@ -79,6 +87,12 @@ class DocumentType(BaseModel):
     )
     post_processing: Optional[str] = Field(
         None, description="Post-processing code (Python/JS)"
+    )
+    extraction_model: Optional[str] = Field(
+        None, description="LLM model used for extraction for this document type"
+    )
+    ocr_engine: Optional[str] = Field(
+        None, description="OCR engine selection for this document type"
     )
     schema_version_id: Optional[str] = Field(
         None, description="Current schema/config version ID for this document type"
@@ -155,6 +169,8 @@ class GlobalField(BaseModel):
     type: FieldType
     prompt: str = Field(..., min_length=1)
     description: Optional[str] = None
+    extraction_model: Optional[str] = None
+    ocr_engine: Optional[str] = None
     created_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -167,6 +183,8 @@ class GlobalFieldCreate(BaseModel):
     type: FieldType
     prompt: str = Field(..., min_length=1)
     description: Optional[str] = None
+    extraction_model: Optional[str] = None
+    ocr_engine: Optional[str] = None
     created_by: Optional[str] = None
 
 
@@ -177,6 +195,8 @@ class GlobalFieldUpdate(BaseModel):
     type: Optional[FieldType] = None
     prompt: Optional[str] = Field(None, min_length=1)
     description: Optional[str] = None
+    extraction_model: Optional[str] = None
+    ocr_engine: Optional[str] = None
 
 
 class FieldPropertySuggestion(BaseModel):

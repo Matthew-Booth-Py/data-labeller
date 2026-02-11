@@ -1,0 +1,51 @@
+{% load static i18n custom_filters %}
+
+{% if page_obj.paginator.num_pages > 1 %}
+<nav aria-label="Page navigation" class="d-flex justify-content-center mt-4">
+  <ul class="pagination pagination-sm gap-1 m-0">
+    {% if page_obj.has_previous %}
+    <li class="page-item">
+      <a class="page-link rounded border-0 px-3 py-2" href="?{% param_replace page=page_obj.previous_page_number %}" aria-label="Previous">
+        <i class="bi bi-chevron-left"></i>
+      </a>
+    </li>
+    {% else %}
+    <li class="page-item disabled">
+      <span class="page-link rounded border-0 px-3 py-2 bg-light">
+        <i class="bi bi-chevron-left"></i>
+      </span>
+    </li>
+    {% endif %}
+
+    {% for i in page_obj.paginator.page_range %}
+      {% if page_obj.number == i %}
+    <li class="page-item active">
+      <span class="page-link rounded border-0 px-3 py-2">{{ i }}</span>
+    </li>
+      {% elif i > page_obj.number|add:'-3' and i < page_obj.number|add:'3' %}
+    <li class="page-item">
+      <a class="page-link rounded border-0 px-3 py-2" href="?{% param_replace page=i %}">{{ i }}</a>
+    </li>
+      {% elif i == 1 or i == page_obj.paginator.num_pages %}
+    <li class="page-item">
+      <a class="page-link rounded border-0 px-3 py-2" href="?{% param_replace page=i %}">{{ i }}</a>
+    </li>
+      {% endif %}
+    {% endfor %}
+
+    {% if page_obj.has_next %}
+    <li class="page-item">
+      <a class="page-link rounded border-0 px-3 py-2" href="?{% param_replace page=page_obj.next_page_number %}" aria-label="Next">
+        <i class="bi bi-chevron-right"></i>
+      </a>
+    </li>
+    {% else %}
+    <li class="page-item disabled">
+      <span class="page-link rounded border-0 px-3 py-2 bg-light">
+        <i class="bi bi-chevron-right"></i>
+      </span>
+    </li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}

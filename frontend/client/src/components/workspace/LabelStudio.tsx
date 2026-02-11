@@ -280,6 +280,60 @@ export function LabelStudio({ documentId }: LabelStudioProps) {
     },
   });
 
+  const importGlobalLabelsMutation = useMutation({
+    mutationFn: async () => {
+      if (!currentDocTypeId) {
+        throw new Error("Select a document type first");
+      }
+
+      const [globalFieldsResponse, currentTypeResponse] = await Promise.all([
+        api.listGlobalFields(),
+        api.getDocumentType(currentDocTypeId),
+      ]);
+
+      const globalFields = globalFieldsResponse.fields || [];
+      const currentType = currentTypeResponse.type;
+      const existingFields = currentType.schema_fields || [];
+      const existingNames = new Set(existingFields.map((field) => field.name.toLowerCase()));
+
+      const fieldsToAdd = globalFields
+        .filter((field) => !existingNames.has(field.name.toLowerCase()))
+        .map((field) => ({
+          name: field.name,
+          type: field.type,
+          description: field.description,
+          extraction_prompt: field.prompt,
+          required: false,
+        }));
+
+      if (fieldsToAdd.length === 0) {
+        return { added: 0, total: globalFields.length };
+      }
+
+      await api.updateDocumentType(currentDocTypeId, {
+        schema_fields: [...existingFields, ...fieldsToAdd],
+      });
+
+      return { added: fieldsToAdd.length, total: globalFields.length };
+    },
+    onSuccess: ({ added }) => {
+      queryClient.invalidateQueries({ queryKey: ["document-type", currentDocTypeId] });
+      queryClient.invalidateQueries({ queryKey: ["labels", currentDocTypeId] });
+      queryClient.invalidateQueries({ queryKey: ["document-types"] });
+      toast({
+        title: added > 0 ? "Global labels imported" : "No new global labels to import",
+        description: added > 0 ? `Added ${added} schema-derived label(s) to this project.` : "All global labels already exist in this project schema.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to import global labels",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   // Fetch extraction result
   const { data: extractionData, refetch: refetchExtraction } = useQuery({
     queryKey: ["extraction", documentId],
@@ -1378,6 +1432,20 @@ export function LabelStudio({ documentId }: LabelStudioProps) {
                 </h4>
                 <span className="text-[10px] text-zinc-500 uppercase">Schema-derived</span>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full h-8 text-xs border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                onClick={() => importGlobalLabelsMutation.mutate()}
+                disabled={!currentDocTypeId || importGlobalLabelsMutation.isPending}
+              >
+                {importGlobalLabelsMutation.isPending ? (
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                ) : (
+                  <Plus className="h-3 w-3 mr-1" />
+                )}
+                Import Global Labels
+              </Button>
               <div className="space-y-1">
                 {labels.map(label => (
                   <div

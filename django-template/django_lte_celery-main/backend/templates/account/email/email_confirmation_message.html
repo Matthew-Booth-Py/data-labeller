@@ -1,0 +1,131 @@
+{% extends "account/email/base_message.html" %}
+{% load account %}
+{% load i18n %}
+
+{% block message_content %}
+<div class="container-fluid p-0">
+    <!-- Header Section -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-success text-white border-0 py-4">
+            <div class="row align-items-center">
+                <div class="col">
+                    <h3 class="card-title mb-0 fw-bold">
+                        <i class="fas fa-envelope-circle-check me-3"></i>
+                        {% trans "Email Confirmation Required" %}
+                    </h3>
+                    <p class="card-text mb-0 opacity-75">
+                        {% trans "Verify your email address to activate your account" %}
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card-body p-5">
+            <!-- Main Message -->
+            <div class="mb-4">
+                {% user_display user as user_display %}
+                <p class="lead text-muted mb-4">
+                    {% blocktranslate with site_name=current_site.name site_domain=current_site.domain %}
+                    You're receiving this email because user <strong>{{ user_display }}</strong> has given your email address to register an account on <strong>{{ site_domain }}</strong>.
+                    {% endblocktranslate %}
+                </p>
+                
+                <div class="alert alert-light border-start border-4 border-success mb-4">
+                    <div class="d-flex align-items-center">
+                        <i class="fas fa-user-circle text-success me-3 fs-4"></i>
+                        <div>
+                            <small class="text-uppercase fw-semibold text-muted d-block">Account</small>
+                            <strong class="text-dark">{{ user_display }}</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            {% if code %}
+            <!-- Verification Code Section -->
+            <div class="text-center mb-5">
+                <h5 class="fw-semibold mb-3">
+                    <i class="fas fa-key me-2 text-success"></i>
+                    {% trans "Email Verification Code" %}
+                </h5>
+                <p class="text-muted mb-4">
+                    {% trans "Your email verification code is listed below. Please enter it in your open browser window." %}
+                </p>
+                
+                <div class="bg-light rounded p-4 mb-3">
+                    <div class="bg-white border border-2 border-success rounded p-4">
+                        <span class="fs-2 fw-bold text-success font-monospace">{{ code }}</span>
+                    </div>
+                </div>
+                
+                <p class="small text-muted mb-0">
+                    {% trans "This verification code will expire soon" %}
+                </p>
+            </div>
+            {% else %}
+            <!-- Activation Link Section -->
+            <div class="text-center mb-5">
+                <p class="text-muted mb-4">
+                    {% trans "To confirm this is correct, click the button below:" %}
+                </p>
+                
+                <a href="{{ activate_url }}" class="btn btn-success btn-lg px-5 py-3 text-decoration-none shadow-sm">
+                    <i class="fas fa-check-circle me-2"></i>
+                    {% trans "Confirm Email Address" %}
+                </a>
+                <p class="small text-muted mt-3 mb-0">
+                    {% trans "This secure link will expire in 24 hours" %}
+                </p>
+            </div>
+            
+            <!-- Alternative Link -->
+            <div class="bg-light rounded p-4 mb-4">
+                <h6 class="fw-semibold mb-3">
+                    <i class="fas fa-link me-2 text-muted"></i>
+                    {% trans "Having trouble with the button?" %}
+                </h6>
+                <p class="small text-muted mb-2">{% trans "Copy and paste this link into your browser:" %}</p>
+                <div class="bg-white border rounded p-3">
+                    <code class="text-break small">{{ activate_url }}</code>
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Security Notice -->
+            <div class="alert alert-info border-0 bg-info bg-opacity-10">
+                <div class="d-flex">
+                    <i class="fas fa-info-circle text-info me-3 mt-1"></i>
+                    <div>
+                        <h6 class="alert-heading fw-semibold mb-2">
+                            {% trans "Security Notice" %}
+                        </h6>
+                        <ul class="mb-0 small">
+                            <li>{% trans "If you didn't request this verification, you can safely ignore this email" %}</li>
+                            <li>{% trans "Your account will remain inactive until email verification is complete" %}</li>
+                            {% if not code %}<li>{% trans "For security, this link expires in 24 hours" %}</li>{% endif %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="card-footer bg-light border-0 py-4">
+            <div class="row align-items-center text-center text-md-start">
+                <div class="col-md-8">
+                    <p class="mb-0 small text-muted">
+                        <i class="fas fa-envelope me-2"></i>
+                        {% trans "This email was sent by our Backend Platform" %}
+                    </p>
+                </div>
+                <div class="col-md-4 text-md-end mt-2 mt-md-0">
+                    <small class="text-muted">
+                        <i class="fas fa-clock me-1"></i>
+                        {% now "M d, Y - H:i" %}
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock message_content %}

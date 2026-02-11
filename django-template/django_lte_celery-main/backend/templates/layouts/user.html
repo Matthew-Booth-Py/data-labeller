@@ -1,0 +1,168 @@
+{% extends "layouts/app.html" %}
+
+{% load static i18n humanize custom_filters %}
+
+{% block content %}
+    <div class="row my-4">
+        <!-- [ sample-page ] start -->
+        <div class="col-lg-3">
+            <div class="card user-card user-card-1">
+                <div class="card-body pb-0">
+                    {% if request.user.is_superuser %}
+                        <div class="float-end">
+                            <span class="badge bg-primary">ADMIN</span>
+                        </div>
+                    {% endif %}
+                    <div class="d-flex user-about-block align-items-center mt-0 mb-3">
+                        <div class="flex-shrink-0">
+                            <div class="position-relative d-inline-block">
+                                {% if request.user.profile_image %}
+                                <img class="img-radius img-fluid wid-80"
+                                     src="{{ request.user.profile_image.url }}"
+                                     alt="{{ request.user.full_name }}" />
+                                {% else %}
+                                <span class="img-radius bg-secondary text-white d-flex align-items-center justify-content-center fs-5 p-2 py-1 m-0 rounded-circle">{{ request.user.initials }}</span>
+                                {% endif %}
+                                <div class="certificated-badge">
+                                    <i class="ti ti-rosette-discount-check-filled text-primary bg-icon"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex-grow-1 ms-3">
+                            <h6 class="mb-0">
+                                {{ request.user.full_name }}
+                            </h6>
+                            <p class="mb-0 text-muted fs-7">
+                                {% trans 'Joined' %}: {{ request.user.date_joined|date:"F j, Y" }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item">
+                        <span class="f-w-500"><i class="bi bi-person me-2"></i>{% trans "Full Name" %}</span>
+                        <span class="float-end text-body">
+                         {{ request.user.full_name }}
+                        </span>
+                    </li>
+                    <li class="list-group-item">
+                        <span class="f-w-500"><i class="bi bi-envelope me-2"></i>{% trans "Email" %}</span>
+                        <span class="float-end text-body">
+                         {{ request.user.email }}
+                        </span>
+                    </li>
+                    <li class="list-group-item">
+                        <span class="f-w-500"><i class="bi bi-telephone me-2"></i>{% trans "Phone" %}</span>
+                        <span class="float-end text-body">
+                            {% if request.user.phone_number %}
+                                {{ request.user.phone_number }}
+                            {% else %}
+                                {% trans "Not Provided" %}
+                            {% endif %}
+                        </span>
+                    </li>
+                    <li class="list-group-item">
+                        <span class="f-w-500"><i class="bi bi-calendar me-2"></i>{% trans "Date of Birth" %}</span>
+                        <span class="float-end text-body">
+                            {% if request.user.date_of_birth %}
+                                {{ request.user.date_of_birth|date:"F j, Y" }}
+                            {% else %}
+                                {% trans "Not Provided" %}
+                            {% endif %}
+                        </span>
+                    </li>
+                    <li class="list-group-item">
+                        <span class="f-w-500"><i class="bi bi-gender-ambiguous me-2"></i>{% trans "Gender" %}</span>
+                        <span class="float-end text-body">
+                            {% if request.user.gender %}
+                                {{ request.user.get_gender_display }}
+                            {% else %}
+                                {% trans "Not Provided" %}
+                            {% endif %}
+                        </span>
+                    </li>
+                    <li class="list-group-item">
+                        <span class="f-w-500"><i class="bi bi-file-text me-2"></i>{% trans "Bio" %}</span>
+                        <span class="float-end text-body">
+                            {% if request.user.bio %}
+                                {{ request.user.bio|truncatechars:50 }}
+                            {% else %}
+                                {% trans "Not Provided" %}
+                            {% endif %}
+                        </span>
+                    </li>
+                    <li class="list-group-item">
+                        <span class="f-w-500"><i class="bi bi-globe me-2"></i>{% trans "Website" %}</span>
+                        <span class="float-end text-body">
+                            {% if request.user.website %}
+                                <a href="{{ request.user.website }}" target="_blank">{{ request.user.website }}</a>
+                            {% else %}
+                                {% trans "Not Provided" %}
+                            {% endif %}
+                        </span>
+                    </li>
+                    <li class="list-group-item">
+                        <span class="f-w-500"><i class="bi bi-translate me-2"></i>{% trans "Platform Language" %}</span>
+                        <span class="float-end text-body">
+                            {% if request.user.platform_language %}
+                                {{ request.user.get_platform_language_display }}
+                            {% else %}
+                                {% trans "Not Provided" %}
+                            {% endif %}
+                        </span>
+                    </li>
+                    <li class="list-group-item">
+                        <span class="f-w-500"><i class="bi bi-clock me-2"></i>{% trans "Timezone" %}</span>
+                        <span class="float-end text-body">
+                            {% if request.user.timezone %}
+                                {{ request.user.timezone }}
+                            {% else %}
+                                {% trans "Not Provided" %}
+                            {% endif %}
+                        </span>
+                    </li>
+                </ul>
+                
+            </div>
+       
+        </div>
+        <div class="col-lg-9">
+            <div class="card">
+                <div class="card-header pb-2 pt-4">
+                    <ul class="nav nav-tabs card-header-tabs pt-2">
+                        <li class="nav-item">
+                            <a class="nav-link {{ request|is_active:'users:settings-account' }}" href="{% url 'users:settings-account' %}">
+                                <i class="bi bi-person-gear me-1"></i> {% trans "Account" %}
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {{ request|is_active:'users:settings-notifications' }}" href="{% url 'users:settings-notifications' %}">
+                                <i class="bi bi-bell me-1"></i> {% trans "Notifications" %}
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {{ request|is_active:'users:settings-language' }}" href="{% url 'users:settings-language' %}">
+                                <i class="bi bi-translate me-1"></i> {% trans "Language" %}
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {{ request|is_active:'users:settings-security' }}" href="{% url 'users:settings-security' %}">
+                                <i class="bi bi-shield-lock me-1"></i> {% trans "Security" %}
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {{ request|is_active:'users:settings-api-management' }}" href="{% url 'users:settings-api-management' %}">
+                                <i class="bi bi-code-slash me-1"></i> {% trans "API Management" %}
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+                <div class="card-body p-4">
+                    {% block user_content %}
+                    {% endblock user_content %}
+                </div>
+            </div>
+        </div>
+        <!-- [ sample-page ] end -->
+    </div>
+{% endblock content %}

@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from openai import OpenAI
 
+from uu_backend.config import get_settings
 from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.llm.options import reasoning_options_for_model
@@ -23,7 +24,8 @@ class ExtractionService:
 
     def __init__(self):
         self.client = OpenAI()
-        self.model = "gpt-5-mini"
+        settings = get_settings()
+        self.model = settings.openai_tagging_model or settings.openai_model
         self._raw_guardrails = (
             "Critical extraction rules:\n"
             "1) Extract values exactly as they appear in the document (RAW).\n"
@@ -92,6 +94,7 @@ class ExtractionService:
         # Get prompt (use version if specified, otherwise default)
         system_prompt = doc_type.system_prompt or self._get_default_extraction_prompt(doc_type)
         system_prompt = f"{system_prompt}\n\n{self._raw_guardrails}"
+        model_name = doc_type.extraction_model or self.model
 
         if prompt_version_id:
             prompt_version = sqlite_client.get_prompt_version(prompt_version_id)
@@ -119,7 +122,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
 
         try:
             response = self.client.beta.chat.completions.parse(
-                model="gpt-4o-2024-08-06",  # Structured outputs require this model
+                model=model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -187,6 +190,7 @@ If a field cannot be found, return null. Do not make up data."""
         document_type_name: str,
         schema_fields: list[SchemaField],
         system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> dict[str, Any]:
         """
         Extract structured data using a deployable schema/prompt snapshot.
@@ -224,7 +228,7 @@ Document Content:
 Extract all fields according to the schema. Return null for fields that cannot be found."""
 
         response = self.client.beta.chat.completions.parse(
-            model="gpt-4o-2024-08-06",
+            model=model or self.model,
             messages=[
                 {"role": "system", "content": effective_system_prompt},
                 {"role": "user", "content": user_prompt},
