@@ -1178,19 +1178,35 @@ class ApiClient {
   async extractWithDeploymentVersion(projectId: string, versionId: string, file: File): Promise<DeploymentExtractResponse> {
     const formData = new FormData();
     formData.append("file", file);
-    return this.request(`${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}/extract`, {
-      method: 'POST',
-      body: formData,
-    });
+    const response = await fetch(
+      `${this.baseUrl}${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}/extract`,
+      {
+        method: 'POST',
+        body: formData,
+      }
+    );
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API Error ${response.status}: ${errorText}`);
+    }
+    return response.json();
   }
 
   async extractWithActiveDeployment(projectId: string, file: File): Promise<DeploymentExtractResponse> {
     const formData = new FormData();
     formData.append("file", file);
-    return this.request(`${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/extract`, {
-      method: 'POST',
-      body: formData,
-    });
+    const response = await fetch(
+      `${this.baseUrl}${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/extract`,
+      {
+        method: 'POST',
+        body: formData,
+      }
+    );
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API Error ${response.status}: ${errorText}`);
+    }
+    return response.json();
   }
 }
 

@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { RotateCcw, AlertTriangle, CheckCircle2, Save, Key } from "lucide-react";
 import { useState, useCallback, useMemo, useEffect } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { api } from "@/lib/api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,6 +47,7 @@ interface Project {
 export default function ProjectWorkspace() {
   const { id } = useParams();
   const [location, setLocation] = useLocation();
+  const { toast } = useToast();
   
   // Get tab from URL hash or default to "documents"
   const getTabFromUrl = () => {
@@ -54,6 +57,7 @@ export default function ProjectWorkspace() {
   
   const [activeTab, setActiveTab] = useState(getTabFromUrl());
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
+  const [savingDeploymentVersion, setSavingDeploymentVersion] = useState(false);
 
   // Update URL hash when tab changes
   const handleTabChange = (tab: string) => {
@@ -115,6 +119,47 @@ export default function ProjectWorkspace() {
     setActiveTab("label");
   }, []);
 
+  const handleCreateDeploymentVersion = async () => {
+    if (!id) return;
+    setSavingDeploymentVersion(true);
+    try {
+      const selectedTypeStorageKey = `uu-schema-selected-type:${id}`;
+      let documentTypeId = "";
+      try {
+        documentTypeId = localStorage.getItem(selectedTypeStorageKey) || "";
+      } catch {
+        documentTypeId = "";
+      }
+      if (!documentTypeId) {
+        const types = await api.listDocumentTypes();
+        documentTypeId = types.types?.[0]?.id || "";
+      }
+      if (!documentTypeId) {
+        throw new Error("No document type found. Configure a schema first.");
+      }
+
+      const response = await api.createDeploymentVersion({
+        project_id: id,
+        document_type_id: documentTypeId,
+        created_by: "ui",
+        set_active: true,
+      });
+      const created = response.version;
+      toast({
+        title: "Deployment version created",
+        description: `v${created.version} is now active at /api/v1/deployments/projects/${id}/extract`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Failed to create deployment version",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setSavingDeploymentVersion(false);
+    }
+  };
+
   return (
     <Shell>
       <div className="flex flex-col h-[calc(100vh-3.5rem)]">
@@ -158,7 +203,9 @@ export default function ProjectWorkspace() {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction className="bg-accent">Create Version</AlertDialogAction>
+                  <AlertDialogAction className="bg-accent" onClick={handleCreateDeploymentVersion} disabled={savingDeploymentVersion}>
+                    {savingDeploymentVersion ? "Creating..." : "Create Version"}
+                  </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
@@ -279,7 +326,7 @@ export default function ProjectWorkspace() {
               <APIManagement />
             </TabsContent>
             <TabsContent value="deployment" className="h-full m-0 p-6 overflow-auto">
-              <DeploymentView />
+              <DeploymentView projectId={id} />
             </TabsContent>
           </div>
         </Tabs>
