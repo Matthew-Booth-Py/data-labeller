@@ -2,13 +2,12 @@
 
 from django.urls import re_path
 
-from .views import DeploymentsPrefixProxyView
+from .views import DeploymentsPrefixView
 
 urlpatterns = [
     re_path(
         r"^deployments/(?P<subpath>.+)$",
-        DeploymentsPrefixProxyView.as_view(),
+        DeploymentsPrefixView.as_view(),
         name="deployments-prefix",
     ),
 ]
-

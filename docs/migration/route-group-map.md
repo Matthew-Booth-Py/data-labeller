@@ -1,6 +1,6 @@
 # Route Group Map
 
-This map drives `DJANGO_MIGRATED_GROUPS` cutover behavior in `uu_backend.asgi_dispatcher`.
+This map documents endpoint grouping used during phased migration and contract tracking.
 
 ## Wave A
 - `health`: `/health`, `/api/v1/health`

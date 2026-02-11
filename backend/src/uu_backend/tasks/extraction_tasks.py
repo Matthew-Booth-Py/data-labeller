@@ -2,7 +2,23 @@
 
 from celery import shared_task
 
-from uu_backend.api.routes.ingest import process_entity_extraction
+from uu_backend.extraction.entities import extract_entities
+from uu_backend.extraction.relationships import store_entities_and_relationships
+
+
+def process_entity_extraction(doc_id: str, content: str, date_extracted) -> None:
+    """Extract entities/relationships and persist into Neo4j."""
+    try:
+        extracted = extract_entities(content, doc_id)
+        if extracted.entities or extracted.relationships:
+            store_entities_and_relationships(
+                entities=extracted.entities,
+                relationships=extracted.relationships,
+                document_id=doc_id,
+                document_date=date_extracted,
+            )
+    except Exception:
+        pass
 
 
 @shared_task(name="uu_backend.tasks.process_entity_extraction")

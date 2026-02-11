@@ -21,10 +21,8 @@ services:
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5-mini}
-      - DJANGO_MIGRATED_GROUPS=${DJANGO_MIGRATED_GROUPS:-}
       - DATA_BACKEND=${DATA_BACKEND:-sqlite}
       - ASYNC_EXECUTOR=${ASYNC_EXECUTOR:-inline}
-      - DISPATCHER_ENABLE_FASTAPI_FALLBACK=${DISPATCHER_ENABLE_FASTAPI_FALLBACK:-false}
       - DJANGO_DATABASE_URL=${DJANGO_DATABASE_URL:-postgres://uu:uu@postgres:5432/uu_django}
       - REDIS_URL=redis://redis:6379/0
     depends_on:

@@ -3,44 +3,43 @@
 from django.urls import path, re_path
 
 from .views import (
-    AnnotationsPrefixProxyView,
-    AnnotationsRootProxyView,
-    DocumentAnnotationsProxyView,
-    DocumentAnnotationStatsProxyView,
-    DocumentExportProxyView,
-    DocumentSuggestAnnotationsProxyView,
-    LabelsPrefixProxyView,
-    LabelsRootProxyView,
+    AnnotationsPrefixView,
+    AnnotationsRootView,
+    DocumentAnnotationsView,
+    DocumentAnnotationStatsView,
+    DocumentExportView,
+    DocumentSuggestAnnotationsView,
+    LabelsPrefixView,
+    LabelsRootView,
 )
 
 urlpatterns = [
-    path("labels", LabelsRootProxyView.as_view(), name="labels-root"),
-    re_path(r"^labels/(?P<subpath>.+)$", LabelsPrefixProxyView.as_view(), name="labels-prefix"),
-    path("annotations", AnnotationsRootProxyView.as_view(), name="annotations-root"),
+    path("labels", LabelsRootView.as_view(), name="labels-root"),
+    re_path(r"^labels/(?P<subpath>.+)$", LabelsPrefixView.as_view(), name="labels-prefix"),
+    path("annotations", AnnotationsRootView.as_view(), name="annotations-root"),
     re_path(
         r"^annotations/(?P<subpath>.+)$",
-        AnnotationsPrefixProxyView.as_view(),
+        AnnotationsPrefixView.as_view(),
         name="annotations-prefix",
     ),
     path(
         "documents/<str:document_id>/annotations",
-        DocumentAnnotationsProxyView.as_view(),
+        DocumentAnnotationsView.as_view(),
         name="document-annotations",
     ),
     path(
         "documents/<str:document_id>/annotations/stats",
-        DocumentAnnotationStatsProxyView.as_view(),
+        DocumentAnnotationStatsView.as_view(),
         name="document-annotation-stats",
     ),
     path(
         "documents/<str:document_id>/export",
-        DocumentExportProxyView.as_view(),
+        DocumentExportView.as_view(),
         name="document-export",
     ),
     path(
         "documents/<str:document_id>/suggest-annotations",
-        DocumentSuggestAnnotationsProxyView.as_view(),
+        DocumentSuggestAnnotationsView.as_view(),
         name="document-suggest-annotations",
     ),
 ]
-

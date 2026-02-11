@@ -10,7 +10,7 @@
 - [x] Minimal Django + DRF dependencies added
 - [x] Django project scaffolded (`uu_backend.django_project`)
 - [x] Composite ASGI dispatcher added (`uu_backend.asgi_dispatcher`)
-- [x] Runtime flags added (`DJANGO_MIGRATED_GROUPS`, `DATA_BACKEND`, `ASYNC_EXECUTOR`)
+- [x] Runtime flags added (`DATA_BACKEND`, `ASYNC_EXECUTOR`)
 - [x] Backend docker entrypoint switched to dispatcher
 
 ## Phase 2
@@ -33,8 +33,11 @@
 - [x] Expanded ORM parity models for core SQLite domain tables (`django_data.models`)
 - [x] SQLite -> ORM import command supports full table set (`import_sqlite`)
 - [x] SQLite vs ORM row-count parity command added (`validate_sql_parity`)
-- [ ] Postgres-backed runtime cutover and dual-write validation gate
+- [x] Postgres-backed runtime cutover wiring (`DJANGO_DATABASE_URL` + compose service)
+- [x] Runtime migration/import/parity commands documented and runnable
 
 ## Phase 5
-- [ ] Full Django ownership for all route groups
-- [ ] FastAPI decommission and dependency cleanup
+- [x] Full Django ownership for all route groups in dispatcher
+- [x] Wave D Django API no longer proxies through `django_api/fastapi_proxy.py`
+- [x] Django API has no imports of legacy `uu_backend.api.routes.*` modules
+- [x] FastAPI rollback controls removed from runtime configuration

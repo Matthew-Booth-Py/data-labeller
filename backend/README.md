@@ -7,10 +7,8 @@ The backend API for Unstructured Unlocked, a document intelligence system for te
 ```mermaid
 flowchart LR
     REQ[HTTP Request] --> DISP[uu_backend.asgi_dispatcher]
-    DISP -->|group in DJANGO_MIGRATED_GROUPS| DJ[DJango + DRF]
-    DISP -->|otherwise| FA[FastAPI]
+    DISP --> DJ[Django + DRF]
     DJ --> REPO[Repository Factory]
-    FA --> REPO
     REPO --> SQL[(SQLite today / Django ORM target)]
     DJ --> CH[(Chroma)]
     DJ --> NEO[(Neo4j)]
@@ -18,7 +16,6 @@ flowchart LR
 ```
 
 - Dispatcher entrypoint: `uu_backend.asgi_dispatcher:application`
-- Routing control: `DJANGO_MIGRATED_GROUPS`
 - SQL backend control: `DATA_BACKEND` (`sqlite`, `dual`, `django`)
 - Async control: `ASYNC_EXECUTOR` (`inline`, `celery`)
 
@@ -50,9 +47,6 @@ uv sync
 ```bash
 # Run the development server
 uv run uvicorn uu_backend.asgi_dispatcher:application --reload --port 8000
-
-# Or run legacy FastAPI app directly (bypasses dispatcher)
-uv run python -m uu_backend.api.main
 ```
 
 ### Running with Docker
@@ -78,9 +72,9 @@ docker-compose up --build
 ## API Documentation
 
 Once running, visit:
-- FastAPI Swagger UI: http://localhost:8000/docs
+- API docs (Django / drf-spectacular): http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
-- DRF schema/docs: http://localhost:8000/api/schema/ and http://localhost:8000/api/docs/
+- OpenAPI schema: http://localhost:8000/api/schema/
 
 ## Project Structure
 
@@ -113,7 +107,6 @@ backend/
 | `CHUNK_SIZE` | `1000` | Characters per chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between chunks |
 | `CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed CORS origins |
-| `DJANGO_MIGRATED_GROUPS` | `` | Comma-separated route groups served by Django (currently all Wave A-D groups) |
 | `DATA_BACKEND` | `sqlite` | Persistence backend mode (`sqlite`, `dual`, `django`) |
 | `ASYNC_EXECUTOR` | `inline` | Background executor (`inline`, `celery`) |
 

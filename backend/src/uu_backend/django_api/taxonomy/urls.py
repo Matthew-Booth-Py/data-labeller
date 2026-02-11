@@ -3,44 +3,43 @@
 from django.urls import path, re_path
 
 from .views import (
-    AutoClassifyDocumentProxyView,
-    ClassifyDocumentProxyView,
-    DocumentClassificationProxyView,
-    DocumentExtractionProxyView,
-    ExtractDocumentProxyView,
-    TaxonomyPrefixProxyView,
+    AutoClassifyDocumentView,
+    ClassifyDocumentView,
+    DocumentClassificationView,
+    DocumentExtractionView,
+    ExtractDocumentView,
+    TaxonomyPrefixView,
 )
 
 urlpatterns = [
     re_path(
         r"^taxonomy/(?P<subpath>.+)$",
-        TaxonomyPrefixProxyView.as_view(),
+        TaxonomyPrefixView.as_view(),
         name="taxonomy-prefix",
     ),
     path(
         "documents/<str:document_id>/classify",
-        ClassifyDocumentProxyView.as_view(),
+        ClassifyDocumentView.as_view(),
         name="taxonomy-document-classify",
     ),
     path(
         "documents/<str:document_id>/auto-classify",
-        AutoClassifyDocumentProxyView.as_view(),
+        AutoClassifyDocumentView.as_view(),
         name="taxonomy-document-auto-classify",
     ),
     path(
         "documents/<str:document_id>/classification",
-        DocumentClassificationProxyView.as_view(),
+        DocumentClassificationView.as_view(),
         name="taxonomy-document-classification",
     ),
     path(
         "documents/<str:document_id>/extract",
-        ExtractDocumentProxyView.as_view(),
+        ExtractDocumentView.as_view(),
         name="taxonomy-document-extract",
     ),
     path(
         "documents/<str:document_id>/extraction",
-        DocumentExtractionProxyView.as_view(),
+        DocumentExtractionView.as_view(),
         name="taxonomy-document-extraction",
     ),
 ]
-
