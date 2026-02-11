@@ -6,7 +6,6 @@ debug: false
 chroma_persist_directory: "./data/chroma"
 chroma_collection_name: "documents"
 file_storage_directory: "./data/files"
-sqlite_database_path: "./data/taxonomy.db"
 
 chunk_size: 1000
 chunk_overlap: 200

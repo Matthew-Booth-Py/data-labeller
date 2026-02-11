@@ -1,0 +1,2 @@
+"""Ingest endpoint group."""
+

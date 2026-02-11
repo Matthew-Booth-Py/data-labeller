@@ -215,7 +215,7 @@ export function GettingStartedWizard({ onComplete }: GettingStartedWizardProps) 
       return;
     }
 
-    const fallback =
+    const preferredDocument =
       docs.find(
         (d) =>
           d.filename &&
@@ -226,7 +226,7 @@ export function GettingStartedWizard({ onComplete }: GettingStartedWizardProps) 
             d.filename.includes("vendor"))
       ) ?? docs[0];
 
-    const nextSelected = fallback?.id ?? null;
+    const nextSelected = preferredDocument?.id ?? null;
     setSelectedDocumentId(nextSelected);
     const newProgress = { ...progress, selectedDocumentId: nextSelected };
     setProgress(newProgress);

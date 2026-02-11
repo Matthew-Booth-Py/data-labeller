@@ -8,7 +8,6 @@ from typing import Optional
 from openai import OpenAI
 
 from uu_backend.config import get_settings
-from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.label_suggestion import (
@@ -16,6 +15,7 @@ from uu_backend.models.label_suggestion import (
     LabelSuggestionRequest,
     LabelSuggestionResponse,
 )
+from uu_backend.repositories import get_repository
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class LabelSuggestionService:
         self.settings = get_settings()
         self.client = OpenAI(api_key=self.settings.openai_api_key)
         self.model = self.settings.openai_model
-        self.sqlite = get_sqlite_client()
+        self.repository = get_repository()
         self._color_index = 0
 
     def _get_next_color(self) -> str:
@@ -119,7 +119,7 @@ class LabelSuggestionService:
         # Get existing labels to avoid duplicates
         existing_labels = []
         if request.existing_labels:
-            existing_labels = self.sqlite.list_labels()
+            existing_labels = self.repository.list_labels()
         
         existing_label_names = [l.name.lower() for l in existing_labels]
         
@@ -277,7 +277,7 @@ Suggest 5-10 labels that would be most useful for these documents."""
             description=description_override or suggestion.description,
         )
         
-        return self.sqlite.create_label(label_data)
+        return self.repository.create_label(label_data)
 
 
 # Singleton instance
