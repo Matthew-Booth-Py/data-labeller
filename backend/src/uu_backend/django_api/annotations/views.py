@@ -2,7 +2,6 @@
 
 import csv
 import io
-import json
 from datetime import datetime
 
 from pydantic import ValidationError
@@ -242,7 +241,7 @@ class AnnotationsPrefixView(APIView):
                 response["Content-Disposition"] = f"attachment; filename=annotations_export_{timestamp}.csv"
                 return response
 
-            payload = json.dumps({"annotations": all_annotations, "total": len(all_annotations)}, indent=2, default=str)
+            payload = {"annotations": all_annotations, "total": len(all_annotations)}
             response = Response(payload, content_type="application/json")
             response["Content-Disposition"] = f"attachment; filename=annotations_export_{timestamp}.json"
             return response
@@ -481,7 +480,7 @@ class DocumentExportView(APIView):
             response["Content-Disposition"] = f"attachment; filename={document.filename}_export.csv"
             return response
 
-        response = Response(json.dumps(export_data, indent=2, default=str), content_type="application/json")
+        response = Response(export_data, content_type="application/json")
         response["Content-Disposition"] = f"attachment; filename={document.filename}_export.json"
         return response
 
