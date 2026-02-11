@@ -94,6 +94,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
   const [useStructuredOutput, setUseStructuredOutput] = useState(true);
   const [documentTypeId, setDocumentTypeId] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<AggregatedRun | null>(null);
+  const [selectedRunDocumentEvaluationId, setSelectedRunDocumentEvaluationId] = useState<string | null>(null);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [showRawJson, setShowRawJson] = useState(false);
   const [promptVersions, setPromptVersions] = useState<PromptVersion[]>([]);
@@ -547,6 +548,8 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
   })();
 
   const recentEvaluations = aggregatedRuns.slice(0, 10);
+  const selectedDocumentEvaluation =
+    selectedRun?.evaluations.find((evaluation) => evaluation.id === selectedRunDocumentEvaluationId) || null;
   const allRecentSelected =
     recentEvaluations.length > 0 &&
     recentEvaluations.every((run) => selectedEvaluationIds.has(run.runKey));
@@ -695,7 +698,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
              {/* Main Scoreboard */}
-             <Card className="col-span-1 lg:col-span-2 border-muted bg-white">
+             <Card className="col-span-1 lg:col-span-2 border-muted bg-card">
                 <CardHeader>
                     <CardTitle className="text-primary">Accuracy vs Completeness</CardTitle>
                     <CardDescription>Performance metrics per run</CardDescription>
@@ -722,7 +725,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                 </CardContent>
              </Card>
 
-             <Card className="border-muted bg-white">
+             <Card className="border-muted bg-card">
                 <CardHeader>
                     <CardTitle className="text-primary text-sm uppercase tracking-wider font-bold">Latency (ms)</CardTitle>
                 </CardHeader>
@@ -745,7 +748,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                 </CardContent>
              </Card>
 
-             <Card className="border-muted bg-white">
+             <Card className="border-muted bg-card">
                 <CardHeader>
                     <CardTitle className="text-primary text-sm uppercase tracking-wider font-bold">Cost Efficiency</CardTitle>
                 </CardHeader>
@@ -769,7 +772,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
              </Card>
           </div>
 
-          <Card className="border-muted bg-white">
+          <Card className="border-muted bg-card">
             <CardHeader>
               <CardTitle className="text-primary">Field Scorecard</CardTitle>
               <CardDescription>
@@ -802,7 +805,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
             </CardContent>
           </Card>
 
-          <Card className="border-muted bg-white">
+          <Card className="border-muted bg-card">
             <CardHeader>
               <CardTitle className="text-primary">Component Scorecard</CardTitle>
               <CardDescription>
@@ -831,7 +834,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
             </CardContent>
           </Card>
 
-          <Card className="border-muted bg-white">
+          <Card className="border-muted bg-card">
             <CardHeader>
               <CardTitle className="text-primary">Field Version Scorecard</CardTitle>
               <CardDescription>
@@ -932,6 +935,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                             size="sm"
                             onClick={() => {
                               setSelectedRun(run);
+                              setSelectedRunDocumentEvaluationId(run.evaluations[0]?.id || null);
                               setShowDetailsDialog(true);
                             }}
                           >
@@ -966,7 +970,15 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
           </div>
 
           {/* Evaluation Details Dialog */}
-          <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
+          <Dialog
+            open={showDetailsDialog}
+            onOpenChange={(open) => {
+              setShowDetailsDialog(open);
+              if (!open) {
+                setSelectedRunDocumentEvaluationId(null);
+              }
+            }}
+          >
             <DialogContent className="w-[96vw] max-w-[1200px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Evaluation Details</DialogTitle>
@@ -1022,19 +1034,72 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                     </div>
                   </div>
 
+                  <Card className="border-muted">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Documents In This Run</CardTitle>
+                      <CardDescription>Select a document to drill into its field predictions.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="rounded-md border overflow-hidden">
+                        <div className="grid grid-cols-6 p-3 text-[10px] uppercase tracking-wider font-bold text-muted-foreground bg-muted/30">
+                          <div>Document</div>
+                          <div>F1</div>
+                          <div>Accuracy</div>
+                          <div>Correct</div>
+                          <div>Latency</div>
+                          <div className="text-right">Action</div>
+                        </div>
+                        {selectedRun.evaluations.map((evaluation) => (
+                          <div
+                            key={evaluation.id}
+                            className={`grid grid-cols-6 p-3 border-t text-sm items-center ${
+                              selectedRunDocumentEvaluationId === evaluation.id ? "bg-accent/5" : ""
+                            }`}
+                          >
+                            <div className="font-mono text-primary truncate">{evaluation.document_id.slice(0, 16)}...</div>
+                            <div className="font-mono">{formatPercentage(evaluation.metrics.f1_score)}</div>
+                            <div className="font-mono">{formatPercentage(evaluation.metrics.accuracy)}</div>
+                            <div className="font-mono">{evaluation.metrics.correct_fields}/{evaluation.metrics.correct_fields + evaluation.metrics.incorrect_fields}</div>
+                            <div className="font-mono">{evaluation.extraction_time_ms}ms</div>
+                            <div className="text-right">
+                              <Button
+                                size="sm"
+                                variant={selectedRunDocumentEvaluationId === evaluation.id ? "default" : "outline"}
+                                onClick={() => setSelectedRunDocumentEvaluationId(evaluation.id)}
+                              >
+                                View Predictions
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+
                   {/* Per-document details */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                      <h4 className="font-semibold">Document Predictions</h4>
+                      <h4 className="font-semibold">
+                        {selectedDocumentEvaluation
+                          ? `Field Predictions • ${selectedDocumentEvaluation.document_id.slice(0, 12)}...`
+                          : "Field Predictions"}
+                      </h4>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => setShowRawJson(!showRawJson)}
+                        disabled={!selectedDocumentEvaluation}
                       >
                         {showRawJson ? 'Show Table View' : 'Show Raw JSON'}
                       </Button>
                     </div>
-                    {selectedRun.evaluations.map((evaluation, evalIdx) => (
+                    {!selectedDocumentEvaluation ? (
+                      <Card className="border-dashed border-muted">
+                        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                          Select a document above to view field-level predictions.
+                        </CardContent>
+                      </Card>
+                    ) : (selectedDocumentEvaluation ? [selectedDocumentEvaluation] : []).map((evaluation, evalIdx) => (
                       <Card key={`${evaluation.id}-${evalIdx}`} className="border-muted">
                         <CardHeader className="pb-2">
                           <div className="flex items-center justify-between">

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 const SidebarLogo = () => (
   <img 
@@ -140,6 +141,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </Button>
         </div>
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <Button
             variant="ghost"
             size="icon"

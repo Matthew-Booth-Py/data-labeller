@@ -17,15 +17,65 @@ import { api } from "@/lib/api";
 import { format, parseISO } from "date-fns";
 
 interface TimelineProps {
+  projectId?: string;
   onDocumentClick?: (documentId: string) => void;
   highlightedDocuments?: string[];
 }
 
-export function Timeline({ onDocumentClick, highlightedDocuments = [] }: TimelineProps) {
-  // Fetch timeline data
+type UploadTimelineEntry = {
+  date: string;
+  document_count: number;
+  documents: Array<{ id: string; filename: string; file_type: string }>;
+};
+
+export function Timeline({ projectId, onDocumentClick, highlightedDocuments = [] }: TimelineProps) {
+  // Fetch documents and build upload timeline from created_at (upload time), not extracted doc dates.
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["timeline"],
-    queryFn: () => api.getGraphTimeline(),
+    queryKey: ["timeline-uploaded", projectId],
+    queryFn: async () => {
+      const response = await api.listDocuments();
+      let docs = response.documents || [];
+
+      if (projectId) {
+        try {
+          const stored = localStorage.getItem("uu-projects");
+          const projects = stored ? JSON.parse(stored) : [];
+          const project = projects.find((p: any) => p.id === projectId);
+          const projectDocumentIds = new Set<string>(project?.documentIds || []);
+          docs = docs.filter((doc) => projectDocumentIds.has(doc.id));
+        } catch {
+          // Fallback to showing all docs if project state cannot be read.
+        }
+      }
+
+      const grouped = new Map<string, UploadTimelineEntry>();
+      docs.forEach((doc) => {
+        if (!doc.created_at) return;
+        const dateKey = format(parseISO(doc.created_at), "yyyy-MM-dd");
+        const existing = grouped.get(dateKey) || {
+          date: dateKey,
+          document_count: 0,
+          documents: [],
+        };
+        existing.document_count += 1;
+        existing.documents.push({
+          id: doc.id,
+          filename: doc.filename,
+          file_type: doc.file_type,
+        });
+        grouped.set(dateKey, existing);
+      });
+
+      const timeline = Array.from(grouped.values()).sort((a, b) => a.date.localeCompare(b.date));
+      return {
+        timeline,
+        total_documents: docs.length,
+        date_range: {
+          earliest: timeline.length ? timeline[0].date : undefined,
+          latest: timeline.length ? timeline[timeline.length - 1].date : undefined,
+        },
+      };
+    },
     staleTime: 30000, // 30 seconds
   });
 
@@ -100,9 +150,9 @@ export function Timeline({ onDocumentClick, highlightedDocuments = [] }: Timelin
             <div className="h-full flex items-center justify-center">
               <div className="text-center space-y-2">
                 <FileText className="h-12 w-12 text-muted-foreground mx-auto" />
-                <p className="text-muted-foreground">No documents with dates found</p>
+                <p className="text-muted-foreground">No uploaded documents found</p>
                 <p className="text-sm text-muted-foreground">
-                  Ingest documents to see them on the timeline
+                  Upload documents to see them on the timeline
                 </p>
               </div>
             </div>

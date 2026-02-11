@@ -601,7 +601,7 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
               <div className="aspect-[3/4] bg-muted/30 relative border-b flex items-center justify-center">
                 <FileText className="h-12 w-12 text-muted-foreground/50" />
                 <div className="absolute top-2 right-2">
-                  <Badge variant="outline" className="shadow-sm bg-white/90 backdrop-blur-sm">
+                  <Badge variant="outline" className="shadow-sm bg-card/90 backdrop-blur-sm">
                     {doc.file_type.toUpperCase()}
                   </Badge>
                 </div>
@@ -624,7 +624,7 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
           ))}
         </div>
       ) : (
-        <div className="rounded-md border bg-white">
+        <div className="rounded-md border bg-card">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/5">
