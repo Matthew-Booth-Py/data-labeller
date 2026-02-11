@@ -60,59 +60,59 @@ const WIZARD_STEPS: WizardStep[] = [
   },
   {
     id: "create-types",
-    title: "Document Types",
-    description: "Create document type schemas",
+    title: "Schema Setup",
+    description: "Set document types and field schemas",
     icon: FolderOpen,
-    objective: "Create document types for Claim Form, Policy, Loss Report, and Invoice",
+    objective: "In Schema Configuration → Fields Definition, click Add Field and use AI Field Assistant",
   },
   {
     id: "explore-docs",
-    title: "Sample Documents",
-    description: "Explore the sample documents",
+    title: "Upload / Review Docs",
+    description: "Review uploaded documents",
     icon: FileText,
-    objective: "Review the 6 sample insurance documents",
+    objective: "Confirm documents are ingested and ready for labeling",
   },
   {
     id: "classify",
-    title: "Classify Document",
-    description: "Manually classify a document",
+    title: "Manual Classification",
+    description: "Classify one document manually",
     icon: Target,
-    objective: "Classify the auto claim form as 'Insurance Claim Form'",
+    objective: "Set the baseline document type by hand",
   },
   {
     id: "auto-classify",
-    title: "Auto-Classification",
-    description: "Test AI classification",
+    title: "LLM Classification",
+    description: "Classify with AI",
     icon: Wand2,
-    objective: "Use AI to automatically classify a policy document",
+    objective: "Use the LLM to classify additional documents by type",
   },
   {
     id: "create-labels",
-    title: "Create Labels",
-    description: "Define annotation labels",
+    title: "Schema Labels",
+    description: "Review schema-derived labels",
     icon: Tag,
-    objective: "Create labels for Claim Number, Policy Number, Person Name, Date, Amount",
+    objective: "Verify labels are generated directly from your field definitions",
   },
   {
     id: "annotate",
-    title: "Annotate Document",
-    description: "Label text in a document",
+    title: "Annotate",
+    description: "Create ground truth",
     icon: Sparkles,
-    objective: "Annotate key fields in the claim form",
+    objective: "Label key spans and values in the selected document",
   },
   {
     id: "suggestions",
     title: "AI Suggestions",
-    description: "Get label suggestions from AI",
+    description: "Assist annotation with AI",
     icon: Brain,
-    objective: "Use AI to suggest annotations for you",
+    objective: "Apply and edit AI suggestions to speed up labeling",
   },
   {
     id: "complete",
-    title: "Complete",
-    description: "You're ready to go!",
+    title: "Done",
+    description: "Run extraction and finish",
     icon: GraduationCap,
-    objective: "Review what you learned and next steps",
+    objective: "Run extraction, inspect raw output, then finish the pipeline",
   },
 ];
 
@@ -188,6 +188,50 @@ export function GettingStartedWizard({ onComplete }: GettingStartedWizardProps) 
     retry: false,
     refetchOnWindowFocus: false,
   });
+
+  // Fetch docs to validate any persisted selected document id
+  const { data: documentsResponse } = useQuery({
+    queryKey: ["documents"],
+    queryFn: async () => {
+      try {
+        return await api.listDocuments();
+      } catch (error) {
+        console.error("Failed to fetch documents:", error);
+        return { documents: [], total: 0 };
+      }
+    },
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+
+  // Keep selected document in sync with actual ingested docs
+  useEffect(() => {
+    const docs = documentsResponse?.documents ?? [];
+    if (!docs.length || !selectedDocumentId) {
+      return;
+    }
+    const exists = docs.some((doc) => doc.id === selectedDocumentId);
+    if (exists) {
+      return;
+    }
+
+    const fallback =
+      docs.find(
+        (d) =>
+          d.filename &&
+          d.filename.includes("2024.pdf") &&
+          (d.filename.includes("claim") ||
+            d.filename.includes("policy") ||
+            d.filename.includes("loss") ||
+            d.filename.includes("vendor"))
+      ) ?? docs[0];
+
+    const nextSelected = fallback?.id ?? null;
+    setSelectedDocumentId(nextSelected);
+    const newProgress = { ...progress, selectedDocumentId: nextSelected };
+    setProgress(newProgress);
+    saveProgress(newProgress);
+  }, [documentsResponse?.documents, selectedDocumentId, progress]);
 
   // Setup tutorial mutation
   const setupMutation = useMutation({
@@ -387,7 +431,7 @@ export function GettingStartedWizard({ onComplete }: GettingStartedWizardProps) 
           <div>
             <h1 className="text-2xl font-bold">Getting Started</h1>
             <p className="text-muted-foreground text-sm">
-              Learn how to classify, label, and extract data from your documents
+              Workflow: upload docs, Add Field with AI Field Assistant, classify (manual + LLM), annotate, extract raw output
             </p>
           </div>
           <Button

@@ -179,6 +179,36 @@ class GlobalFieldUpdate(BaseModel):
     description: Optional[str] = None
 
 
+class FieldPropertySuggestion(BaseModel):
+    """Suggested property for object/array-of-object field definitions."""
+
+    name: str = Field(..., min_length=1)
+    type: FieldType
+    description: Optional[str] = None
+
+
+class FieldAssistantRequest(BaseModel):
+    """Request model for AI-assisted field creation."""
+
+    user_input: str = Field(..., min_length=3, description="Natural language description of desired field")
+    document_type_id: Optional[str] = Field(None, description="Optional document type context")
+    existing_field_names: list[str] = Field(
+        default_factory=list,
+        description="Existing field names to avoid collisions",
+    )
+
+
+class FieldAssistantResponse(BaseModel):
+    """Response model for AI-assisted field creation suggestions."""
+
+    name: str
+    type: FieldType
+    description: Optional[str] = None
+    extraction_prompt: str
+    items_type: Optional[FieldType] = None
+    object_properties: list[FieldPropertySuggestion] = Field(default_factory=list)
+
+
 class GlobalFieldListResponse(BaseModel):
     """Response model for listing global fields."""
 

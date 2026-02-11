@@ -222,6 +222,7 @@ export function LabelStudio({ documentId }: LabelStudioProps) {
     queryFn: () => currentDocTypeId
       ? api.listLabels(currentDocTypeId, false)
       : Promise.resolve({ labels: [], total: 0 }),
+    refetchOnMount: "always",
   });
 
   // Fetch current document type details (for schema fields)
@@ -237,6 +238,7 @@ export function LabelStudio({ documentId }: LabelStudioProps) {
     queryFn: () => documentId ? api.listAnnotations(documentId) : null,
     enabled: !!documentId,
     staleTime: Infinity, // Never auto-refetch, we manage cache manually
+    refetchOnMount: "always", // Ensure updates from Documents tab appear without full page refresh
     refetchOnWindowFocus: false,
   });
 

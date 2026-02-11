@@ -15,6 +15,7 @@ import {
   DocumentType,
   SchemaField,
   FieldType,
+  FieldAssistantResponse,
   LabelSuggestion,
   LabelSuggestionResponse,
   FieldPromptVersion,
@@ -52,8 +53,10 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   const [newFieldName, setNewFieldName] = useState("");
   const [newFieldType, setNewFieldType] = useState<FieldType>("string");
   const [newFieldDescription, setNewFieldDescription] = useState("");
+  const [newFieldPrompt, setNewFieldPrompt] = useState("");
   const [newFieldArrayItemType, setNewFieldArrayItemType] = useState<FieldType>("string");
   const [newFieldObjectProperties, setNewFieldObjectProperties] = useState<Array<{name: string, type: FieldType, description?: string}>>([]);
+  const [aiFieldInput, setAiFieldInput] = useState("");
   
   // State for label suggestions
   const [labelSuggestions, setLabelSuggestions] = useState<LabelSuggestion[]>([]);
@@ -255,6 +258,46 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       toast({ title: "Failed to reject suggestion", description: error.message, variant: "destructive" });
     },
   });
+
+  const suggestFieldDefinitionMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedTypeId || !selectedType || !aiFieldInput.trim()) {
+        throw new Error("Select a document type and describe the field first.");
+      }
+      return api.suggestFieldDefinition({
+        user_input: aiFieldInput.trim(),
+        document_type_id: selectedTypeId,
+        existing_field_names: (selectedType.schema_fields || []).map((field) => field.name),
+      });
+    },
+    onSuccess: (suggestion: FieldAssistantResponse) => {
+      setNewFieldName(suggestion.name);
+      setNewFieldType(suggestion.type);
+      setNewFieldDescription(suggestion.description || "");
+      setNewFieldPrompt(suggestion.extraction_prompt || "");
+      if (suggestion.type === "array") {
+        setNewFieldArrayItemType((suggestion.items_type || "string") as FieldType);
+        if ((suggestion.items_type || "").toString() === "object") {
+          setNewFieldObjectProperties(
+            (suggestion.object_properties || []).map((property) => ({
+              name: property.name,
+              type: property.type,
+              description: property.description,
+            }))
+          );
+        } else {
+          setNewFieldObjectProperties([]);
+        }
+      } else {
+        setNewFieldArrayItemType("string");
+        setNewFieldObjectProperties([]);
+      }
+      toast({ title: "Field suggestion generated" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "AI suggestion failed", description: error.message, variant: "destructive" });
+    },
+  });
   
   // Save schema changes
   const saveSchema = () => {
@@ -276,6 +319,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       name: newFieldName.trim().toLowerCase().replace(/\s+/g, '_'),
       type: newFieldType,
       description: newFieldDescription || undefined,
+      extraction_prompt: newFieldPrompt.trim() || undefined,
     };
     
     // Handle array type with items
@@ -315,8 +359,10 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     setNewFieldName("");
     setNewFieldType("string");
     setNewFieldDescription("");
+    setNewFieldPrompt("");
     setNewFieldArrayItemType("string");
     setNewFieldObjectProperties([]);
+    setAiFieldInput("");
   };
   
   // Remove field from schema
@@ -461,6 +507,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   const labels = labelsData?.labels || [];
   const activeFieldPrompts = activeFieldPromptsData?.field_prompts || {};
   const activeFieldVersionByName = activeFieldPromptsData?.field_versions || {};
+  const activeFieldVersionUpdatedAt = activeFieldPromptsData?.field_version_updated_at || {};
   const schemaFieldNames = new Set((selectedType?.schema_fields || []).map((field) => field.name));
   const labelsForSelectedType = selectedTypeId
     ? labels.filter((label) => schemaFieldNames.has(label.name))
@@ -664,6 +711,11 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                   <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-mono">
                     v{activeFieldVersionByName[field.name] || "0.0"}
                   </Badge>
+                  {activeFieldVersionUpdatedAt[field.name] && (
+                    <span className="text-[10px] text-muted-foreground">
+                      updated {new Date(activeFieldVersionUpdatedAt[field.name]).toLocaleString()}
+                    </span>
+                  )}
                   {field.type === "array" && field.items && (
                     <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-mono">
                       {field.items.type}[]
@@ -817,6 +869,28 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
             <DialogTitle>Add Field</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            <div className="space-y-3 p-3 border rounded-lg bg-muted/20">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Sparkles className="h-4 w-4 text-primary" />
+                AI Field Assistant
+              </div>
+              <Textarea
+                placeholder="Describe the field you want (e.g., 'capture all claim line items with area, damage, and estimated cost')."
+                value={aiFieldInput}
+                onChange={(e) => setAiFieldInput(e.target.value)}
+                className="min-h-[80px]"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => suggestFieldDefinitionMutation.mutate()}
+                disabled={!aiFieldInput.trim() || suggestFieldDefinitionMutation.isPending}
+              >
+                {suggestFieldDefinitionMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Suggest Field with AI
+              </Button>
+            </div>
+
             <div className="space-y-2">
               <label className="text-sm font-medium">Field Name</label>
               <Input 
@@ -959,6 +1033,15 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 onChange={(e) => setNewFieldDescription(e.target.value)}
               />
             </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Extraction Prompt</label>
+              <Textarea
+                placeholder="Extract this field exactly as it appears in the document."
+                value={newFieldPrompt}
+                onChange={(e) => setNewFieldPrompt(e.target.value)}
+                className="min-h-[100px]"
+              />
+            </div>
             
             {/* Example Preview */}
             {newFieldType === "array" && newFieldArrayItemType === "object" && newFieldObjectProperties.length > 0 && (
@@ -981,6 +1064,8 @@ ${newFieldObjectProperties.map(p => `      "${p.name || 'property'}": ${p.type =
               setIsAddingField(false);
               setNewFieldObjectProperties([]);
               setNewFieldArrayItemType("string");
+              setNewFieldPrompt("");
+              setAiFieldInput("");
             }}>Cancel</Button>
             <Button 
               onClick={addField}

@@ -121,6 +121,13 @@ class EvaluationService:
             prompt_version = self.sqlite_client.get_prompt_version(prompt_version_id)
             if prompt_version:
                 prompt_version_name = prompt_version.name
+        active_field_prompt_versions = self.sqlite_client.list_active_field_prompt_version_names(
+            doc_type.id
+        )
+        field_prompt_versions = {
+            field.name: active_field_prompt_versions.get(field.name, "0.0")
+            for field in doc_type.schema_fields
+        }
 
         # Create evaluation record
         evaluation = ExtractionEvaluation(
@@ -129,6 +136,7 @@ class EvaluationService:
             document_type_id=doc_type.id,
             prompt_version_id=prompt_version_id,
             prompt_version_name=prompt_version_name,
+            field_prompt_versions=field_prompt_versions,
             schema_version_id=doc_type.schema_version_id,
             metrics=metrics,
             extraction_time_ms=extraction_time_ms,

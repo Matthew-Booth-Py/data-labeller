@@ -188,7 +188,7 @@ def run_project_evaluation(request: ProjectEvaluationCreate):
         raise HTTPException(status_code=500, detail=f"Project evaluation failed: {str(e)}")
 
 
-@router.get("/{evaluation_id}", response_model=ExtractionEvaluationResponse)
+@router.get("/results/{evaluation_id}", response_model=ExtractionEvaluationResponse)
 def get_evaluation(evaluation_id: str):
     """Get a specific evaluation by ID."""
     sqlite_client = get_sqlite_client()
@@ -221,7 +221,7 @@ def list_evaluations(
     return ExtractionEvaluationListResponse(evaluations=evaluations, total=total)
 
 
-@router.delete("/{evaluation_id}", response_model=dict)
+@router.delete("/results/{evaluation_id}", response_model=dict)
 def delete_evaluation(evaluation_id: str):
     """Delete a specific evaluation by ID."""
     sqlite_client = get_sqlite_client()
@@ -548,4 +548,10 @@ def list_active_field_prompt_versions(document_type_id: str = Query(..., descrip
     sqlite_client = get_sqlite_client()
     prompts = sqlite_client.list_active_field_prompt_versions(document_type_id)
     versions = sqlite_client.list_active_field_prompt_version_names(document_type_id)
-    return {"field_prompts": prompts, "field_versions": versions, "total": len(prompts)}
+    timestamps = sqlite_client.list_active_field_prompt_version_timestamps(document_type_id)
+    return {
+        "field_prompts": prompts,
+        "field_versions": versions,
+        "field_version_updated_at": timestamps,
+        "total": len(prompts),
+    }

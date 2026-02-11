@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import Any
 
 import chromadb
+import tiktoken
 from chromadb.config import Settings as ChromaSettings
 
 from uu_backend.config import get_settings
@@ -41,6 +42,12 @@ class VectorStore:
             name=f"{settings.chroma_collection_name}_metadata",
             metadata={"description": "Document metadata"},
         )
+        self._token_encoding = tiktoken.get_encoding("cl100k_base")
+
+    def _count_tokens(self, text: str) -> int:
+        if not text:
+            return 0
+        return len(self._token_encoding.encode(text))
 
     def add_document(self, document: Document) -> None:
         """
@@ -55,6 +62,7 @@ class VectorStore:
             "file_type": document.file_type,
             "created_at": document.created_at.isoformat(),
             "chunk_count": len(document.chunks),
+            "token_count": self._count_tokens(document.content or ""),
         }
 
         if document.date_extracted:
@@ -121,6 +129,7 @@ class VectorStore:
             "file_type": document.file_type,
             "created_at": document.created_at.isoformat(),
             "chunk_count": len(new_chunks),
+            "token_count": self._count_tokens(new_content),
         }
         
         if document.date_extracted:
@@ -240,16 +249,28 @@ class VectorStore:
         Returns:
             List of document summaries
         """
-        result = self._docs_collection.get(include=["metadatas"])
+        result = self._docs_collection.get(include=["documents", "metadatas"])
 
         summaries = []
-        for doc_id, metadata in zip(result["ids"], result["metadatas"]):
+        for doc_id, content, metadata in zip(
+            result["ids"], result["documents"], result["metadatas"]
+        ):
             date_extracted = None
             if metadata.get("date_extracted"):
                 try:
                     date_extracted = datetime.fromisoformat(metadata["date_extracted"])
                 except ValueError:
                     pass
+            token_count = metadata.get("token_count")
+            if token_count is None:
+                # Backfill for older records that predate token_count metadata
+                token_count = self._count_tokens(content or "")
+                metadata["token_count"] = token_count
+                self._docs_collection.upsert(
+                    ids=[doc_id],
+                    documents=[content or ""],
+                    metadatas=[metadata],
+                )
 
             summaries.append(
                 DocumentSummary(
@@ -259,6 +280,7 @@ class VectorStore:
                     date_extracted=date_extracted,
                     created_at=datetime.fromisoformat(metadata["created_at"]),
                     chunk_count=metadata.get("chunk_count", 0),
+                    token_count=int(token_count or 0),
                 )
             )
 

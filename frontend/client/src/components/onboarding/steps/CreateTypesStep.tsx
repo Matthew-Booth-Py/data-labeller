@@ -93,7 +93,7 @@ export function CreateTypesStep({ onComplete }: CreateTypesStepProps) {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex gap-4">
-            <Button variant="outline" onClick={() => setLocation("/project/tutorial/schema")}>
+            <Button variant="outline" onClick={() => setLocation("/project/tutorial#schema")}>
               Open Schema Manager
               <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
