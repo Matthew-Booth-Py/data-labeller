@@ -36,6 +36,42 @@ from uu_backend.services.schema_based_suggestion_service import get_schema_based
 router = APIRouter()
 
 
+def _reconcile_schema_labels(client, document_type_id: str) -> None:
+    """Ensure labels for a document type exactly match current top-level schema fields."""
+    doc_type = client.get_document_type(document_type_id)
+    if not doc_type:
+        return
+
+    label_colors = [
+        '#3b82f6', '#ef4444', '#f97316', '#eab308', '#22c55e',
+        '#06b6d4', '#8b5cf6', '#ec4899', '#14b8a6', '#f59e0b'
+    ]
+    expected_by_name = {field.name: field for field in (doc_type.schema_fields or [])}
+    existing = client.list_labels(document_type_id=document_type_id, include_global=False)
+    existing_by_name = {label.name: label for label in existing}
+
+    color_idx = 0
+    for label_name, field in expected_by_name.items():
+        if label_name in existing_by_name:
+            continue
+        try:
+            client.create_label(
+                LabelCreate(
+                    name=label_name,
+                    color=label_colors[color_idx % len(label_colors)],
+                    description=field.description or f"Schema-derived label for {label_name}",
+                    document_type_id=document_type_id,
+                )
+            )
+        except Exception:
+            pass
+        color_idx += 1
+
+    for existing_name, label in existing_by_name.items():
+        if existing_name not in expected_by_name:
+            client.delete_label(label.id)
+
+
 # ============================================================================
 # Label Endpoints
 # ============================================================================
@@ -48,28 +84,19 @@ async def list_labels(
 ):
     """List all labels, optionally filtered by document type."""
     client = get_sqlite_client()
+    if document_type_id:
+        _reconcile_schema_labels(client, document_type_id)
     labels = client.list_labels(document_type_id=document_type_id, include_global=include_global)
     return LabelListResponse(labels=labels, total=len(labels))
 
 
 @router.post("/labels", response_model=Label, status_code=201)
 async def create_label(data: LabelCreate):
-    """Create a new label."""
-    client = get_sqlite_client()
-
-    # Check if name already exists
-    existing = client.get_label_by_name(data.name)
-    if existing:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Label with name '{data.name}' already exists",
-        )
-
-    try:
-        label = client.create_label(data)
-        return label
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create label: {e}")
+    """Labels are schema-derived and cannot be created independently."""
+    raise HTTPException(
+        status_code=409,
+        detail="Labels are generated from schema fields. Add or update fields in the schema instead.",
+    )
 
 
 @router.get("/labels/{label_id}", response_model=Label)
@@ -86,36 +113,20 @@ async def get_label(label_id: str):
 
 @router.put("/labels/{label_id}", response_model=Label)
 async def update_label(label_id: str, data: LabelUpdate):
-    """Update a label."""
-    client = get_sqlite_client()
-
-    # Check if new name conflicts
-    if data.name:
-        existing = client.get_label_by_name(data.name)
-        if existing and existing.id != label_id:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Label with name '{data.name}' already exists",
-            )
-
-    label = client.update_label(label_id, data)
-
-    if not label:
-        raise HTTPException(status_code=404, detail=f"Label {label_id} not found")
-
-    return label
+    """Labels are schema-derived and cannot be edited independently."""
+    raise HTTPException(
+        status_code=409,
+        detail="Labels are generated from schema fields. Update schema fields instead.",
+    )
 
 
 @router.delete("/labels/{label_id}")
 async def delete_label(label_id: str):
-    """Delete a label (and all its annotations)."""
-    client = get_sqlite_client()
-    deleted = client.delete_label(label_id)
-
-    if not deleted:
-        raise HTTPException(status_code=404, detail=f"Label {label_id} not found")
-
-    return {"status": "success", "message": "Label deleted"}
+    """Labels are schema-derived and cannot be deleted independently."""
+    raise HTTPException(
+        status_code=409,
+        detail="Labels are generated from schema fields. Remove the field from schema instead.",
+    )
 
 
 # ============================================================================
@@ -144,43 +155,11 @@ async def accept_label_suggestion(
     suggestion_id: str,
     body: AcceptSuggestionBody,
 ):
-    """Accept a label suggestion and create the label."""
-    service = get_label_suggestion_service()
-    client = get_sqlite_client()
-    
-    # Convert body to LabelSuggestion
-    suggestion = LabelSuggestion(
-        id=body.id,
-        name=body.name,
-        description=body.description,
-        reasoning=body.reasoning,
-        confidence=body.confidence,
-        source_examples=body.source_examples,
-        suggested_color=body.suggested_color,
+    """Label suggestions can only be applied by adding schema fields."""
+    raise HTTPException(
+        status_code=409,
+        detail="Labels are schema-derived. Add suggested fields to the schema instead of creating standalone labels.",
     )
-    
-    # Check if name already exists (considering override)
-    final_name = body.override_name or suggestion.name
-    existing = client.get_label_by_name(final_name)
-    if existing:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Label with name '{final_name}' already exists",
-        )
-    
-    try:
-        label = service.accept_suggestion(
-            suggestion=suggestion,
-            color_override=body.override_color,
-            name_override=body.override_name,
-            description_override=body.override_description,
-        )
-        return label
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to accept label suggestion: {e}",
-        )
 
 
 @router.post("/labels/suggestions/{suggestion_id}/reject")
@@ -257,6 +236,29 @@ async def list_annotations(
 async def create_annotation(document_id: str, data: AnnotationCreate):
     """Create a new annotation on a document."""
     client = get_sqlite_client()
+
+    # Enforce schema-derived label scope for classified documents
+    label = client.get_label(data.label_id)
+    if not label:
+        raise HTTPException(status_code=404, detail=f"Label {data.label_id} not found")
+
+    classification = client.get_classification(document_id)
+    if classification:
+        doc_type = client.get_document_type(classification.document_type_id)
+        if not doc_type:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Document type {classification.document_type_id} not found for classified document",
+            )
+        schema_names = {field.name for field in (doc_type.schema_fields or [])}
+        if label.document_type_id != doc_type.id or label.name not in schema_names:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Label is not valid for this document type schema. "
+                    f"Expected one of: {sorted(schema_names)}"
+                ),
+            )
 
     # Validate based on annotation type
     if data.annotation_type == AnnotationType.TEXT_SPAN:

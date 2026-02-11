@@ -1,6 +1,8 @@
 """Service for evaluating extraction quality against ground truth."""
 
+import difflib
 import math
+import re
 import time
 from datetime import datetime
 from typing import Any, Optional
@@ -32,6 +34,8 @@ class EvaluationService:
         prompt_version_id: Optional[str] = None,
         use_llm_refinement: bool = True,
         use_structured_output: bool = False,
+        comparator_mode: str = "normalized",
+        fuzzy_threshold: float = 0.85,
         evaluated_by: Optional[str] = None,
         notes: Optional[str] = None,
     ) -> ExtractionEvaluation:
@@ -102,11 +106,13 @@ class EvaluationService:
                 field_name=field.name,
                 extracted_value=extracted_values.get(field.name),
                 ground_truth_value=ground_truth.get(field.name),
+                comparator_mode=comparator_mode,
+                fuzzy_threshold=fuzzy_threshold,
             )
             field_evaluations.append(field_eval)
 
         # Calculate aggregate metrics
-        metrics = self._calculate_metrics(field_evaluations)
+        metrics = self._calculate_metrics(field_evaluations, comparator_mode=comparator_mode)
 
         # Get prompt version info
         prompt_version = None
@@ -115,6 +121,13 @@ class EvaluationService:
             prompt_version = self.sqlite_client.get_prompt_version(prompt_version_id)
             if prompt_version:
                 prompt_version_name = prompt_version.name
+        active_field_prompt_versions = self.sqlite_client.list_active_field_prompt_version_names(
+            doc_type.id
+        )
+        field_prompt_versions = {
+            field.name: active_field_prompt_versions.get(field.name, "0.0")
+            for field in doc_type.schema_fields
+        }
 
         # Create evaluation record
         evaluation = ExtractionEvaluation(
@@ -123,6 +136,8 @@ class EvaluationService:
             document_type_id=doc_type.id,
             prompt_version_id=prompt_version_id,
             prompt_version_name=prompt_version_name,
+            field_prompt_versions=field_prompt_versions,
+            schema_version_id=doc_type.schema_version_id,
             metrics=metrics,
             extraction_time_ms=extraction_time_ms,
             evaluated_by=evaluated_by,
@@ -494,28 +509,41 @@ class EvaluationService:
         field_name: str,
         extracted_value: Any,
         ground_truth_value: Any,
+        comparator_mode: str = "normalized",
+        fuzzy_threshold: float = 0.85,
     ) -> FieldEvaluation:
         """Evaluate a single field."""
         is_present = ground_truth_value is not None
         is_extracted = extracted_value is not None
 
-        # Normalize values for comparison
-        extracted_normalized = self._normalize_value(extracted_value)
-        ground_truth_normalized = self._normalize_value(ground_truth_value)
-
         # Check if correct and calculate R² for numerical fields
         is_correct = False
         r2_score = None
+        reason_code = "match"
+        comparison_score = None
         
-        if is_present and is_extracted:
+        if not is_present and not is_extracted:
+            reason_code = "abstained"
+        elif is_present and not is_extracted:
+            reason_code = "missing_extraction"
+        elif not is_present and is_extracted:
+            reason_code = "extra_extraction"
+        elif is_present and is_extracted:
             # For complex structures (arrays of objects), use deep comparison
             if isinstance(extracted_value, list) and isinstance(ground_truth_value, list):
                 is_correct = self._compare_arrays(extracted_value, ground_truth_value)
+                comparison_score = 1.0 if is_correct else 0.0
                 
                 # Calculate R² for arrays of objects with numerical fields
                 r2_score = self._calculate_r2_for_array(extracted_value, ground_truth_value)
             else:
-                is_correct = extracted_normalized == ground_truth_normalized
+                is_correct, comparison_score = self._compare_values(
+                    extracted_value=extracted_value,
+                    ground_truth_value=ground_truth_value,
+                    comparator_mode=comparator_mode,
+                    fuzzy_threshold=fuzzy_threshold,
+                )
+            reason_code = "match" if is_correct else "value_mismatch"
 
         return FieldEvaluation(
             field_name=field_name,
@@ -525,6 +553,9 @@ class EvaluationService:
             is_present=is_present,
             is_extracted=is_extracted,
             r2_score=r2_score,
+            comparator_mode=comparator_mode,
+            comparison_score=comparison_score,
+            reason_code=reason_code,
         )
 
     def _compare_arrays(self, extracted: list, ground_truth: list) -> bool:
@@ -622,6 +653,50 @@ class EvaluationService:
         ground_truth_normalized = self._normalize_value(ground_truth)
         
         return extracted_normalized == ground_truth_normalized
+
+    def _compare_values(
+        self,
+        extracted_value: Any,
+        ground_truth_value: Any,
+        comparator_mode: str,
+        fuzzy_threshold: float,
+    ) -> tuple[bool, float]:
+        """Compare two values using exact, normalized, or fuzzy semantics."""
+        if comparator_mode == "exact":
+            score = 1.0 if extracted_value == ground_truth_value else 0.0
+            return score == 1.0, score
+
+        extracted_normalized = self._normalize_value(extracted_value)
+        ground_truth_normalized = self._normalize_value(ground_truth_value)
+
+        if comparator_mode == "normalized":
+            if extracted_normalized == ground_truth_normalized:
+                return True, 1.0
+
+            # Date-aware equivalence for differently formatted but same date strings.
+            if isinstance(extracted_value, str) and isinstance(ground_truth_value, str):
+                extracted_date = self._parse_date_literal(extracted_value)
+                ground_truth_date = self._parse_date_literal(ground_truth_value)
+                if extracted_date and ground_truth_date and extracted_date == ground_truth_date:
+                    return True, 1.0
+
+                # Free-text soft match: lexical/ordering differences shouldn't be hard-fail.
+                similarity = self._text_similarity(extracted_value, ground_truth_value)
+                if similarity >= 0.92:
+                    return True, similarity
+                return False, similarity
+
+            return False, 0.0
+
+        # fuzzy mode: exact on non-strings, similarity on strings
+        if isinstance(extracted_normalized, str) and isinstance(ground_truth_normalized, str):
+            similarity = difflib.SequenceMatcher(
+                a=extracted_normalized, b=ground_truth_normalized
+            ).ratio()
+            return similarity >= fuzzy_threshold, similarity
+
+        score = 1.0 if extracted_normalized == ground_truth_normalized else 0.0
+        return score == 1.0, score
 
     def _calculate_r2_for_array(self, extracted: list, ground_truth: list) -> Optional[float]:
         """
@@ -725,8 +800,13 @@ class EvaluationService:
 
         # Convert to string and normalize whitespace
         if isinstance(value, str):
+            stripped = value.strip()
+            # Normalize date strings to ISO for robust comparison.
+            parsed_date = self._parse_date_literal(stripped)
+            if parsed_date:
+                return parsed_date
             # Remove currency symbols and commas for numeric strings
-            cleaned = value.strip().replace('$', '').replace(',', '')
+            cleaned = stripped.replace('$', '').replace(',', '')
             return cleaned.lower()
 
         # For dictionaries (objects), normalize each value and sort by keys
@@ -783,12 +863,66 @@ class EvaluationService:
 
         return value
 
+    def _parse_date_literal(self, value: str) -> Optional[str]:
+        """Parse common date string formats and return ISO date if parseable."""
+        if not value:
+            return None
+        s = value.strip()
+        # Fast-path ISO date
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+            return s
+        formats = (
+            "%B %d, %Y",   # February 3, 2024
+            "%b %d, %Y",   # Feb 3, 2024
+            "%m/%d/%Y",    # 02/03/2024
+            "%m-%d-%Y",    # 02-03-2024
+            "%Y/%m/%d",    # 2024/02/03
+            "%Y.%m.%d",    # 2024.02.03
+        )
+        for fmt in formats:
+            try:
+                return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+        return None
+
+    def _text_similarity(self, a: str, b: str) -> float:
+        """Compute robust similarity for free-text field evaluation."""
+        a_norm = self._canonicalize_text(a)
+        b_norm = self._canonicalize_text(b)
+        if not a_norm and not b_norm:
+            return 1.0
+        if not a_norm or not b_norm:
+            return 0.0
+
+        seq_ratio = difflib.SequenceMatcher(a=a_norm, b=b_norm).ratio()
+        a_tokens = a_norm.split()
+        b_tokens = b_norm.split()
+        a_set = set(a_tokens)
+        b_set = set(b_tokens)
+        overlap = len(a_set & b_set)
+        precision = overlap / len(a_set) if a_set else 0.0
+        recall = overlap / len(b_set) if b_set else 0.0
+        token_f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+
+        return max(seq_ratio, token_f1)
+
+    def _canonicalize_text(self, value: str) -> str:
+        """Lowercase + punctuation/whitespace normalization for soft text matching."""
+        lowered = value.lower()
+        # Keep alnum/space only to ignore punctuation-only differences.
+        cleaned = re.sub(r"[^a-z0-9\s]+", " ", lowered)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned
+
     def _calculate_metrics(
-        self, field_evaluations: list[FieldEvaluation]
+        self, field_evaluations: list[FieldEvaluation], comparator_mode: str = "normalized"
     ) -> ExtractionEvaluationMetrics:
         """Calculate aggregate metrics from field evaluations."""
         total_fields = len(field_evaluations)
         correct_fields = sum(1 for f in field_evaluations if f.is_correct)
+        abstained_fields = sum(1 for f in field_evaluations if f.reason_code == "abstained")
+        unsupported_fields = sum(1 for f in field_evaluations if f.reason_code == "unsupported_type")
         incorrect_fields = sum(
             1 for f in field_evaluations if f.is_extracted and f.is_present and not f.is_correct
         )
@@ -822,6 +956,9 @@ class EvaluationService:
             incorrect_fields=incorrect_fields,
             missing_fields=missing_fields,
             extra_fields=extra_fields,
+            abstained_fields=abstained_fields,
+            unsupported_fields=unsupported_fields,
+            comparator_mode=comparator_mode,
             accuracy=accuracy,
             precision=precision,
             recall=recall,
@@ -835,6 +972,8 @@ class EvaluationService:
         prompt_version_id: Optional[str] = None,
         use_llm_refinement: bool = True,
         use_structured_output: bool = False,
+        comparator_mode: str = "normalized",
+        fuzzy_threshold: float = 0.85,
         evaluated_by: Optional[str] = None,
         notes: Optional[str] = None,
     ) -> list[ExtractionEvaluation]:
@@ -877,6 +1016,8 @@ class EvaluationService:
                     prompt_version_id=prompt_version_id,
                     use_llm_refinement=use_llm_refinement,
                     use_structured_output=use_structured_output,
+                    comparator_mode=comparator_mode,
+                    fuzzy_threshold=fuzzy_threshold,
                     evaluated_by=evaluated_by,
                     notes=notes,
                 )
@@ -905,6 +1046,8 @@ class EvaluationService:
         baseline_run_id: Optional[str] = None,
         use_llm_refinement: bool = True,
         use_structured_output: bool = False,
+        comparator_mode: str = "normalized",
+        fuzzy_threshold: float = 0.85,
         evaluated_by: Optional[str] = None,
         notes: Optional[str] = None,
         required_field_gates: Optional[dict[str, dict[str, float]]] = None,
@@ -931,6 +1074,8 @@ class EvaluationService:
                     prompt_version_id=prompt_version_id,
                     use_llm_refinement=use_llm_refinement,
                     use_structured_output=use_structured_output,
+                    comparator_mode=comparator_mode,
+                    fuzzy_threshold=fuzzy_threshold,
                     evaluated_by=evaluated_by,
                     notes=notes,
                 )

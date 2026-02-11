@@ -10,6 +10,7 @@ from openai import OpenAI
 from uu_backend.config import get_settings
 from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
+from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.label_suggestion import (
     LabelSuggestion,
     LabelSuggestionRequest,
@@ -215,6 +216,7 @@ Suggest 5-10 labels that would be most useful for these documents."""
                     {"role": "user", "content": user_prompt},
                 ],
                 response_format={"type": "json_object"},
+                **reasoning_options_for_model(self.model),
             )
 
             result_text = response.choices[0].message.content

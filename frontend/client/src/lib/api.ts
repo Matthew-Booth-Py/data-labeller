@@ -67,6 +67,7 @@ export interface DocumentSummary {
   date_extracted?: string;
   created_at: string;
   chunk_count: number;
+  token_count?: number;
 }
 
 export interface IngestResponse {
@@ -101,6 +102,52 @@ export interface TimelineResponse {
   timeline: TimelineEntry[];
   date_range: DateRange;
   total_documents: number;
+}
+
+export interface DeploymentVersion {
+  id: string;
+  project_id: string;
+  version: string;
+  document_type_id: string;
+  document_type_name: string;
+  schema_version_id?: string | null;
+  prompt_version_id?: string | null;
+  system_prompt?: string | null;
+  user_prompt_template?: string | null;
+  schema_fields: Record<string, unknown>[];
+  field_prompt_versions: Record<string, string>;
+  model?: string | null;
+  is_active: boolean;
+  created_by?: string | null;
+  created_at: string;
+}
+
+export interface DeploymentVersionCreate {
+  project_id: string;
+  document_type_id: string;
+  prompt_version_id?: string | null;
+  created_by?: string;
+  set_active?: boolean;
+}
+
+export interface DeploymentExtractResponse {
+  project_id: string;
+  deployment_version_id: string;
+  deployment_version: string;
+  document_type_id: string;
+  document_type_name: string;
+  filename: string;
+  extracted_data: Record<string, unknown>;
+}
+
+export interface DashboardEvaluationSummary {
+  f1_score?: number;
+}
+
+export interface DashboardEvaluation {
+  id: string;
+  evaluated_at: string;
+  metrics?: DashboardEvaluationSummary;
 }
 
 export type EntityType = 'Person' | 'Organization' | 'Location' | 'Event';
@@ -194,6 +241,46 @@ export interface DocumentTypeUpdate {
   post_processing?: string;
 }
 
+export interface GlobalField {
+  id: string;
+  name: string;
+  type: FieldType;
+  prompt: string;
+  description?: string;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GlobalFieldCreate {
+  name: string;
+  type: FieldType;
+  prompt: string;
+  description?: string;
+  created_by?: string;
+}
+
+export interface FieldAssistantProperty {
+  name: string;
+  type: FieldType;
+  description?: string;
+}
+
+export interface FieldAssistantRequest {
+  user_input: string;
+  document_type_id?: string;
+  existing_field_names?: string[];
+}
+
+export interface FieldAssistantResponse {
+  name: string;
+  type: FieldType;
+  description?: string;
+  extraction_prompt: string;
+  items_type?: FieldType | null;
+  object_properties: FieldAssistantProperty[];
+}
+
 export interface Classification {
   document_id: string;
   document_type_id: string;
@@ -230,6 +317,35 @@ export interface ExtractionResult {
   document_type_id: string;
   fields: ExtractedField[];
   extracted_at: string;
+}
+
+export interface FieldPromptVersion {
+  id: string;
+  name: string;
+  document_type_id: string;
+  field_name: string;
+  extraction_prompt: string;
+  description?: string;
+  is_active: boolean;
+  created_by?: string;
+  created_at: string;
+}
+
+export interface FieldPromptVersionCreate {
+  name: string;
+  document_type_id: string;
+  field_name: string;
+  extraction_prompt: string;
+  description?: string;
+  is_active?: boolean;
+  created_by?: string;
+}
+
+export interface FieldPromptVersionUpdate {
+  name?: string;
+  extraction_prompt?: string;
+  description?: string;
+  is_active?: boolean;
 }
 
 // ============================================================================
@@ -353,6 +469,24 @@ export interface SuggestionResponse {
   examples_used: number;
   model: string;
   generated_at: string;
+}
+
+export interface SchemaSuggestionResponse {
+  document_id: string;
+  document_type_id: string;
+  suggestions: Array<{
+    field_name: string;
+    label_name: string;
+    spans: Array<{
+      text: string;
+      start_char: number;
+      end_char: number;
+    }>;
+    confidence: number;
+    reasoning?: string;
+    metadata?: Record<string, unknown>;
+  }>;
+  extraction_preview: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -683,6 +817,40 @@ class ApiClient {
     return this.request(`${API_PREFIX}/taxonomy/types/${typeId}/documents`);
   }
 
+  async listGlobalFields(search?: string): Promise<{ fields: GlobalField[]; total: number }> {
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`${API_PREFIX}/taxonomy/fields${query}`);
+  }
+
+  async createGlobalField(data: GlobalFieldCreate): Promise<GlobalField> {
+    return this.request(`${API_PREFIX}/taxonomy/fields`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateGlobalField(id: string, data: Partial<GlobalFieldCreate>): Promise<GlobalField> {
+    return this.request(`${API_PREFIX}/taxonomy/fields/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async suggestFieldDefinition(data: FieldAssistantRequest): Promise<FieldAssistantResponse> {
+    return this.request(`${API_PREFIX}/taxonomy/field-assistant`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteGlobalField(id: string): Promise<{ status: string; message: string }> {
+    return this.request(`${API_PREFIX}/taxonomy/fields/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
   // Taxonomy - Document Classification
   async classifyDocument(documentId: string, typeId: string, confidence: number = 1.0): Promise<{ classification: Classification }> {
     return this.request(`${API_PREFIX}/documents/${documentId}/classify`, {
@@ -712,10 +880,17 @@ class ApiClient {
   }
 
   // Extraction
-  async extractDocument(documentId: string, useLlm: boolean = true): Promise<ExtractionResult> {
-    return this.request(`${API_PREFIX}/documents/${documentId}/extract?use_llm=${useLlm}`, {
+  async extractDocument(
+    documentId: string,
+    useLlm: boolean = true,
+    useStructuredOutput: boolean = false
+  ): Promise<ExtractionResult> {
+    return this.request(
+      `${API_PREFIX}/documents/${documentId}/extract?use_llm=${useLlm}&use_structured_output=${useStructuredOutput}`,
+      {
       method: 'POST',
-    });
+      }
+    );
   }
 
   async getDocumentExtraction(documentId: string): Promise<ExtractionResult> {
@@ -853,6 +1028,16 @@ class ApiClient {
     });
   }
 
+  async suggestSchemaAnnotations(
+    documentId: string,
+    autoAccept: boolean = true
+  ): Promise<SchemaSuggestionResponse> {
+    const query = `?auto_accept=${String(autoAccept)}`;
+    return this.request(`${API_PREFIX}/documents/${documentId}/suggest-annotations${query}`, {
+      method: 'POST',
+    });
+  }
+
   // Feedback
   async submitFeedback(data: FeedbackCreate): Promise<FeedbackResponse> {
     return this.request(`${API_PREFIX}/feedback`, {
@@ -922,10 +1107,133 @@ class ApiClient {
   }
 
   // Evaluation
+  async listEvaluations(params?: {
+    document_id?: string;
+    document_type_id?: string;
+    prompt_version_id?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ evaluations: DashboardEvaluation[]; total: number }> {
+    const query = new URLSearchParams();
+    if (params?.document_id) query.append("document_id", params.document_id);
+    if (params?.document_type_id) query.append("document_type_id", params.document_type_id);
+    if (params?.prompt_version_id) query.append("prompt_version_id", params.prompt_version_id);
+    if (typeof params?.limit === "number") query.append("limit", String(params.limit));
+    if (typeof params?.offset === "number") query.append("offset", String(params.offset));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return this.request(`${API_PREFIX}/evaluation${suffix}`);
+  }
+
   async deleteEvaluation(evaluationId: string): Promise<{ message: string }> {
-    return this.request(`${API_PREFIX}/evaluation/${evaluationId}`, {
+    return this.request(`${API_PREFIX}/evaluation/results/${evaluationId}`, {
       method: 'DELETE',
     });
+  }
+
+  async listFieldPromptVersions(
+    documentTypeId: string,
+    fieldName?: string,
+    isActive?: boolean
+  ): Promise<{ field_prompt_versions: FieldPromptVersion[]; total: number }> {
+    const params = new URLSearchParams();
+    params.append('document_type_id', documentTypeId);
+    if (fieldName) params.append('field_name', fieldName);
+    if (typeof isActive === 'boolean') params.append('is_active', String(isActive));
+    return this.request(`${API_PREFIX}/evaluation/field-prompts/list?${params.toString()}`);
+  }
+
+  async createFieldPromptVersion(
+    data: FieldPromptVersionCreate
+  ): Promise<{ id: string; message: string }> {
+    return this.request(`${API_PREFIX}/evaluation/field-prompts`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateFieldPromptVersion(
+    versionId: string,
+    data: FieldPromptVersionUpdate
+  ): Promise<{ message: string }> {
+    return this.request(`${API_PREFIX}/evaluation/field-prompts/version/${versionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteFieldPromptVersion(versionId: string): Promise<{ message: string }> {
+    return this.request(`${API_PREFIX}/evaluation/field-prompts/version/${versionId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async listActiveFieldPromptsByDocumentType(
+    documentTypeId: string
+  ): Promise<{
+    field_prompts: Record<string, string>;
+    field_versions: Record<string, string>;
+    field_version_updated_at: Record<string, string>;
+    total: number;
+  }> {
+    return this.request(
+      `${API_PREFIX}/evaluation/field-prompts/active/by-document-type?document_type_id=${encodeURIComponent(documentTypeId)}`
+    );
+  }
+
+  // Deployments
+  async createDeploymentVersion(data: DeploymentVersionCreate): Promise<{ version: DeploymentVersion }> {
+    return this.request(`${API_PREFIX}/deployments/versions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listDeploymentVersions(projectId: string): Promise<{ versions: DeploymentVersion[]; total: number }> {
+    return this.request(`${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/versions`);
+  }
+
+  async getActiveDeploymentVersion(projectId: string): Promise<{ version: DeploymentVersion }> {
+    return this.request(`${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/active`);
+  }
+
+  async activateDeploymentVersion(projectId: string, versionId: string): Promise<{ status: string; active_version: DeploymentVersion }> {
+    return this.request(`${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}/activate`, {
+      method: 'POST',
+    });
+  }
+
+  async extractWithDeploymentVersion(projectId: string, versionId: string, file: File): Promise<DeploymentExtractResponse> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(
+      `${this.baseUrl}${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}/extract`,
+      {
+        method: 'POST',
+        body: formData,
+      }
+    );
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API Error ${response.status}: ${errorText}`);
+    }
+    return response.json();
+  }
+
+  async extractWithActiveDeployment(projectId: string, file: File): Promise<DeploymentExtractResponse> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(
+      `${this.baseUrl}${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/extract`,
+      {
+        method: 'POST',
+        body: formData,
+      }
+    );
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API Error ${response.status}: ${errorText}`);
+    }
+    return response.json();
   }
 }
 

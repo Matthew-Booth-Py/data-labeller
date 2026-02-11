@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 
@@ -34,6 +35,7 @@ interface FieldEvaluation {
   is_present: boolean;
   is_extracted: boolean;
   r2_score?: number;
+  comparison_score?: number;
 }
 
 interface Evaluation {
@@ -42,6 +44,8 @@ interface Evaluation {
   document_type_id: string;
   prompt_version_id: string | null;
   prompt_version_name: string | null;
+  notes?: string | null;
+  field_prompt_versions?: Record<string, string>;
   metrics: {
     f1_score: number;
     accuracy: number;
@@ -53,6 +57,26 @@ interface Evaluation {
   };
   extraction_time_ms: number;
   evaluated_at: string;
+}
+
+interface AggregatedRun {
+  runKey: string;
+  promptVersionName: string;
+  evaluatedAt: string;
+  documentCount: number;
+  accuracy: number;
+  recall: number;
+  f1Score: number;
+  latencyMs: number;
+  correctFields: number;
+  incorrectFields: number;
+  evaluations: Evaluation[];
+}
+
+interface PromptVersion {
+  id: string;
+  name: string;
+  is_active: boolean;
 }
 
 interface EvaluationBoardProps {
@@ -69,9 +93,13 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
   const [selectedDocument, setSelectedDocument] = useState<string>('');
   const [useStructuredOutput, setUseStructuredOutput] = useState(true);
   const [documentTypeId, setDocumentTypeId] = useState<string | null>(null);
-  const [selectedEvaluation, setSelectedEvaluation] = useState<Evaluation | null>(null);
+  const [selectedRun, setSelectedRun] = useState<AggregatedRun | null>(null);
+  const [selectedRunDocumentEvaluationId, setSelectedRunDocumentEvaluationId] = useState<string | null>(null);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [showRawJson, setShowRawJson] = useState(false);
+  const [promptVersions, setPromptVersions] = useState<PromptVersion[]>([]);
+  const [selectedPromptVersion, setSelectedPromptVersion] = useState<string>("default");
+  const [selectedEvaluationIds, setSelectedEvaluationIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadDocuments();
@@ -81,6 +109,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
   useEffect(() => {
     if (documentTypeId) {
       loadEvaluations();
+      loadPromptVersions(documentTypeId);
     }
   }, [documentTypeId]);
 
@@ -100,10 +129,23 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
       const data = await response.json();
       console.log('Loaded evaluations:', data.evaluations?.length || 0);
       setEvaluations(data.evaluations || []);
+      setSelectedEvaluationIds(new Set());
     } catch (error) {
       console.error('Error loading evaluations:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadPromptVersions = async (docTypeId: string) => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/v1/evaluation/prompts?document_type_id=${docTypeId}`);
+      if (!response.ok) throw new Error("Failed to load prompt versions");
+      const data = await response.json();
+      setPromptVersions(data.prompt_versions || []);
+    } catch (error) {
+      console.error("Error loading prompt versions:", error);
+      setPromptVersions([]);
     }
   };
 
@@ -170,14 +212,21 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
         throw new Error('Document type not found');
       }
 
+      const runMarker =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
       // Run evaluation on all documents in the project
       const response = await fetch(`${getApiUrl()}/api/v1/evaluation/run-project`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           document_type_id: documentTypeId,
+          prompt_version_id: selectedPromptVersion === "default" ? null : selectedPromptVersion,
           use_structured_output: useStructuredOutput,
           use_llm_refinement: !useStructuredOutput,
+          notes: `project_run:${runMarker}`,
         }),
       });
 
@@ -214,14 +263,339 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
     return `${(value * 100).toFixed(1)}%`;
   };
 
-  // Prepare chart data
-  const chartData = evaluations.slice(0, 5).reverse().map((evaluation, idx) => ({
-    promptVersion: evaluation.prompt_version_name || `Run ${idx + 1}`,
-    accuracy: evaluation.metrics.accuracy * 100,
-    completeness: evaluation.metrics.recall * 100,
-    latency: evaluation.extraction_time_ms,
-    cost: 0.45, // Mock cost for now
-  }));
+  const truncateText = (value: unknown, max: number = 100) => {
+    const text = String(value ?? "");
+    return text.length > max ? `${text.slice(0, max)}...` : text;
+  };
+
+  const toPreviewJson = (value: unknown, max: number = 100) => {
+    return JSON.stringify(
+      value,
+      (_key, v) => (typeof v === "string" ? truncateText(v, max) : v),
+      2
+    );
+  };
+
+  const normalizeComparable = (value: unknown): unknown => {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "number") return Number(value);
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      const cleaned = trimmed.replace(/\$/g, "").replace(/,/g, "");
+      if (/^-?\d+(\.\d+)?$/.test(cleaned)) {
+        return Number(cleaned);
+      }
+      return cleaned.toLowerCase();
+    }
+    return String(value).toLowerCase();
+  };
+
+  const valuesMatch = (a: unknown, b: unknown): boolean => {
+    const na = normalizeComparable(a);
+    const nb = normalizeComparable(b);
+    if (typeof na === "number" && typeof nb === "number") {
+      return Math.abs(na - nb) < 1e-9;
+    }
+    return na === nb;
+  };
+
+  const aggregatedRuns: AggregatedRun[] = (() => {
+    const groups = new Map<
+      string,
+      {
+        key: string;
+        evaluations: Evaluation[];
+        latestTimestamp: number;
+        versionLabel: string;
+      }
+    >();
+
+    evaluations.forEach((evaluation) => {
+      const notes = evaluation.notes || "";
+      const markerMatch = notes.match(/project_run:([A-Za-z0-9-]+)/);
+      const marker = markerMatch ? markerMatch[1] : null;
+      const evaluatedAt = new Date(evaluation.evaluated_at).getTime();
+      const fallbackMinuteBucket = new Date(evaluation.evaluated_at).toISOString().slice(0, 16);
+      const key = marker || `${evaluation.prompt_version_id || "default"}:${fallbackMinuteBucket}`;
+
+      const current = groups.get(key) || {
+        key,
+        evaluations: [],
+        latestTimestamp: evaluatedAt,
+        versionLabel: evaluation.prompt_version_name || "Default",
+      };
+
+      current.evaluations.push(evaluation);
+      current.latestTimestamp = Math.max(current.latestTimestamp, evaluatedAt);
+      if (!current.versionLabel && evaluation.prompt_version_name) {
+        current.versionLabel = evaluation.prompt_version_name;
+      }
+      groups.set(key, current);
+    });
+
+    return Array.from(groups.values())
+      .sort((a, b) => b.latestTimestamp - a.latestTimestamp)
+      .map((group) => {
+        const count = group.evaluations.length || 1;
+        const accuracy = group.evaluations.reduce((sum, e) => sum + e.metrics.accuracy, 0) / count;
+        const recall = group.evaluations.reduce((sum, e) => sum + e.metrics.recall, 0) / count;
+        const f1Score = group.evaluations.reduce((sum, e) => sum + e.metrics.f1_score, 0) / count;
+        const latencyMs = group.evaluations.reduce((sum, e) => sum + e.extraction_time_ms, 0) / count;
+        const correctFields = group.evaluations.reduce((sum, e) => sum + e.metrics.correct_fields, 0);
+        const incorrectFields = group.evaluations.reduce((sum, e) => sum + e.metrics.incorrect_fields, 0);
+        const newestEvaluation = group.evaluations.reduce((latest, current) =>
+          new Date(current.evaluated_at).getTime() > new Date(latest.evaluated_at).getTime() ? current : latest
+        , group.evaluations[0]);
+
+        return {
+          runKey: group.key,
+          promptVersionName: group.versionLabel || "Default",
+          evaluatedAt: newestEvaluation?.evaluated_at || new Date(group.latestTimestamp).toISOString(),
+          documentCount: group.evaluations.length,
+          accuracy,
+          recall,
+          f1Score,
+          latencyMs,
+          correctFields,
+          incorrectFields,
+          evaluations: group.evaluations,
+        };
+      });
+  })();
+
+  // Prepare chart data by aggregate evaluation run (one run click across all docs)
+  const chartData = aggregatedRuns
+    .slice(0, 5)
+    .reverse()
+    .map((run, idx) => {
+      return {
+        promptVersion: `Run ${idx + 1}`,
+        versionLabel: run.promptVersionName || "Default",
+        docs: run.documentCount,
+        accuracy: run.accuracy * 100,
+        completeness: run.recall * 100,
+        latency: run.latencyMs,
+        cost: 0.45,
+      };
+    });
+
+  const fieldScorecard = (() => {
+    const stats = new Map<string, {
+      total: number;
+      correct: number;
+      present: number;
+      extracted: number;
+      avgScore: number;
+      scoreCount: number;
+    }>();
+
+    evaluations.forEach((evaluation) => {
+      (evaluation.metrics.field_evaluations || []).forEach((field) => {
+        const current = stats.get(field.field_name) || {
+          total: 0,
+          correct: 0,
+          present: 0,
+          extracted: 0,
+          avgScore: 0,
+          scoreCount: 0,
+        };
+        current.total += 1;
+        if (field.is_correct) current.correct += 1;
+        if (field.is_present) current.present += 1;
+        if (field.is_extracted) current.extracted += 1;
+        if (typeof field.comparison_score === "number") {
+          current.avgScore += field.comparison_score;
+          current.scoreCount += 1;
+        }
+        stats.set(field.field_name, current);
+      });
+    });
+
+    return Array.from(stats.entries())
+      .map(([fieldName, s]) => {
+        const accuracy = s.total > 0 ? s.correct / s.total : 0;
+        const extractionRate = s.present > 0 ? s.extracted / s.present : 0;
+        const avgSimilarity = s.scoreCount > 0 ? s.avgScore / s.scoreCount : 0;
+        return {
+          fieldName,
+          accuracy,
+          extractionRate,
+          avgSimilarity,
+          runs: s.total,
+          correct: s.correct,
+        };
+      })
+      .sort((a, b) => b.accuracy - a.accuracy);
+  })();
+
+  const componentScorecard = (() => {
+    const stats = new Map<string, { total: number; correct: number }>();
+
+    evaluations.forEach((evaluation) => {
+      (evaluation.metrics.field_evaluations || []).forEach((field) => {
+        const extracted = field.extracted_value;
+        const truth = field.ground_truth_value;
+        const isArrayObjects =
+          Array.isArray(extracted) &&
+          Array.isArray(truth) &&
+          extracted.length > 0 &&
+          truth.length > 0 &&
+          typeof extracted[0] === "object" &&
+          typeof truth[0] === "object";
+
+        if (!isArrayObjects) return;
+
+        const extractedData = extracted as Record<string, unknown>[];
+        const groundTruthData = truth as Record<string, unknown>[];
+        const allKeys = new Set<string>();
+        [...extractedData, ...groundTruthData].forEach((item) => {
+          Object.keys(item).forEach((k) => allKeys.add(k));
+        });
+
+        const primaryKeys = ["id", "name", "item", "item_name", "claim_item", "title", "key"];
+        const primaryKey = primaryKeys.find((k) => allKeys.has(k)) || Array.from(allKeys)[0];
+        if (!primaryKey) return;
+
+        const gtMap = new Map<string, Record<string, unknown>>();
+        groundTruthData.forEach((item) => {
+          gtMap.set(String(normalizeComparable(item[primaryKey] ?? "")), item);
+        });
+        const extMap = new Map<string, Record<string, unknown>>();
+        extractedData.forEach((item) => {
+          extMap.set(String(normalizeComparable(item[primaryKey] ?? "")), item);
+        });
+        const rowKeys = new Set<string>([...gtMap.keys(), ...extMap.keys()]);
+
+        rowKeys.forEach((rowKey) => {
+          const extItem = extMap.get(rowKey) || {};
+          const gtItem = gtMap.get(rowKey) || {};
+          allKeys.forEach((component) => {
+            const key = `${field.field_name}.${component}`;
+            const current = stats.get(key) || { total: 0, correct: 0 };
+            current.total += 1;
+            if (valuesMatch(extItem[component], gtItem[component])) {
+              current.correct += 1;
+            }
+            stats.set(key, current);
+          });
+        });
+      });
+    });
+
+    return Array.from(stats.entries())
+      .map(([componentName, s]) => ({
+        componentName,
+        accuracy: s.total > 0 ? s.correct / s.total : 0,
+        correct: s.correct,
+        total: s.total,
+      }))
+      .sort((a, b) => b.accuracy - a.accuracy);
+  })();
+
+  const fieldVersionScorecard = (() => {
+    const stats = new Map<string, {
+      fieldName: string;
+      version: string;
+      total: number;
+      correct: number;
+      present: number;
+      extracted: number;
+      avgScore: number;
+      scoreCount: number;
+    }>();
+
+    evaluations.forEach((evaluation) => {
+      const versionMap = evaluation.field_prompt_versions || {};
+      (evaluation.metrics.field_evaluations || []).forEach((field) => {
+        const version = versionMap[field.field_name] || "0.0";
+        const key = `${field.field_name}@@${version}`;
+        const current = stats.get(key) || {
+          fieldName: field.field_name,
+          version,
+          total: 0,
+          correct: 0,
+          present: 0,
+          extracted: 0,
+          avgScore: 0,
+          scoreCount: 0,
+        };
+        current.total += 1;
+        if (field.is_correct) current.correct += 1;
+        if (field.is_present) current.present += 1;
+        if (field.is_extracted) current.extracted += 1;
+        if (typeof field.comparison_score === "number") {
+          current.avgScore += field.comparison_score;
+          current.scoreCount += 1;
+        }
+        stats.set(key, current);
+      });
+    });
+
+    return Array.from(stats.values())
+      .map((s) => ({
+        fieldName: s.fieldName,
+        version: s.version,
+        accuracy: s.total > 0 ? s.correct / s.total : 0,
+        extractionRate: s.present > 0 ? s.extracted / s.present : 0,
+        avgSimilarity: s.scoreCount > 0 ? s.avgScore / s.scoreCount : 0,
+        runs: s.total,
+        correct: s.correct,
+      }))
+      .sort((a, b) => {
+        if (a.fieldName !== b.fieldName) return a.fieldName.localeCompare(b.fieldName);
+        return b.version.localeCompare(a.version, undefined, { numeric: true });
+      });
+  })();
+
+  const recentEvaluations = aggregatedRuns.slice(0, 10);
+  const selectedDocumentEvaluation =
+    selectedRun?.evaluations.find((evaluation) => evaluation.id === selectedRunDocumentEvaluationId) || null;
+  const allRecentSelected =
+    recentEvaluations.length > 0 &&
+    recentEvaluations.every((run) => selectedEvaluationIds.has(run.runKey));
+  const someRecentSelected =
+    recentEvaluations.some((run) => selectedEvaluationIds.has(run.runKey)) && !allRecentSelected;
+
+  const toggleSelectAllRecent = (checked: boolean) => {
+    if (checked) {
+      setSelectedEvaluationIds(new Set(recentEvaluations.map((run) => run.runKey)));
+    } else {
+      setSelectedEvaluationIds(new Set());
+    }
+  };
+
+  const toggleSelectEvaluation = (runKey: string, checked: boolean) => {
+    setSelectedEvaluationIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(runKey);
+      } else {
+        next.delete(runKey);
+      }
+      return next;
+    });
+  };
+
+  const deleteSelectedEvaluations = async () => {
+    if (selectedEvaluationIds.size === 0) return;
+    if (!confirm(`Delete ${selectedEvaluationIds.size} selected aggregated run(s)?`)) return;
+    try {
+      const selectedRuns = aggregatedRuns.filter((run) => selectedEvaluationIds.has(run.runKey));
+      const evaluationIdsToDelete = selectedRuns.flatMap((run) => run.evaluations.map((e) => e.id));
+      await Promise.all(evaluationIdsToDelete.map((id) => api.deleteEvaluation(id)));
+      toast({
+        title: "Runs deleted",
+        description: `Deleted ${selectedRuns.length} run(s), ${evaluationIdsToDelete.length} document eval(s)`,
+      });
+      await loadEvaluations();
+    } catch (error: any) {
+      toast({
+        title: "Failed to delete selected runs",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -267,6 +641,26 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                   onCheckedChange={setUseStructuredOutput}
                 />
               </div>
+
+              <div className="space-y-2">
+                <Label>Prompt Version</Label>
+                <Select value={selectedPromptVersion} onValueChange={setSelectedPromptVersion}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Use default prompt configuration" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Default (Document Type Prompt)</SelectItem>
+                    {promptVersions.map((pv) => (
+                      <SelectItem key={pv.id} value={pv.id}>
+                        {pv.name}{pv.is_active ? " (Active)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Run evaluations against a specific prompt version to compare field-level performance.
+                </p>
+              </div>
             </div>
 
             <DialogFooter>
@@ -304,7 +698,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
              {/* Main Scoreboard */}
-             <Card className="col-span-1 lg:col-span-2 border-muted bg-white">
+             <Card className="col-span-1 lg:col-span-2 border-muted bg-card">
                 <CardHeader>
                     <CardTitle className="text-primary">Accuracy vs Completeness</CardTitle>
                     <CardDescription>Performance metrics per run</CardDescription>
@@ -317,6 +711,11 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                             <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
                             <Tooltip 
                                 contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                                formatter={(value: number, name: string) => [`${Number(value).toFixed(1)}%`, name]}
+                                labelFormatter={(_label, payload) => {
+                                  const row = payload?.[0]?.payload;
+                                  return `${row?.promptVersion || "Run"} • ${row?.versionLabel || "Default"} • ${row?.docs || 0} docs`;
+                                }}
                             />
                             <Legend />
                             <Bar dataKey="accuracy" name="Field Accuracy" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} barSize={40} />
@@ -326,7 +725,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                 </CardContent>
              </Card>
 
-             <Card className="border-muted bg-white">
+             <Card className="border-muted bg-card">
                 <CardHeader>
                     <CardTitle className="text-primary text-sm uppercase tracking-wider font-bold">Latency (ms)</CardTitle>
                 </CardHeader>
@@ -336,14 +735,20 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))" />
                             <XAxis dataKey="promptVersion" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
                             <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                            <Tooltip />
+                            <Tooltip
+                              formatter={(value: number) => [`${Math.round(Number(value))} ms`, "Latency"]}
+                              labelFormatter={(_label, payload) => {
+                                const row = payload?.[0]?.payload;
+                                return `${row?.promptVersion || "Run"} • ${row?.versionLabel || "Default"} • ${row?.docs || 0} docs`;
+                              }}
+                            />
                             <Line type="monotone" dataKey="latency" stroke="hsl(var(--chart-3))" strokeWidth={3} dot={{r: 6, fill: 'hsl(var(--chart-3))'}} />
                         </LineChart>
                     </ResponsiveContainer>
                 </CardContent>
              </Card>
 
-             <Card className="border-muted bg-white">
+             <Card className="border-muted bg-card">
                 <CardHeader>
                     <CardTitle className="text-primary text-sm uppercase tracking-wider font-bold">Cost Efficiency</CardTitle>
                 </CardHeader>
@@ -353,7 +758,13 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))" />
                             <XAxis dataKey="promptVersion" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
                             <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                            <Tooltip />
+                            <Tooltip
+                              formatter={(value: number) => [`$${Number(value).toFixed(2)}`, "Cost"]}
+                              labelFormatter={(_label, payload) => {
+                                const row = payload?.[0]?.payload;
+                                return `${row?.promptVersion || "Run"} • ${row?.versionLabel || "Default"} • ${row?.docs || 0} docs`;
+                              }}
+                            />
                             <Line type="monotone" dataKey="cost" stroke="hsl(var(--chart-5))" strokeWidth={3} dot={{r: 6, fill: 'hsl(var(--chart-5))'}} />
                         </LineChart>
                     </ResponsiveContainer>
@@ -361,45 +772,170 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
              </Card>
           </div>
 
+          <Card className="border-muted bg-card">
+            <CardHeader>
+              <CardTitle className="text-primary">Field Scorecard</CardTitle>
+              <CardDescription>
+                Independent tracking per field across runs, plus combined metrics above.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {fieldScorecard.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No field-level data yet.</p>
+              ) : (
+                <div className="rounded-md border overflow-hidden">
+                  <div className="grid grid-cols-5 p-3 text-[10px] uppercase tracking-wider font-bold text-muted-foreground bg-muted/30">
+                    <div>Field</div>
+                    <div>Accuracy</div>
+                    <div>Extraction Rate</div>
+                    <div>Avg Similarity</div>
+                    <div>Runs</div>
+                  </div>
+                  {fieldScorecard.map((row) => (
+                    <div key={row.fieldName} className="grid grid-cols-5 p-3 border-t text-sm items-center">
+                      <div className="font-mono text-primary">{row.fieldName}</div>
+                      <div className="font-mono">{(row.accuracy * 100).toFixed(1)}%</div>
+                      <div className="font-mono">{(row.extractionRate * 100).toFixed(1)}%</div>
+                      <div className="font-mono">{(row.avgSimilarity * 100).toFixed(1)}%</div>
+                      <div className="font-mono">{row.correct}/{row.runs}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-muted bg-card">
+            <CardHeader>
+              <CardTitle className="text-primary">Component Scorecard</CardTitle>
+              <CardDescription>
+                Sub-component performance (array/object fields) for every run.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {componentScorecard.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No component-level data yet.</p>
+              ) : (
+                <div className="rounded-md border overflow-hidden">
+                  <div className="grid grid-cols-3 p-3 text-[10px] uppercase tracking-wider font-bold text-muted-foreground bg-muted/30">
+                    <div>Component</div>
+                    <div>Accuracy</div>
+                    <div>Correct/Total</div>
+                  </div>
+                  {componentScorecard.map((row) => (
+                    <div key={row.componentName} className="grid grid-cols-3 p-3 border-t text-sm items-center">
+                      <div className="font-mono text-primary">{row.componentName}</div>
+                      <div className="font-mono">{(row.accuracy * 100).toFixed(1)}%</div>
+                      <div className="font-mono">{row.correct}/{row.total}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-muted bg-card">
+            <CardHeader>
+              <CardTitle className="text-primary">Field Version Scorecard</CardTitle>
+              <CardDescription>
+                Score breakdown by exact field prompt version used in each run.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {fieldVersionScorecard.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No version-attributed field data yet.</p>
+              ) : (
+                <div className="rounded-md border overflow-hidden">
+                  <div className="grid grid-cols-6 p-3 text-[10px] uppercase tracking-wider font-bold text-muted-foreground bg-muted/30">
+                    <div>Field</div>
+                    <div>Version</div>
+                    <div>Accuracy</div>
+                    <div>Extraction Rate</div>
+                    <div>Avg Similarity</div>
+                    <div>Runs</div>
+                  </div>
+                  {fieldVersionScorecard.map((row, idx) => (
+                    <div key={`${row.fieldName}-${row.version}-${idx}`} className="grid grid-cols-6 p-3 border-t text-sm items-center">
+                      <div className="font-mono text-primary">{row.fieldName}</div>
+                      <div className="font-mono">{row.version}</div>
+                      <div className="font-mono">{(row.accuracy * 100).toFixed(1)}%</div>
+                      <div className="font-mono">{(row.extractionRate * 100).toFixed(1)}%</div>
+                      <div className="font-mono">{(row.avgSimilarity * 100).toFixed(1)}%</div>
+                      <div className="font-mono">{row.correct}/{row.runs}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="space-y-4">
-            <h4 className="font-medium">Recent Runs</h4>
+            <div className="flex items-center justify-between">
+              <h4 className="font-medium">Recent Runs</h4>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={selectedEvaluationIds.size === 0}
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                onClick={deleteSelectedEvaluations}
+              >
+                Delete Selected ({selectedEvaluationIds.size})
+              </Button>
+            </div>
             <div className="rounded-md border bg-card overflow-hidden border-muted shadow-sm">
-                <div className="grid grid-cols-7 p-4 border-b font-bold text-[10px] uppercase tracking-wider text-muted-foreground bg-muted/30">
-                    <div className="col-span-2">Document / Version</div>
+                <div className="grid grid-cols-8 p-4 border-b font-bold text-[10px] uppercase tracking-wider text-muted-foreground bg-muted/30">
+                    <div className="flex items-center">
+                      <Checkbox
+                        checked={allRecentSelected}
+                        onCheckedChange={(checked) => toggleSelectAllRecent(!!checked)}
+                        aria-label="Select all recent runs"
+                        className={someRecentSelected ? "opacity-60" : ""}
+                      />
+                    </div>
+                    <div className="col-span-2">Run / Version</div>
                     <div>Date</div>
                     <div>F1 Score</div>
                     <div>Accuracy</div>
                     <div>Time (ms)</div>
                     <div className="text-right">Actions</div>
                 </div>
-                {evaluations.slice(0, 10).map((evaluation) => (
-                    <div key={evaluation.id} className="grid grid-cols-7 p-4 border-b last:border-0 text-sm hover:bg-accent/5 transition-colors items-center">
+                {recentEvaluations.map((run, idx) => (
+                    <div key={run.runKey} className="grid grid-cols-8 p-4 border-b last:border-0 text-sm hover:bg-accent/5 transition-colors items-center">
+                        <div className="flex items-center">
+                          <Checkbox
+                            checked={selectedEvaluationIds.has(run.runKey)}
+                            onCheckedChange={(checked) => toggleSelectEvaluation(run.runKey, !!checked)}
+                            aria-label={`Select run ${run.runKey}`}
+                          />
+                        </div>
                         <div className="col-span-2">
-                            <div className="font-medium text-primary truncate">{evaluation.document_id.slice(0, 12)}...</div>
+                            <div className="font-medium text-primary truncate">Run {recentEvaluations.length - idx}</div>
                             <div className="text-xs text-muted-foreground">
                               <Badge variant="outline" className="text-[10px] border-accent/20 text-accent font-mono">
-                                {evaluation.prompt_version_name || 'Default'}
+                                {run.promptVersionName || 'Default'}
                               </Badge>
+                              <span className="ml-2">{run.documentCount} docs</span>
                             </div>
                         </div>
                         <div className="flex items-center text-muted-foreground text-xs">
-                          {new Date(evaluation.evaluated_at).toLocaleDateString()}
+                          {new Date(run.evaluatedAt).toLocaleDateString()}
                         </div>
                         <div className="flex items-center font-mono font-bold text-accent">
-                          {formatPercentage(evaluation.metrics.f1_score)}
+                          {formatPercentage(run.f1Score)}
                         </div>
                         <div className="flex items-center font-mono font-medium">
-                          {formatPercentage(evaluation.metrics.accuracy)}
+                          {formatPercentage(run.accuracy)}
                         </div>
                         <div className="flex items-center font-mono text-muted-foreground text-xs">
-                          {evaluation.extraction_time_ms}ms
+                          {Math.round(run.latencyMs)}ms
                         </div>
                         <div className="flex items-center justify-end gap-1">
                           <Button 
                             variant="ghost" 
                             size="sm"
                             onClick={() => {
-                              setSelectedEvaluation(evaluation);
+                              setSelectedRun(run);
+                              setSelectedRunDocumentEvaluationId(run.evaluations[0]?.id || null);
                               setShowDetailsDialog(true);
                             }}
                           >
@@ -410,11 +946,11 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                             size="sm"
                             className="text-destructive hover:text-destructive hover:bg-destructive/10"
                             onClick={async () => {
-                              if (confirm('Delete this evaluation run?')) {
+                              if (confirm('Delete this aggregated run?')) {
                                 try {
-                                  await api.deleteEvaluation(evaluation.id);
-                                  loadEvaluations();
-                                  toast({ title: "Evaluation deleted" });
+                                  await Promise.all(run.evaluations.map((e) => api.deleteEvaluation(e.id)));
+                                  await loadEvaluations();
+                                  toast({ title: "Run deleted" });
                                 } catch (error: any) {
                                   toast({ 
                                     title: "Failed to delete", 
@@ -434,8 +970,16 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
           </div>
 
           {/* Evaluation Details Dialog */}
-          <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
-            <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <Dialog
+            open={showDetailsDialog}
+            onOpenChange={(open) => {
+              setShowDetailsDialog(open);
+              if (!open) {
+                setSelectedRunDocumentEvaluationId(null);
+              }
+            }}
+          >
+            <DialogContent className="w-[96vw] max-w-[1200px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Evaluation Details</DialogTitle>
                 <DialogDescription>
@@ -443,14 +987,14 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                 </DialogDescription>
               </DialogHeader>
               
-              {selectedEvaluation && (
+              {selectedRun && (
                 <div className="space-y-6">
                   {/* Summary */}
-                  <div className="grid grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <Card>
                       <CardContent className="pt-6">
                         <div className="text-2xl font-bold text-accent">
-                          {formatPercentage(selectedEvaluation.metrics.f1_score)}
+                          {formatPercentage(selectedRun.f1Score)}
                         </div>
                         <p className="text-xs text-muted-foreground">F1 Score</p>
                       </CardContent>
@@ -458,7 +1002,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                     <Card>
                       <CardContent className="pt-6">
                         <div className="text-2xl font-bold">
-                          {formatPercentage(selectedEvaluation.metrics.accuracy)}
+                          {formatPercentage(selectedRun.accuracy)}
                         </div>
                         <p className="text-xs text-muted-foreground">Accuracy</p>
                       </CardContent>
@@ -466,7 +1010,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                     <Card>
                       <CardContent className="pt-6">
                         <div className="text-2xl font-bold text-green-600">
-                          {selectedEvaluation.metrics.correct_fields}
+                          {selectedRun.correctFields}
                         </div>
                         <p className="text-xs text-muted-foreground">Correct</p>
                       </CardContent>
@@ -474,26 +1018,103 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                     <Card>
                       <CardContent className="pt-6">
                         <div className="text-2xl font-bold text-red-600">
-                          {selectedEvaluation.metrics.incorrect_fields}
+                          {selectedRun.incorrectFields}
                         </div>
                         <p className="text-xs text-muted-foreground">Incorrect</p>
                       </CardContent>
                     </Card>
                   </div>
 
-                  {/* Field Evaluations */}
+                  <div className="flex items-center justify-between rounded-md border p-3 bg-muted/20">
+                    <div className="text-sm">
+                      <span className="font-semibold">Version:</span> {selectedRun.promptVersionName}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {selectedRun.documentCount} documents • {new Date(selectedRun.evaluatedAt).toLocaleString()}
+                    </div>
+                  </div>
+
+                  <Card className="border-muted">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Documents In This Run</CardTitle>
+                      <CardDescription>Select a document to drill into its field predictions.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="rounded-md border overflow-hidden">
+                        <div className="grid grid-cols-6 p-3 text-[10px] uppercase tracking-wider font-bold text-muted-foreground bg-muted/30">
+                          <div>Document</div>
+                          <div>F1</div>
+                          <div>Accuracy</div>
+                          <div>Correct</div>
+                          <div>Latency</div>
+                          <div className="text-right">Action</div>
+                        </div>
+                        {selectedRun.evaluations.map((evaluation) => (
+                          <div
+                            key={evaluation.id}
+                            className={`grid grid-cols-6 p-3 border-t text-sm items-center ${
+                              selectedRunDocumentEvaluationId === evaluation.id ? "bg-accent/5" : ""
+                            }`}
+                          >
+                            <div className="font-mono text-primary truncate">{evaluation.document_id.slice(0, 16)}...</div>
+                            <div className="font-mono">{formatPercentage(evaluation.metrics.f1_score)}</div>
+                            <div className="font-mono">{formatPercentage(evaluation.metrics.accuracy)}</div>
+                            <div className="font-mono">{evaluation.metrics.correct_fields}/{evaluation.metrics.correct_fields + evaluation.metrics.incorrect_fields}</div>
+                            <div className="font-mono">{evaluation.extraction_time_ms}ms</div>
+                            <div className="text-right">
+                              <Button
+                                size="sm"
+                                variant={selectedRunDocumentEvaluationId === evaluation.id ? "default" : "outline"}
+                                onClick={() => setSelectedRunDocumentEvaluationId(evaluation.id)}
+                              >
+                                View Predictions
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Per-document details */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                      <h4 className="font-semibold">Field Predictions</h4>
+                      <h4 className="font-semibold">
+                        {selectedDocumentEvaluation
+                          ? `Field Predictions • ${selectedDocumentEvaluation.document_id.slice(0, 12)}...`
+                          : "Field Predictions"}
+                      </h4>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => setShowRawJson(!showRawJson)}
+                        disabled={!selectedDocumentEvaluation}
                       >
                         {showRawJson ? 'Show Table View' : 'Show Raw JSON'}
                       </Button>
                     </div>
-                    {selectedEvaluation.metrics.field_evaluations?.map((field, idx) => {
+                    {!selectedDocumentEvaluation ? (
+                      <Card className="border-dashed border-muted">
+                        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                          Select a document above to view field-level predictions.
+                        </CardContent>
+                      </Card>
+                    ) : (selectedDocumentEvaluation ? [selectedDocumentEvaluation] : []).map((evaluation, evalIdx) => (
+                      <Card key={`${evaluation.id}-${evalIdx}`} className="border-muted">
+                        <CardHeader className="pb-2">
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="text-sm font-mono">
+                              {evaluation.document_id.slice(0, 12)}...
+                            </CardTitle>
+                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                              <span>F1 {formatPercentage(evaluation.metrics.f1_score)}</span>
+                              <span>Acc {formatPercentage(evaluation.metrics.accuracy)}</span>
+                              <span>{evaluation.extraction_time_ms}ms</span>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {(evaluation.metrics.field_evaluations || []).map((field, idx) => {
                       // Check if this is an array of objects (table data)
                       const isArrayOfObjects = Array.isArray(field.extracted_value) && 
                                                field.extracted_value.length > 0 && 
@@ -506,7 +1127,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                       // If showing raw JSON or not an array of objects, show JSON view
                       if (showRawJson || !isArrayOfObjects || !gtIsArrayOfObjects) {
                         return (
-                          <Card key={idx} className={field.is_correct ? 'border-green-200' : 'border-red-200'}>
+                          <Card key={idx} className={field.is_correct ? 'border-green-200 overflow-hidden' : 'border-red-200 overflow-hidden'}>
                             <CardHeader className="pb-3">
                               <div className="flex items-center justify-between">
                                 <CardTitle className="text-sm font-mono">{field.field_name}</CardTitle>
@@ -525,14 +1146,14 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                             <CardContent className="space-y-3">
                               <div>
                                 <p className="text-xs font-semibold text-muted-foreground mb-1">Extracted Value:</p>
-                                <pre className="text-sm bg-muted p-2 rounded overflow-x-auto">
-                                  {JSON.stringify(field.extracted_value, null, 2)}
+                                <pre className="text-sm bg-muted p-2 rounded whitespace-pre-wrap break-words overflow-x-auto">
+                                  {toPreviewJson(field.extracted_value)}
                                 </pre>
                               </div>
                               <div>
                                 <p className="text-xs font-semibold text-muted-foreground mb-1">Ground Truth:</p>
-                                <pre className="text-sm bg-muted p-2 rounded overflow-x-auto">
-                                  {JSON.stringify(field.ground_truth_value, null, 2)}
+                                <pre className="text-sm bg-muted p-2 rounded whitespace-pre-wrap break-words overflow-x-auto">
+                                  {toPreviewJson(field.ground_truth_value)}
                                 </pre>
                               </div>
                             </CardContent>
@@ -560,12 +1181,33 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                         // Create a map of ground truth items by primary key
                         const gtMap = new Map();
                         groundTruthData.forEach(item => {
-                          const key = String(item[primaryKey] || '').toLowerCase();
+                          const key = String(normalizeComparable(item[primaryKey] ?? ""));
                           gtMap.set(key, item);
                         });
 
+                        // Component-level (column) accuracy so prompts can be optimized per item.
+                        const componentStats = columns.map((col) => {
+                          let total = 0;
+                          let correct = 0;
+                          const extMap = new Map<string, Record<string, unknown>>();
+                          extractedData.forEach((item) => {
+                            extMap.set(String(normalizeComparable(item[primaryKey] ?? "")), item);
+                          });
+                          const rowKeys = new Set<string>([...gtMap.keys(), ...extMap.keys()]);
+                          rowKeys.forEach((rowKey) => {
+                            const gtItem = gtMap.get(rowKey) || {};
+                            const extItem = extMap.get(rowKey) || {};
+                            total += 1;
+                            if (valuesMatch(extItem[col], gtItem[col])) {
+                              correct += 1;
+                            }
+                          });
+                          const accuracy = total > 0 ? correct / total : 0;
+                          return { col, total, correct, accuracy };
+                        });
+
                         return (
-                          <Card key={idx} className={field.is_correct ? 'border-green-200' : 'border-red-200'}>
+                          <Card key={idx} className={field.is_correct ? 'border-green-200 overflow-hidden' : 'border-red-200 overflow-hidden'}>
                             <CardHeader className="pb-3">
                               <div className="flex items-center justify-between">
                                 <CardTitle className="text-sm font-mono">{field.field_name}</CardTitle>
@@ -582,6 +1224,13 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                               </div>
                             </CardHeader>
                             <CardContent>
+                              <div className="mb-3 flex flex-wrap gap-2">
+                                {componentStats.map((s) => (
+                                  <Badge key={s.col} variant="outline" className="font-mono">
+                                    {s.col}: {(s.accuracy * 100).toFixed(0)}% ({s.correct}/{s.total})
+                                  </Badge>
+                                ))}
+                              </div>
                               <div className="rounded-md border overflow-x-auto">
                                 <Table>
                                   <TableHeader>
@@ -597,13 +1246,14 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                                   </TableHeader>
                                   <TableBody>
                                     {extractedData.map((extItem, rowIdx) => {
-                                      const itemKey = String(extItem[primaryKey] || '').toLowerCase();
+                                      const itemKey = String(normalizeComparable(extItem[primaryKey] ?? ""));
                                       const gtItem = gtMap.get(itemKey);
+                                      const rowMatches = !!gtItem && columns.every((col) => valuesMatch(extItem[col], gtItem[col]));
                                       
                                       return (
                                         <TableRow key={`ext-${rowIdx}`} className="border-b">
                                           <TableCell className="text-center">
-                                            {gtItem && JSON.stringify(extItem) === JSON.stringify(gtItem) ? (
+                                            {rowMatches ? (
                                               <Check className="h-4 w-4 text-green-600 mx-auto" />
                                             ) : (
                                               <X className="h-4 w-4 text-red-600 mx-auto" />
@@ -612,17 +1262,17 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                                           {columns.map(col => {
                                             const extValue = extItem[col];
                                             const gtValue = gtItem?.[col];
-                                            const matches = String(extValue) === String(gtValue);
+                                            const matches = valuesMatch(extValue, gtValue);
                                             
                                             return (
                                               <TableCell 
                                                 key={col}
                                                 className={`text-sm ${!matches && gtItem ? 'bg-red-50' : ''}`}
                                               >
-                                                <div className="font-medium">{String(extValue ?? '')}</div>
+                                                <div className="font-medium">{truncateText(extValue)}</div>
                                                 {gtItem && !matches && (
                                                   <div className="text-xs text-muted-foreground mt-1">
-                                                    Expected: {String(gtValue ?? '')}
+                                                    Expected: {truncateText(gtValue)}
                                                   </div>
                                                 )}
                                               </TableCell>
@@ -634,9 +1284,9 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                                     })}
                                     {/* Show ground truth items that weren't extracted */}
                                     {groundTruthData.filter(gtItem => {
-                                      const gtKey = String(gtItem[primaryKey] || '').toLowerCase();
+                                      const gtKey = String(normalizeComparable(gtItem[primaryKey] ?? ""));
                                       return !extractedData.some(extItem => 
-                                        String(extItem[primaryKey] || '').toLowerCase() === gtKey
+                                        String(normalizeComparable(extItem[primaryKey] ?? "")) === gtKey
                                       );
                                     }).map((gtItem, rowIdx) => (
                                       <TableRow key={`missing-${rowIdx}`} className="border-b bg-yellow-50">
@@ -646,7 +1296,7 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                                         {columns.map(col => (
                                           <TableCell key={col} className="text-sm">
                                             <div className="text-xs text-muted-foreground italic">
-                                              Expected: {String(gtItem[col] ?? '')}
+                                              Expected: {truncateText(gtItem[col])}
                                             </div>
                                           </TableCell>
                                         ))}
@@ -661,6 +1311,9 @@ export function EvaluationBoard({ projectId }: EvaluationBoardProps) {
                         );
                       }
                     })}
+                        </CardContent>
+                      </Card>
+                    ))}
                   </div>
                 </div>
               )}

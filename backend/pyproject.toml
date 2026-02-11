@@ -16,6 +16,7 @@ dependencies = [
     "regex>=2024.0.0",
     "neo4j>=5.0.0",
     "openai>=1.0.0",
+    "tiktoken>=0.8.0",
     "pdfplumber>=0.11.0",
     "lightgbm>=4.0.0",
     "sentence-transformers>=2.2.0",
@@ -23,6 +24,7 @@ dependencies = [
     "numpy>=1.26.0",
     "scikit-learn>=1.4.0",
     "reportlab>=4.0.0",
+    "pyyaml>=6.0.0",
 ]
 
 [project.optional-dependencies]

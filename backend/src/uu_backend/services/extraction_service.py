@@ -11,6 +11,7 @@ from openai import OpenAI
 
 from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
+from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.taxonomy import ExtractedField, ExtractionResult, SchemaField
 from uu_backend.services.schema_generator import generate_pydantic_schema, schema_to_json_schema
 
@@ -23,6 +24,14 @@ class ExtractionService:
     def __init__(self):
         self.client = OpenAI()
         self.model = "gpt-5-mini"
+        self._raw_guardrails = (
+            "Critical extraction rules:\n"
+            "1) Extract values exactly as they appear in the document (RAW).\n"
+            "2) Do NOT normalize, reformat, infer, or interpret values.\n"
+            "3) For dates, return the exact source string (for example, keep 'February 3, 2024' if shown).\n"
+            "4) Preserve punctuation, currency symbols, and separators exactly when present.\n"
+            "5) If not found, return null."
+        )
 
     def extract_structured(
         self,
@@ -62,10 +71,15 @@ class ExtractionService:
         
         if not doc_type.schema_fields:
             raise ValueError(f"Document type '{doc_type.name}' has no schema fields defined")
+
+        effective_schema_fields = self._apply_active_field_prompt_versions(
+            doc_type.id,
+            doc_type.schema_fields,
+        )
         
         # Generate Pydantic schema from field definitions
         ExtractionModel = generate_pydantic_schema(
-            doc_type.schema_fields,
+            effective_schema_fields,
             model_name=f"{doc_type.name.replace(' ', '')}Extraction"
         )
         json_schema = schema_to_json_schema(ExtractionModel)
@@ -77,11 +91,12 @@ class ExtractionService:
         
         # Get prompt (use version if specified, otherwise default)
         system_prompt = doc_type.system_prompt or self._get_default_extraction_prompt(doc_type)
-        
+        system_prompt = f"{system_prompt}\n\n{self._raw_guardrails}"
+
         if prompt_version_id:
             prompt_version = sqlite_client.get_prompt_version(prompt_version_id)
             if prompt_version:
-                system_prompt = prompt_version.system_prompt
+                system_prompt = f"{prompt_version.system_prompt}\n\n{self._raw_guardrails}"
         
         user_prompt = f"""Extract structured data from the following document.
 
@@ -99,7 +114,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
         print(f"{'='*60}")
         print(f"Document: {document.filename}")
         print(f"Type: {doc_type.name}")
-        print(f"Fields: {[f.name for f in doc_type.schema_fields]}")
+        print(f"Fields: {[f.name for f in effective_schema_fields]}")
         print(f"{'='*60}\n")
 
         try:
@@ -118,7 +133,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
             
             # Convert to ExtractedField objects
             extracted_fields = []
-            for field in doc_type.schema_fields:
+            for field in effective_schema_fields:
                 value = getattr(extracted_data, field.name, None)
                 if value is not None:
                     # Convert Pydantic models to dicts for storage
@@ -138,6 +153,8 @@ Extract all fields according to the schema. Return null for fields that cannot b
                 document_id=document_id,
                 document_type_id=doc_type.id,
                 fields=extracted_fields,
+                schema_version_id=doc_type.schema_version_id,
+                prompt_version_id=prompt_version_id,
                 extracted_at=datetime.utcnow()
             )
             
@@ -156,11 +173,66 @@ Extract all fields according to the schema. Return null for fields that cannot b
 
 Extract all fields accurately from the document. Pay special attention to:
 - Tables: Extract all rows and columns
-- Numbers: Remove currency symbols and commas, return as numbers
-- Dates: Normalize to YYYY-MM-DD format when possible
+- Numbers: Keep exact source formatting from the document
+- Dates: Keep exact source formatting from the document (no ISO conversion)
 - Arrays: Include all items found in the document
 
 If a field cannot be found, return null. Do not make up data."""
+
+    def extract_structured_from_snapshot(
+        self,
+        *,
+        content: str,
+        filename: str,
+        document_type_name: str,
+        schema_fields: list[SchemaField],
+        system_prompt: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        Extract structured data using a deployable schema/prompt snapshot.
+
+        This does not require document ingestion, classification, or annotation persistence.
+        """
+        if not schema_fields:
+            raise ValueError("Deployment snapshot has no schema fields")
+
+        ExtractionModel = generate_pydantic_schema(
+            schema_fields,
+            model_name=f"{document_type_name.replace(' ', '')}DeploymentExtraction",
+        )
+
+        trimmed_content = content or ""
+        if len(trimmed_content) > 8000:
+            trimmed_content = trimmed_content[:4000] + "\n...[truncated]...\n" + trimmed_content[-4000:]
+
+        effective_system_prompt = (
+            system_prompt
+            or f"You are an expert at extracting structured data from {document_type_name} documents."
+        )
+        effective_system_prompt = f"{effective_system_prompt}\n\n{self._raw_guardrails}"
+
+        user_prompt = f"""Extract structured data from the following document.
+
+Document Type: {document_type_name}
+Filename: {filename}
+
+Document Content:
+```
+{trimmed_content}
+```
+
+Extract all fields according to the schema. Return null for fields that cannot be found."""
+
+        response = self.client.beta.chat.completions.parse(
+            model="gpt-4o-2024-08-06",
+            messages=[
+                {"role": "system", "content": effective_system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format=ExtractionModel,
+        )
+        parsed = response.choices[0].message.parsed
+        return parsed.model_dump() if parsed else {}
 
     def extract_from_annotations(
         self, 
@@ -201,6 +273,11 @@ If a field cannot be found, return null. Do not make up data."""
         
         if not doc_type.schema_fields:
             raise ValueError(f"Document type '{doc_type.name}' has no schema fields defined")
+
+        effective_schema_fields = self._apply_active_field_prompt_versions(
+            doc_type.id,
+            doc_type.schema_fields,
+        )
         
         # Get annotations
         annotations = sqlite_client.list_annotations(document_id=document_id)
@@ -217,7 +294,7 @@ If a field cannot be found, return null. Do not make up data."""
             annotations_by_label[label_name].append(ann)
         
         # Map annotations to schema fields
-        for field in doc_type.schema_fields:
+        for field in effective_schema_fields:
             field_value = self._extract_field_value(field, annotations_by_label, document.content or "")
             if field_value is not None:
                 extracted_fields.append(field_value)
@@ -233,7 +310,7 @@ If a field cannot be found, return null. Do not make up data."""
                 },
             )
             extracted_fields = self._refine_with_llm(
-                document, doc_type.schema_fields, annotations, extracted_fields, prompt_version_id
+                document, effective_schema_fields, annotations, extracted_fields, prompt_version_id
             )
             logger.info(
                 "Completed extraction refinement",
@@ -248,6 +325,8 @@ If a field cannot be found, return null. Do not make up data."""
             document_id=document_id,
             document_type_id=doc_type.id,
             fields=extracted_fields,
+            schema_version_id=doc_type.schema_version_id,
+            prompt_version_id=prompt_version_id,
             extracted_at=datetime.utcnow()
         )
         
@@ -312,6 +391,19 @@ If a field cannot be found, return null. Do not make up data."""
                 confidence=0.8,
                 source_text=ann.text
             )
+
+    def _apply_active_field_prompt_versions(
+        self, document_type_id: str, schema_fields: list[SchemaField]
+    ) -> list[SchemaField]:
+        """Overlay active field prompt versions onto schema field definitions."""
+        sqlite_client = get_sqlite_client()
+        active_prompts = sqlite_client.list_active_field_prompt_versions(document_type_id)
+        if not active_prompts:
+            return schema_fields
+        return [
+            field.model_copy(update={"extraction_prompt": active_prompts.get(field.name, field.extraction_prompt)})
+            for field in schema_fields
+        ]
 
     def _refine_with_llm(
         self,
@@ -386,7 +478,8 @@ If a field cannot be found, return null. Do not make up data."""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                **reasoning_options_for_model(self.model),
             )
             
             result_text = response.choices[0].message.content

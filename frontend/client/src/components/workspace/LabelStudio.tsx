@@ -219,7 +219,10 @@ export function LabelStudio({ documentId }: LabelStudioProps) {
   const currentDocTypeId = classificationData?.classification?.document_type_id;
   const { data: labelsData } = useQuery({
     queryKey: ["labels", currentDocTypeId],
-    queryFn: () => api.listLabels(currentDocTypeId, true),
+    queryFn: () => currentDocTypeId
+      ? api.listLabels(currentDocTypeId, false)
+      : Promise.resolve({ labels: [], total: 0 }),
+    refetchOnMount: "always",
   });
 
   // Fetch current document type details (for schema fields)
@@ -235,6 +238,7 @@ export function LabelStudio({ documentId }: LabelStudioProps) {
     queryFn: () => documentId ? api.listAnnotations(documentId) : null,
     enabled: !!documentId,
     staleTime: Infinity, // Never auto-refetch, we manage cache manually
+    refetchOnMount: "always", // Ensure updates from Documents tab appear without full page refresh
     refetchOnWindowFocus: false,
   });
 
@@ -273,30 +277,6 @@ export function LabelStudio({ documentId }: LabelStudioProps) {
         description: error.message, 
         variant: "destructive" 
       });
-    },
-  });
-
-  const createLabelMutation = useMutation({
-    mutationFn: (data: { name: string; color: string; document_type_id?: string }) => api.createLabel(data),
-    onSuccess: (label) => {
-      queryClient.invalidateQueries({ queryKey: ["labels"] });
-      setSelectedLabelId(label.id);
-      setShowLabelDialog(false);
-      setNewLabelName("");
-      toast({ title: "Label created", description: `Created "${label.name}"` });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Failed to create label", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const deleteLabelMutation = useMutation({
-    mutationFn: (id: string) => api.deleteLabel(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["labels"] });
-      queryClient.invalidateQueries({ queryKey: ["annotations"] });
-      if (selectedLabelId) setSelectedLabelId(null);
-      toast({ title: "Label deleted" });
     },
   });
 
@@ -478,10 +458,12 @@ export function LabelStudio({ documentId }: LabelStudioProps) {
     if (!documentId) return;
     
     const forceLlm = e?.shiftKey || false;
+    const labelIds = (labelsData?.labels || []).map((label) => label.id);
     
     setIsLoadingSuggestions(true);
     try {
       const response = await api.suggestAnnotations(documentId, {
+        label_ids: labelIds,
         max_suggestions: 20,
         min_confidence: 0.5,
       }, forceLlm);
@@ -499,7 +481,7 @@ export function LabelStudio({ documentId }: LabelStudioProps) {
     } finally {
       setIsLoadingSuggestions(false);
     }
-  }, [documentId, toast]);
+  }, [documentId, labelsData, toast]);
 
   // Accept a suggestion as CORRECT - create annotation + positive feedback
   const handleAcceptSuggestion = useCallback((suggestion: SuggestedAnnotation) => {
@@ -633,7 +615,12 @@ export function LabelStudio({ documentId }: LabelStudioProps) {
   const fileUrl = documentId ? api.getDocumentFileUrl(documentId) : null;
   const currentClassification = classificationData?.classification;
   const documentTypes = typesData?.types || [];
-  const labels = labelsData?.labels || [];
+  const labels = useMemo(() => {
+    const raw = labelsData?.labels || [];
+    const schemaFieldNames = new Set((currentDocTypeData?.type?.schema_fields || []).map((f) => f.name));
+    if (schemaFieldNames.size === 0) return raw;
+    return raw.filter((label) => schemaFieldNames.has(label.name));
+  }, [labelsData, currentDocTypeData]);
   const annotations = annotationsData?.annotations || [];
   
   // Get available keys from schema for key-value mode
@@ -1139,15 +1126,9 @@ export function LabelStudio({ documentId }: LabelStudioProps) {
                         </div>
                       ))}
                       <Separator className="my-2" />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full justify-start gap-2 text-sm"
-                        onClick={() => setShowLabelDialog(true)}
-                      >
-                        <Plus className="h-4 w-4" />
-                        Create Label
-                      </Button>
+                      <p className="text-xs text-zinc-500 px-2 py-1">
+                        Labels are generated from schema fields.
+                      </p>
                     </div>
                   </PopoverContent>
                 </Popover>
@@ -1395,14 +1376,7 @@ export function LabelStudio({ documentId }: LabelStudioProps) {
                 <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
                   Labels
                 </h4>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={() => setShowLabelDialog(true)}
-                >
-                  <Plus className="h-3 w-3" />
-                </Button>
+                <span className="text-[10px] text-zinc-500 uppercase">Schema-derived</span>
               </div>
               <div className="space-y-1">
                 {labels.map(label => (
@@ -1425,17 +1399,7 @@ export function LabelStudio({ documentId }: LabelStudioProps) {
                         </Badge>
                       )}
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-5 w-5 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-400"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteLabelMutation.mutate(label.id);
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
+                    <span className="text-[10px] text-zinc-600 uppercase">derived</span>
                   </div>
                 ))}
                 {labels.length === 0 && (
@@ -1810,52 +1774,6 @@ export function LabelStudio({ documentId }: LabelStudioProps) {
           </Button>
         </div>
       </div>
-
-      {/* Create Label Dialog */}
-      <Dialog open={showLabelDialog} onOpenChange={setShowLabelDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create Label</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Label Name</label>
-              <Input
-                placeholder="e.g., Person, Date, Amount, Company"
-                value={newLabelName}
-                onChange={(e) => setNewLabelName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Color</label>
-              <div className="flex flex-wrap gap-2">
-                {LABEL_COLORS.map(color => (
-                  <button
-                    key={color}
-                    className={`w-8 h-8 rounded-full border-2 transition-transform ${
-                      newLabelColor === color ? 'border-white scale-110' : 'border-transparent'
-                    }`}
-                    style={{ backgroundColor: color }}
-                    onClick={() => setNewLabelColor(color)}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowLabelDialog(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => createLabelMutation.mutate({ name: newLabelName, color: newLabelColor })}
-              disabled={!newLabelName.trim() || createLabelMutation.isPending}
-            >
-              {createLabelMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Create
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Key-Value Input Dialog */}
       <Dialog open={showKeyValueDialog} onOpenChange={(open) => {

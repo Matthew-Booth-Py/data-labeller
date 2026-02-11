@@ -49,6 +49,7 @@ class DocumentSummary(BaseModel):
     date_extracted: datetime | None = None
     created_at: datetime
     chunk_count: int
+    token_count: int = 0
     document_type: Optional[Any] = None  # Classification if available (DocumentType)
 
 

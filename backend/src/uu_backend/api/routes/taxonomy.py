@@ -1,10 +1,15 @@
 """Taxonomy API routes for document type management."""
 
+import json
+
 from fastapi import APIRouter, HTTPException, Query
+from openai import OpenAI
 from sqlite3 import IntegrityError
 from uuid import uuid4
 
 from uu_backend.database.sqlite_client import get_sqlite_client
+from uu_backend.config import get_settings
+from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.services.classification_service import get_classification_service
 from uu_backend.services.extraction_service import get_extraction_service
 from uu_backend.models.taxonomy import (
@@ -16,47 +21,226 @@ from uu_backend.models.taxonomy import (
     DocumentTypeListResponse,
     DocumentTypeResponse,
     DocumentTypeUpdate,
+    FieldAssistantRequest,
+    FieldAssistantResponse,
+    GlobalField,
+    GlobalFieldCreate,
+    GlobalFieldListResponse,
+    FieldType,
+    FieldPropertySuggestion,
+    GlobalFieldUpdate,
 )
 from uu_backend.models.annotation import LabelCreate
 
 router = APIRouter()
 
 
-# Helper function to auto-create labels for schema fields
-def _auto_create_labels_for_schema(client, doc_type: DocumentType):
-    """Automatically create labels for schema fields (one label per array field for key-value mode)."""
+@router.post("/taxonomy/field-assistant", response_model=FieldAssistantResponse)
+async def suggest_field_definition(request: FieldAssistantRequest):
+    """Use LLM to suggest field configuration from natural language."""
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=400, detail="OPENAI_API_KEY is not configured")
+
+    client = get_sqlite_client()
+    doc_type = (
+        client.get_document_type(request.document_type_id)
+        if request.document_type_id
+        else None
+    )
+    existing_names = request.existing_field_names or []
+    if doc_type:
+        existing_names = sorted(
+            {*(f.name for f in (doc_type.schema_fields or [])), *existing_names}
+        )
+
+    system_prompt = (
+        "You are a document extraction schema assistant.\n"
+        "Generate one field suggestion from user intent.\n"
+        "Rules:\n"
+        "1) Output valid JSON only.\n"
+        "2) Field name must be snake_case and not collide with existing_field_names.\n"
+        "3) Type must be one of: string, number, date, boolean, object, array.\n"
+        "4) extraction_prompt must enforce RAW extraction (no interpretation).\n"
+        "5) If type=array and array of objects is appropriate, set items_type=object and include object_properties.\n"
+        "6) For non-array fields set items_type=null and object_properties=[].\n"
+        "7) Keep output concise and practical for production extraction.\n"
+    )
+
+    user_prompt = (
+        f"Document type: {doc_type.name if doc_type else 'N/A'}\n"
+        f"Document type description: {doc_type.description if doc_type else 'N/A'}\n"
+        f"Existing field names: {existing_names}\n"
+        f"User intent: {request.user_input}\n\n"
+        "Return JSON with keys:\n"
+        "{\n"
+        '  "name": "snake_case_name",\n'
+        '  "type": "string|number|date|boolean|object|array",\n'
+        '  "description": "short description",\n'
+        '  "extraction_prompt": "field extraction prompt",\n'
+        '  "items_type": "string|number|date|boolean|object|null",\n'
+        '  "object_properties": [{"name":"...","type":"string|number|date|boolean","description":"..."}]\n'
+        "}\n"
+    )
+
+    model = settings.openai_tagging_model or settings.openai_model
+    try:
+        response = OpenAI(api_key=settings.openai_api_key).chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format={"type": "json_object"},
+            **reasoning_options_for_model(model),
+        )
+        payload = json.loads(response.choices[0].message.content or "{}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Field assistant failed: {e}")
+
+    try:
+        name = str(payload.get("name", "")).strip().lower().replace(" ", "_")
+        if not name:
+            raise ValueError("Missing suggested field name")
+        if name in set(existing_names):
+            suffix = 1
+            candidate = f"{name}_{suffix}"
+            while candidate in set(existing_names):
+                suffix += 1
+                candidate = f"{name}_{suffix}"
+            name = candidate
+
+        field_type = FieldType(str(payload.get("type", "string")).strip().lower())
+        description = payload.get("description") or None
+        extraction_prompt = (
+            str(payload.get("extraction_prompt", "")).strip()
+            or f"Extract the {name.replace('_', ' ')} from the document exactly as shown (RAW)."
+        )
+
+        items_raw = payload.get("items_type")
+        items_type = None
+        if items_raw is not None and str(items_raw).lower() != "null":
+            items_type = FieldType(str(items_raw).strip().lower())
+
+        object_properties = []
+        for prop in payload.get("object_properties", []) or []:
+            prop_name = str(prop.get("name", "")).strip().lower().replace(" ", "_")
+            prop_type = FieldType(str(prop.get("type", "string")).strip().lower())
+            if not prop_name:
+                continue
+            object_properties.append(
+                FieldPropertySuggestion(
+                    name=prop_name,
+                    type=prop_type,
+                    description=prop.get("description") or None,
+                )
+            )
+
+        return FieldAssistantResponse(
+            name=name,
+            type=field_type,
+            description=description,
+            extraction_prompt=extraction_prompt,
+            items_type=items_type,
+            object_properties=object_properties,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Invalid assistant response: {e}")
+
+
+@router.get("/taxonomy/fields", response_model=GlobalFieldListResponse)
+async def list_global_fields(search: str | None = Query(None, description="Search by name/prompt/description")):
+    """List global reusable field templates."""
+    client = get_sqlite_client()
+    fields = client.list_global_fields(search=search)
+    return GlobalFieldListResponse(fields=fields, total=len(fields))
+
+
+@router.post("/taxonomy/fields", response_model=GlobalField, status_code=201)
+async def create_global_field(data: GlobalFieldCreate):
+    """Create a global reusable field template."""
+    client = get_sqlite_client()
+    if client.get_global_field_by_name(data.name):
+        raise HTTPException(status_code=400, detail=f"Global field '{data.name}' already exists")
+    try:
+        return client.create_global_field(data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create global field: {e}")
+
+
+@router.get("/taxonomy/fields/{field_id}", response_model=GlobalField)
+async def get_global_field(field_id: str):
+    """Get a single global field template by ID."""
+    client = get_sqlite_client()
+    field = client.get_global_field(field_id)
+    if not field:
+        raise HTTPException(status_code=404, detail="Global field not found")
+    return field
+
+
+@router.put("/taxonomy/fields/{field_id}", response_model=GlobalField)
+async def update_global_field(field_id: str, data: GlobalFieldUpdate):
+    """Update a global reusable field template."""
+    client = get_sqlite_client()
+    if data.name:
+        existing = client.get_global_field_by_name(data.name)
+        if existing and existing.id != field_id:
+            raise HTTPException(status_code=400, detail=f"Global field '{data.name}' already exists")
+    updated = client.update_global_field(field_id, data)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Global field not found")
+    return updated
+
+
+@router.delete("/taxonomy/fields/{field_id}")
+async def delete_global_field(field_id: str):
+    """Delete a global reusable field template."""
+    client = get_sqlite_client()
+    deleted = client.delete_global_field(field_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Global field not found")
+    return {"status": "success", "message": "Global field deleted"}
+
+
+# Helper function to keep labels strictly derived from schema fields
+def _sync_labels_for_schema(client, doc_type: DocumentType):
+    """Synchronize labels to exactly match top-level schema field names for a document type."""
     label_colors = [
         '#3b82f6', '#ef4444', '#f97316', '#eab308', '#22c55e',
         '#06b6d4', '#8b5cf6', '#ec4899', '#14b8a6', '#f59e0b'
     ]
+    expected_by_name = {
+        field.name: field for field in (doc_type.schema_fields or [])
+    }
+
+    existing_labels = client.list_labels(document_type_id=doc_type.id, include_global=False)
+    existing_by_name = {label.name: label for label in existing_labels}
+
+    # Create missing labels
     color_idx = 0
-    
-    for field in doc_type.schema_fields:
-        # Check if this is an array of objects
-        if field.type.value == "array" and field.items and field.items.type.value == "object":
-            # Create ONE label for the entire array field (for key-value pair labeling)
-            label_name = field.name
-            
-            # Check if label already exists
-            existing_labels = client.list_labels()
-            label_exists = any(label.name == label_name for label in existing_labels)
-            
-            if not label_exists:
-                # Create the label
-                label_data = LabelCreate(
-                    name=label_name,
-                    color=label_colors[color_idx % len(label_colors)],
-                    description=field.description or f"Key-value pairs for {field.name}",
-                    document_type_id=doc_type.id
-                )
-                try:
-                    created_label = client.create_label(label_data)
-                    print(f"✓ Auto-created label: {label_name} (ID: {created_label.id}) for document type {doc_type.name}")
-                    color_idx += 1
-                except Exception as e:
-                    import traceback
-                    print(f"❌ Error creating label {label_name}: {e}")
-                    print(traceback.format_exc())
+    for label_name, field in expected_by_name.items():
+        if label_name in existing_by_name:
+            continue
+        label_data = LabelCreate(
+            name=label_name,
+            color=label_colors[color_idx % len(label_colors)],
+            description=field.description or f"Schema-derived label for {label_name}",
+            document_type_id=doc_type.id,
+        )
+        try:
+            created_label = client.create_label(label_data)
+            print(f"✓ Synced label: created {created_label.name} for document type {doc_type.name}")
+        except Exception as e:
+            import traceback
+            print(f"❌ Error creating synced label {label_name}: {e}")
+            print(traceback.format_exc())
+        color_idx += 1
+
+    # Remove labels that are no longer in schema
+    for existing_name, label in existing_by_name.items():
+        if existing_name not in expected_by_name:
+            client.delete_label(label.id)
+            print(f"✓ Synced label: removed {existing_name} (not in schema)")
 
 
 # Document Type Endpoints
@@ -86,8 +270,8 @@ async def create_document_type(data: DocumentTypeCreate):
     try:
         doc_type = client.create_document_type(data)
         
-        # Auto-create labels for nested object properties
-        _auto_create_labels_for_schema(client, doc_type)
+        # Keep labels strictly derived from schema fields
+        _sync_labels_for_schema(client, doc_type)
         
         return DocumentTypeResponse(type=doc_type)
     except IntegrityError as e:
@@ -108,6 +292,17 @@ async def get_document_type(type_id: str):
     return DocumentTypeResponse(type=doc_type)
 
 
+@router.get("/taxonomy/types/{type_id}/schema-versions")
+async def list_schema_versions(type_id: str):
+    """List schema versions for a document type."""
+    client = get_sqlite_client()
+    doc_type = client.get_document_type(type_id)
+    if not doc_type:
+        raise HTTPException(status_code=404, detail=f"Document type {type_id} not found")
+    versions = client.list_schema_versions(type_id)
+    return {"document_type_id": type_id, "versions": versions, "total": len(versions)}
+
+
 @router.put("/taxonomy/types/{type_id}", response_model=DocumentTypeResponse)
 async def update_document_type(type_id: str, data: DocumentTypeUpdate):
     """Update a document type."""
@@ -124,9 +319,8 @@ async def update_document_type(type_id: str, data: DocumentTypeUpdate):
 
     doc_type = client.update_document_type(type_id, data)
     
-    # Auto-create labels for any new nested object properties
-    if data.schema_fields:
-        _auto_create_labels_for_schema(client, doc_type)
+    # Keep labels strictly derived from schema fields on every update to self-heal drift
+    _sync_labels_for_schema(client, doc_type)
 
     if not doc_type:
         raise HTTPException(status_code=404, detail=f"Document type {type_id} not found")

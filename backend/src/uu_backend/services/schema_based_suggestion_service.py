@@ -1,11 +1,14 @@
 """Schema-based annotation suggestion service using structured output."""
 
+import re
 from typing import Optional
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
+from uu_backend.config import get_settings
 from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
+from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.annotation import AnnotationCreate, AnnotationType
 from uu_backend.services.schema_generator import generate_pydantic_schema
 
@@ -39,9 +42,52 @@ class SchemaBasedSuggestionService:
     """Service for suggesting annotations based on schema fields using structured output."""
 
     def __init__(self):
-        self.client = OpenAI()
+        settings = get_settings()
+        self.client = OpenAI(api_key=settings.openai_api_key)
+        self.model = settings.openai_tagging_model or settings.openai_model
         self.sqlite_client = get_sqlite_client()
         self.vector_store = get_vector_store()
+
+    def _find_text_spans(
+        self,
+        content: str,
+        raw_value: object,
+        max_matches: int = 3,
+    ) -> list[TextSpan]:
+        """Deterministically locate value spans in content."""
+        if raw_value is None:
+            return []
+
+        value = str(raw_value).strip()
+        if not value:
+            return []
+
+        spans: list[TextSpan] = []
+
+        # First pass: exact case-sensitive matching.
+        start = 0
+        while len(spans) < max_matches:
+            idx = content.find(value, start)
+            if idx == -1:
+                break
+            spans.append(TextSpan(text=content[idx:idx + len(value)], start_char=idx, end_char=idx + len(value)))
+            start = idx + len(value)
+
+        # Second pass: case-insensitive regex if exact match fails.
+        if not spans:
+            pattern = re.escape(value)
+            for m in re.finditer(pattern, content, flags=re.IGNORECASE):
+                spans.append(
+                    TextSpan(
+                        text=content[m.start():m.end()],
+                        start_char=m.start(),
+                        end_char=m.end(),
+                    )
+                )
+                if len(spans) >= max_matches:
+                    break
+
+        return spans
 
     def suggest_annotations(
         self,
@@ -51,10 +97,8 @@ class SchemaBasedSuggestionService:
         """
         Suggest annotations for a document based on its schema fields.
         
-        Uses OpenAI structured output to:
-        1. Extract data according to the schema
-        2. Identify the text spans where each value was found
-        3. Create annotation suggestions with exact character positions
+        Uses OpenAI structured output to extract data according to the schema,
+        then deterministically resolves text spans in backend code.
         
         Args:
             document_id: Document to suggest annotations for
@@ -78,23 +122,19 @@ class SchemaBasedSuggestionService:
         if not doc_type or not doc_type.schema_fields:
             raise ValueError(f"Document type has no schema fields")
         
-        # Get labels for this document type
-        labels = self.sqlite_client.list_labels(document_type_id=doc_type.id)
+        # Get labels for this document type only (no globals)
+        labels = self.sqlite_client.list_labels(document_type_id=doc_type.id, include_global=False)
         label_map = {label.name: label for label in labels}
         
         content = document.content or ""
         if len(content) > 8000:
             content = content[:8000]  # Truncate for token limits
         
-        # Build prompt for annotation suggestion
+        # Build prompt for extraction only. Spans are computed in code.
         system_prompt = f"""You are an expert at analyzing {doc_type.name} documents and identifying where specific information appears.
 
-Your task is to:
-1. Extract structured data according to the schema
-2. For each extracted value, identify the EXACT text span(s) in the document where you found it
-3. Provide character positions (start_char, end_char) for each span
-
-Be precise with character positions. Count from the beginning of the document (position 0)."""
+Your task is to extract structured data according to the schema.
+Return only structured field values. Do not include character offsets."""
 
         # Build field descriptions
         field_descriptions = []
@@ -122,9 +162,7 @@ Be precise with character positions. Count from the beginning of the document (p
 
 Schema fields to extract:
 {chr(10).join(field_descriptions)}
-
-For each field value you extract, identify the exact text span(s) where you found it in the document above.
-Provide the character start and end positions for each span."""
+"""
 
         print(f"\n{'='*60}")
         print("SCHEMA-BASED ANNOTATION SUGGESTION")
@@ -144,53 +182,19 @@ Provide the character start and end positions for each span."""
         try:
             # First: Get structured extraction
             extraction_response = self.client.beta.chat.completions.parse(
-                model="gpt-4o-2024-08-06",
+                model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
                 response_format=ExtractionModel,
+                **reasoning_options_for_model(self.model),
             )
             
             extracted_data = extraction_response.choices[0].message.parsed
             extraction_dict = extracted_data.model_dump()
             
             print(f"Extracted: {extraction_dict}")
-            
-            # Second: Get text span suggestions
-            # We need another call to identify WHERE each value was found
-            span_prompt = f"""Based on the extraction you just performed, identify the exact character positions where you found each value.
-
-Document (with character positions):
-```
-{content}
-```
-
-Extracted values:
-{extraction_dict}
-
-For each extracted value, provide:
-1. The field name
-2. The exact text from the document
-3. Start character position (0-indexed)
-4. End character position
-
-Return as JSON array of objects with: field_name, text, start_char, end_char"""
-
-            span_response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "You are an expert at identifying text positions in documents."},
-                    {"role": "user", "content": span_prompt}
-                ],
-                response_format={"type": "json_object"}
-            )
-            
-            spans_data = span_response.choices[0].message.content
-            import json
-            spans = json.loads(spans_data)
-            
-            print(f"Spans: {spans}")
             
             # Build suggestions
             suggestions = []
@@ -210,22 +214,12 @@ Return as JSON array of objects with: field_name, text, start_char, end_char"""
                         for item in (field_value if isinstance(field_value, list) else []):
                             for prop_name, prop_value in (item.items() if isinstance(item, dict) else []):
                                 if prop_value and prop_name in props:
-                                    # Find matching spans for this specific value
-                                    matching_spans = [
-                                        s for s in spans.get("spans", [])
-                                        if s.get("field_name") == f"{field.name}.{prop_name}"
-                                        or str(prop_value) in s.get("text", "")
-                                    ]
-                                    
+                                    matching_spans = self._find_text_spans(content, prop_value, max_matches=2)
                                     for span in matching_spans:
                                         suggestions.append(FieldAnnotationSuggestion(
                                             field_name=field.name,
                                             label_name=label_name,
-                                            spans=[TextSpan(
-                                                text=span["text"],
-                                                start_char=span["start_char"],
-                                                end_char=span["end_char"]
-                                            )],
+                                            spans=[span],
                                             confidence=0.85,
                                             reasoning=f"Found {prop_name} value",
                                             metadata={"key": prop_name, "value": str(prop_value)}
@@ -234,25 +228,12 @@ Return as JSON array of objects with: field_name, text, start_char, end_char"""
                     # Simple field
                     label_name = field.name
                     if label_name in label_map:
-                        # Find spans for this field
-                        matching_spans = [
-                            s for s in spans.get("spans", [])
-                            if s.get("field_name") == field.name
-                            or str(field_value) in s.get("text", "")
-                        ]
-                        
+                        matching_spans = self._find_text_spans(content, field_value, max_matches=2)
                         if matching_spans:
                             suggestions.append(FieldAnnotationSuggestion(
                                 field_name=field.name,
                                 label_name=label_name,
-                                spans=[
-                                    TextSpan(
-                                        text=s["text"],
-                                        start_char=s["start_char"],
-                                        end_char=s["end_char"]
-                                    )
-                                    for s in matching_spans
-                                ],
+                                spans=matching_spans,
                                 confidence=0.9,
                                 reasoning=f"Extracted value: {field_value}"
                             ))

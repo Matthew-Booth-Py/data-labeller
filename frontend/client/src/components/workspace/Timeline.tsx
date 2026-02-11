@@ -1,10 +1,9 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar, FileText, ZoomIn, ZoomOut, RefreshCw } from "lucide-react";
+import { Calendar, FileText, RefreshCw } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -13,24 +12,70 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Cell,
 } from "recharts";
-import { api, TimelineEntry, TimelineDocument } from "@/lib/api";
+import { api } from "@/lib/api";
 import { format, parseISO } from "date-fns";
 
 interface TimelineProps {
+  projectId?: string;
   onDocumentClick?: (documentId: string) => void;
   highlightedDocuments?: string[];
 }
 
-export function Timeline({ onDocumentClick, highlightedDocuments = [] }: TimelineProps) {
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [dateRange, setDateRange] = useState<{ start?: string; end?: string }>({});
+type UploadTimelineEntry = {
+  date: string;
+  document_count: number;
+  documents: Array<{ id: string; filename: string; file_type: string }>;
+};
 
-  // Fetch timeline data
+export function Timeline({ projectId, onDocumentClick, highlightedDocuments = [] }: TimelineProps) {
+  // Fetch documents and build upload timeline from created_at (upload time), not extracted doc dates.
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["timeline", dateRange.start, dateRange.end],
-    queryFn: () => api.getGraphTimeline(dateRange.start, dateRange.end),
+    queryKey: ["timeline-uploaded", projectId],
+    queryFn: async () => {
+      const response = await api.listDocuments();
+      let docs = response.documents || [];
+
+      if (projectId) {
+        try {
+          const stored = localStorage.getItem("uu-projects");
+          const projects = stored ? JSON.parse(stored) : [];
+          const project = projects.find((p: any) => p.id === projectId);
+          const projectDocumentIds = new Set<string>(project?.documentIds || []);
+          docs = docs.filter((doc) => projectDocumentIds.has(doc.id));
+        } catch {
+          // Fallback to showing all docs if project state cannot be read.
+        }
+      }
+
+      const grouped = new Map<string, UploadTimelineEntry>();
+      docs.forEach((doc) => {
+        if (!doc.created_at) return;
+        const dateKey = format(parseISO(doc.created_at), "yyyy-MM-dd");
+        const existing = grouped.get(dateKey) || {
+          date: dateKey,
+          document_count: 0,
+          documents: [],
+        };
+        existing.document_count += 1;
+        existing.documents.push({
+          id: doc.id,
+          filename: doc.filename,
+          file_type: doc.file_type,
+        });
+        grouped.set(dateKey, existing);
+      });
+
+      const timeline = Array.from(grouped.values()).sort((a, b) => a.date.localeCompare(b.date));
+      return {
+        timeline,
+        total_documents: docs.length,
+        date_range: {
+          earliest: timeline.length ? timeline[0].date : undefined,
+          latest: timeline.length ? timeline[timeline.length - 1].date : undefined,
+        },
+      };
+    },
     staleTime: 30000, // 30 seconds
   });
 
@@ -38,29 +83,14 @@ export function Timeline({ onDocumentClick, highlightedDocuments = [] }: Timelin
   const chartData = useMemo(() => {
     if (!data?.timeline) return [];
     
-    return data.timeline.map((entry) => ({
+    return [...data.timeline]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((entry) => ({
       date: entry.date,
       count: entry.document_count,
-      documents: entry.documents,
       label: format(parseISO(entry.date), "MMM d, yyyy"),
     }));
   }, [data]);
-
-  // Get documents for selected date
-  const selectedDocuments = useMemo(() => {
-    if (!selectedDate || !data?.timeline) return [];
-    const entry = data.timeline.find((e) => e.date === selectedDate);
-    return entry?.documents || [];
-  }, [selectedDate, data]);
-
-  // Check if a document is highlighted
-  const isHighlighted = (docId: string) => highlightedDocuments.includes(docId);
-
-  const handleBarClick = (data: any) => {
-    if (data?.date) {
-      setSelectedDate(data.date === selectedDate ? null : data.date);
-    }
-  };
 
   if (error) {
     return (
@@ -85,10 +115,10 @@ export function Timeline({ onDocumentClick, highlightedDocuments = [] }: Timelin
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Calendar className="h-5 w-5 text-primary" />
-            Document Timeline
+            Upload Histogram
           </h2>
           <p className="text-sm text-muted-foreground">
-            {data?.total_documents || 0} documents from{" "}
+            {data?.total_documents || 0} documents uploaded from{" "}
             {data?.date_range.earliest
               ? format(parseISO(data.date_range.earliest), "MMM yyyy")
               : "—"}{" "}
@@ -120,9 +150,9 @@ export function Timeline({ onDocumentClick, highlightedDocuments = [] }: Timelin
             <div className="h-full flex items-center justify-center">
               <div className="text-center space-y-2">
                 <FileText className="h-12 w-12 text-muted-foreground mx-auto" />
-                <p className="text-muted-foreground">No documents with dates found</p>
+                <p className="text-muted-foreground">No uploaded documents found</p>
                 <p className="text-sm text-muted-foreground">
-                  Ingest documents to see them on the timeline
+                  Upload documents to see them on the timeline
                 </p>
               </div>
             </div>
@@ -131,7 +161,6 @@ export function Timeline({ onDocumentClick, highlightedDocuments = [] }: Timelin
               <BarChart
                 data={chartData}
                 margin={{ top: 10, right: 30, left: 0, bottom: 30 }}
-                onClick={(e) => e?.activePayload?.[0] && handleBarClick(e.activePayload[0].payload)}
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))" />
                 <XAxis
@@ -164,66 +193,13 @@ export function Timeline({ onDocumentClick, highlightedDocuments = [] }: Timelin
                 <Bar
                   dataKey="count"
                   radius={[4, 4, 0, 0]}
-                  cursor="pointer"
-                >
-                  {chartData.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={
-                        entry.date === selectedDate
-                          ? "hsl(var(--primary))"
-                          : "hsl(var(--primary) / 0.6)"
-                      }
-                    />
-                  ))}
-                </Bar>
+                  fill="hsl(var(--primary) / 0.7)"
+                />
               </BarChart>
             </ResponsiveContainer>
           )}
         </CardContent>
       </Card>
-
-      {/* Document List for Selected Date */}
-      {selectedDate && (
-        <Card>
-          <CardHeader className="py-3">
-            <CardTitle className="text-sm flex items-center justify-between">
-              <span>
-                Documents from {format(parseISO(selectedDate), "MMMM d, yyyy")}
-              </span>
-              <Badge variant="secondary">{selectedDocuments.length}</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="py-2">
-            <div className="space-y-2 max-h-[200px] overflow-auto">
-              {selectedDocuments.map((doc) => (
-                <div
-                  key={doc.id}
-                  className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
-                    isHighlighted(doc.id)
-                      ? "bg-primary/10 border border-primary/20"
-                      : "hover:bg-muted"
-                  }`}
-                  onClick={() => onDocumentClick?.(doc.id)}
-                >
-                  <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{doc.filename}</p>
-                    {doc.excerpt && (
-                      <p className="text-xs text-muted-foreground truncate">
-                        {doc.excerpt}
-                      </p>
-                    )}
-                  </div>
-                  <Badge variant="outline" className="text-[10px] shrink-0">
-                    {doc.file_type}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

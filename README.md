@@ -4,6 +4,24 @@
 
 Unstructured Unlocked is a document intelligence system that ingests unstructured documents, extracts temporal and relational data, and visualizes them in an interactive timeline with powerful Q&A capabilities. Built specifically for analyzing complex document collections like the Epstein files, it enables researchers to explore "what happened when" and "who was involved" through natural language queries.
 
+## 🎯 Project Purpose
+
+This project focuses on two core goals:
+
+1. **Agentic schema-driven extraction**  
+   Allow users to define reusable fields and schemas for different document types, then run assisted extraction workflows that produce structured key-value pairs.
+
+2. **Human-in-the-loop evaluation**  
+   Provide an evaluation framework where extraction accuracy is measured against manually labeled ground truth, with AI-assisted labeling to speed up annotation.
+
+In short: define schemas, extract structured outputs, evaluate quality, and iterate quickly.
+
+## 🗺️ Implementation Roadmap
+
+For the concrete build plan aligned to these goals, see:
+
+- [Roadmap: Agentic Extraction + Human-in-the-Loop Evaluation](./docs/ROADMAP_AGENTIC_EXTRACTION_EVAL.md)
+
 ## 🎯 Vision
 
 Unstructured Unlocked is a **two-component platform** for document intelligence:
@@ -203,6 +221,19 @@ flowchart TB
 - **Python 3.11+** - Backend runtime environment
 
 ## 🚀 Getting Started
+
+### Recommended First Pipeline
+
+Use this workflow for new projects:
+
+1. Upload documents.
+2. Go to `Schema` -> `Document Types` -> `Fields Definition`.
+3. Click `Add Field` and use `AI Field Assistant` to generate each field + `Extraction Prompt`.
+4. Classify one document manually (baseline).
+5. Classify remaining documents with the LLM document-type classifier.
+6. Annotate with AI suggestions and confirm/edit schema-derived labels.
+7. Run extraction and review raw output.
+8. Done. Move to evaluation/version iteration.
 
 ### Prerequisites
 

@@ -5,6 +5,7 @@ from typing import Optional
 from openai import OpenAI
 
 from uu_backend.database.vector_store import get_vector_store
+from uu_backend.llm.options import reasoning_options_for_model
 
 
 class QAService:
@@ -119,7 +120,8 @@ Please answer the question based on the context above."""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                **reasoning_options_for_model(self.model),
             )
             
             import json

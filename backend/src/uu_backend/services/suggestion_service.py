@@ -6,10 +6,12 @@ import re
 from typing import Optional
 
 from openai import OpenAI
+from pydantic import BaseModel, Field, create_model
 
 from uu_backend.config import get_settings
 from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
+from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.suggestion import SuggestedAnnotation, SuggestionResponse
 from uu_backend.services.ml_service import get_ml_service
 from uu_backend.services.label_suggestion_service import GLOBAL_FIELD_LIBRARY
@@ -36,14 +38,13 @@ class SuggestionService:
     
     def get_few_shot_examples(
         self, 
+        document_id: str,
         label_ids: Optional[list[str]] = None,
         limit_per_label: int = 5
     ) -> list[dict]:
         """Get existing annotations as few-shot examples."""
         # Get all labels
-        labels = self.sqlite.list_labels()
-        if label_ids:
-            labels = [l for l in labels if l.id in label_ids]
+        labels = self._resolve_allowed_labels(document_id, label_ids)
         
         examples = []
         for label in labels:
@@ -82,6 +83,24 @@ class SuggestionService:
             examples.extend(all_annotations[:limit_per_label])
         
         return examples
+
+    def _build_suggestion_contract(self, labels):
+        """Build a dynamic Pydantic contract for LLM suggestion parsing."""
+
+        class SuggestionItem(BaseModel):
+            text: str
+            label_id: str
+            label_name: str
+            confidence: float = Field(ge=0.0, le=1.0)
+            reasoning: Optional[str] = None
+            key: Optional[str] = None
+
+        SuggestionContract = create_model(
+            "SuggestionContract",
+            suggestions=(list[SuggestionItem], Field(default_factory=list)),
+            __base__=BaseModel,
+        )
+        return SuggestionContract
     
     def _extract_candidate_spans(
         self,
@@ -157,11 +176,9 @@ class SuggestionService:
         min_confidence: float = 0.5,
     ) -> SuggestionResponse:
         """Generate suggestions using local ML model."""
-        labels = self.sqlite.list_labels()
+        labels = self._resolve_allowed_labels(document_id, label_ids)
         label_map = {l.id: l for l in labels}
-
-        if label_ids:
-            labels = [l for l in labels if l.id in label_ids]
+        allowed_ids = set(label_map.keys())
 
         # Extract candidate spans
         candidate_spans = self._extract_candidate_spans(document_content)
@@ -193,7 +210,7 @@ class SuggestionService:
                 continue
 
             # Filter by label_ids if specified
-            if label_ids and pred["label_id"] not in label_ids:
+            if pred["label_id"] not in allowed_ids:
                 continue
 
             # ML model doesn't provide key metadata yet
@@ -234,6 +251,29 @@ class SuggestionService:
             if suggestion_start < ann_end and suggestion_end > ann_start:
                 return True
         return False
+
+    def _resolve_allowed_labels(
+        self,
+        document_id: str,
+        label_ids: Optional[list[str]] = None,
+    ):
+        """Resolve strict label allowlist for a suggestion run."""
+        if label_ids:
+            allowed = set(label_ids)
+            return [l for l in self.sqlite.list_labels() if l.id in allowed]
+
+        classification = self.sqlite.get_classification(document_id)
+        if classification:
+            doc_type = self.sqlite.get_document_type(classification.document_type_id)
+            if doc_type:
+                schema_names = {f.name for f in (doc_type.schema_fields or [])}
+                labels = self.sqlite.list_labels(
+                    document_type_id=doc_type.id,
+                    include_global=False,
+                )
+                return [l for l in labels if l.name in schema_names]
+
+        return self.sqlite.list_labels()
 
     def _filter_existing_annotations(
         self,
@@ -334,7 +374,11 @@ class SuggestionService:
             )
 
         # Get few-shot examples
-        examples = self.get_few_shot_examples(label_ids, limit_per_label=5)
+        examples = self.get_few_shot_examples(
+            document_id=document_id,
+            label_ids=[l.id for l in labels],
+            limit_per_label=5,
+        )
 
         # Build the prompt with schema information
         labels_description_parts = []
@@ -444,12 +488,17 @@ Find all text spans in the document above that should be labeled with the labels
                     {"role": "user", "content": user_prompt},
                 ],
                 response_format={"type": "json_object"},
+                **reasoning_options_for_model(self.model),
             )
             
-            result_text = response.choices[0].message.content
-            result = json.loads(result_text)
+            result_text = response.choices[0].message.content or "{}"
+            contract = self._build_suggestion_contract(labels)
+            parsed = contract.model_validate_json(result_text)
+            result = parsed.model_dump()
             
             suggestions = []
+            allowed_by_id = {label.id: label for label in labels}
+            allowed_name_to_id = {label.name.lower(): label.id for label in labels}
             for item in result.get("suggestions", []):
                 # Find the text in the document to get offsets
                 text = item.get("text", "")
@@ -466,16 +515,26 @@ Find all text spans in the document above that should be labeled with the labels
                     logger.warning(f"Could not find suggested text in document: {text[:50]}...")
                     continue
                 
-                # Validate label exists
-                label_id = item.get("label_id")
-                label = next((l for l in labels if l.id == label_id), None)
+                # Strict contract enforcement: only allow available labels, with id/name consistency.
+                requested_label_id = item.get("label_id")
+                requested_label_name = (item.get("label_name") or "").strip().lower()
+                label = allowed_by_id.get(requested_label_id)
+                if label and label.name.lower() != requested_label_name:
+                    logger.warning(
+                        "Rejected suggestion with mismatched label id/name: %s vs %s",
+                        requested_label_id,
+                        requested_label_name,
+                    )
+                    continue
                 if not label:
-                    # Try to find by name
-                    label_name = item.get("label_name", "")
-                    label = next((l for l in labels if l.name.lower() == label_name.lower()), None)
-                
+                    resolved_id = allowed_name_to_id.get(requested_label_name)
+                    label = allowed_by_id.get(resolved_id) if resolved_id else None
                 if not label:
-                    logger.warning(f"Unknown label: {label_id}")
+                    logger.warning(
+                        "Rejected out-of-contract label suggestion: id=%s name=%s",
+                        requested_label_id,
+                        requested_label_name,
+                    )
                     continue
                 
                 confidence = float(item.get("confidence", 0.5))
