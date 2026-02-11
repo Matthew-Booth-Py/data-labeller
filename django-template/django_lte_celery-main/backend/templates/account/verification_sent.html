@@ -1,0 +1,22 @@
+{% extends "layouts/auth.html" %}
+
+{% load i18n static %}
+{% load allauth account %}
+
+
+{% block content %}
+    <div class="card-body login-card-body">
+        <p class="login-box-msg text-center pb-0">
+            <strong class="fs-5">{% trans "Verify Your Email Address" %}</strong>
+        </p>
+        <p class="login-box-msg text-center">
+            {% blocktrans %}We have sent an email to you for verification. Follow the link provided to finalize the signup process.{% endblocktrans %}
+        </p>
+        <p class="login-box-msg text-center">
+            {% blocktrans %}If you do not see the verification email in your main inbox, check your spam folder.{% endblocktrans %}
+        </p>
+        <p class="login-box-msg text-center">
+            {% blocktrans %}Please contact us if you do not receive the verification email within a few minutes.{% endblocktrans %}
+        </p>
+    </div>
+{% endblock content %}

@@ -21,8 +21,14 @@ services:
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5-mini}
+      - DJANGO_DATABASE_URL=${DJANGO_DATABASE_URL:-postgres://uu:uu@postgres:5432/uu_django}
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      postgres:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -66,6 +72,53 @@ services:
       retries: 10
       start_period: 60s
 
+  redis:
+    image: redis:7.2
+    container_name: uu-redis
+    restart: unless-stopped
+
+  celeryworker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: uu-celeryworker
+    command: ["uv", "run", "celery", "-A", "uu_backend.django_project.celery_app", "worker", "-l", "info"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DJANGO_SETTINGS_MODULE=uu_backend.django_project.settings.local
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5-mini}
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
+      - CHROMA_PERSIST_DIRECTORY=/app/data/chroma
+      - DJANGO_DATABASE_URL=${DJANGO_DATABASE_URL:-postgres://uu:uu@postgres:5432/uu_django}
+    volumes:
+      - chroma_data:/app/data/chroma
+      - file_storage:/app/data/files
+      - taxonomy_data:/app/data
+      - ./data/documents:/app/data/documents
+    depends_on:
+      - redis
+      - neo4j
+      - postgres
+
+  postgres:
+    image: postgres:16
+    container_name: uu-postgres
+    environment:
+      - POSTGRES_DB=uu_django
+      - POSTGRES_USER=uu
+      - POSTGRES_PASSWORD=uu
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uu -d uu_django"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   chroma_data:
     driver: local
@@ -76,6 +129,8 @@ volumes:
   neo4j_data:
     driver: local
   neo4j_logs:
+    driver: local
+  postgres_data:
     driver: local
 
 networks:

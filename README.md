@@ -36,21 +36,29 @@ Unstructured Unlocked is a document extraction workbench focused on two outcomes
 
 ```mermaid
 flowchart LR
-    UI[React Frontend] --> API[FastAPI Backend]
-    API --> SQLITE[(SQLite taxonomy.db)]
-    API --> CHROMA[(Chroma Vector Store)]
-    API --> NEO4J[(Neo4j Graph DB)]
-    API --> FILES[(File Storage)]
-    API --> LLM[LLM Provider via API]
+    UI[React Frontend] --> ASGI[ASGI Entrypoint]
+    ASGI --> DJ[Django + DRF APIs]
+    DJ --> REPO[Django ORM Repository]
+    REPO --> PG[(Postgres)]
+    DJ --> CHROMA[(Chroma Vector Store)]
+    DJ --> NEO4J[(Neo4j Graph DB)]
+    DJ --> FILES[(File Storage)]
+    DJ --> REDIS[(Redis Broker)]
+    REDIS --> CELERY[Celery Workers]
+    DJ --> LLM[LLM Provider API]
 ```
 
 - Frontend (`frontend/client`): schema builder, labeling UI, extraction runner, evaluation board, deployment manager.
-- Backend (`backend/src/uu_backend`): ingestion, classification, suggestions, extraction, evaluation, deployments.
+- Backend (`backend/src/uu_backend`): Django/DRF runtime via `uu_backend.asgi_dispatcher`.
 - Persistence:
-  - SQLite: schemas, labels, annotations, evaluations, versions, deployment snapshots.
+  - Postgres: schemas, labels, annotations, evaluations, versions, deployment snapshots.
   - Chroma: chunk embeddings and semantic retrieval.
   - Neo4j: entity/relationship graph features.
   - File storage: uploaded source documents.
+
+### Runtime Routing (Wave Status)
+- All `/api/v1` route groups are served by Django/DRF.
+- No legacy routing split is active.
 
 ## Data Flow (Current)
 
@@ -85,7 +93,8 @@ Saving a new version creates a deployable extraction snapshot for the selected p
 
 ## API (Deployment)
 
-All routes are served by FastAPI under `/api/v1`.
+All public APIs remain under `/api/v1`.
+Runtime request ownership is served directly by Django via `uu_backend.asgi_dispatcher`.
 
 - `POST /api/v1/deployments/versions`
   - Create a new deployment snapshot version.
@@ -103,27 +112,28 @@ All routes are served by FastAPI under `/api/v1`.
 ## Endpoint Dependencies
 
 ### Core Runtime Dependencies
-- FastAPI backend running (`backend`)
-- SQLite available at configured `SQLITE_DATABASE_PATH`
+- Backend ASGI dispatcher running (`backend`)
+- Postgres available at configured `DJANGO_DATABASE_URL`
 - File storage path writable for document uploads
 - Chroma available for chunk/embedding retrieval
 - Neo4j available for graph-backed features
+- Redis + Celery worker available for background extraction tasks
 - LLM credentials/config present in `.env`
 
 ### Route Group Dependency Map
 
 | Endpoint Group | Key Routes | Depends On |
 |---|---|---|
-| Health | `/docs`, `/api/v1/health` | FastAPI process, service checks |
-| Documents/Ingestion | `/api/v1/ingest`, `/api/v1/documents*` | File storage, converter/chunker, Chroma, SQLite metadata |
-| Taxonomy/Schema | `/api/v1/document-types*`, `/api/v1/labels*`, `/api/v1/fields*` | SQLite |
-| Classification/Suggestions | `/api/v1/documents/{id}/classify`, `/api/v1/documents/{id}/suggest*` | SQLite, document content, LLM |
-| Annotations | `/api/v1/documents/{id}/annotations*`, `/api/v1/annotations*` | SQLite |
-| Extraction | `/api/v1/extraction*` and workspace extraction actions | SQLite schema/prompts, document content, LLM |
-| Evaluation | `/api/v1/evaluation*` | SQLite evaluations + annotations + schema metadata, extraction pipeline, LLM (when enabled) |
-| Deployments | `/api/v1/deployments*` | SQLite deployment snapshots, extraction service, active/pinned version resolution, LLM |
-| Timeline/Graph/Search | `/api/v1/timeline`, `/api/v1/graph*`, `/api/v1/search*`, `/api/v1/ask` | Chroma, Neo4j, SQLite metadata, LLM (for Q&A) |
-| Tutorial Setup | `/api/v1/tutorial*` | `backend/sample_docs`, SQLite, file storage, converter/chunker |
+| Health | `/health`, `/api/v1/health` | Dispatcher + service checks |
+| Documents/Ingestion | `/api/v1/ingest`, `/api/v1/documents*` | File storage, converter/chunker, Chroma, Postgres metadata, Celery (entity extraction) |
+| Taxonomy/Schema | `/api/v1/taxonomy/*` | Postgres |
+| Classification/Suggestions | `/api/v1/documents/{id}/classify`, `/api/v1/documents/{id}/suggest*` | Postgres, document content, LLM |
+| Annotations | `/api/v1/documents/{id}/annotations*`, `/api/v1/annotations*` | Postgres |
+| Extraction | `/api/v1/documents/{id}/extract`, `/api/v1/documents/{id}/extraction` | Postgres schema/prompts, document content, LLM |
+| Evaluation | `/api/v1/evaluation*` | Postgres evaluations + annotations + schema metadata, extraction pipeline, LLM (when enabled) |
+| Deployments | `/api/v1/deployments*` | Postgres deployment snapshots, extraction service, active/pinned version resolution, LLM |
+| Timeline/Graph/Search | `/api/v1/timeline`, `/api/v1/graph*`, `/api/v1/search*`, `/api/v1/ask` | Chroma, Neo4j, Postgres metadata, LLM (for Q&A) |
+| Tutorial Setup | `/api/v1/tutorial*` | `backend/sample_docs`, Postgres, file storage, converter/chunker |
 
 ### Deployment Endpoint-Specific Requirements
 - `POST /api/v1/deployments/versions`
@@ -142,13 +152,14 @@ All routes are served by FastAPI under `/api/v1`.
   - Tailwind CSS + shadcn/ui
   - Recharts
 - Backend
-  - FastAPI (Python)
+  - Django + DRF ASGI runtime
   - Pydantic models
   - Service-layer extraction/evaluation pipelines
 - Data + Infra
-  - SQLite (`taxonomy.db`)
+  - Postgres
   - ChromaDB
   - Neo4j
+  - Redis + Celery
   - Docker Compose
 - AI/LLM
   - OpenAI-compatible API configuration via `.env` / runtime settings
@@ -174,7 +185,7 @@ Use your `.env` file. Important keys include:
 
 ## Repo Layout
 
-- `backend/` FastAPI, extraction, evaluation, persistence
+- `backend/` dispatcher runtime, Django + DRF APIs, extraction, evaluation, persistence
 - `frontend/` React app (schema, labeling, eval, deployment UI)
 - `docs/` implementation notes and guides
 - `data/` local runtime storage

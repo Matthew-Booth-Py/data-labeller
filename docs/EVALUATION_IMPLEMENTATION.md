@@ -42,9 +42,9 @@ A complete evaluation system for measuring and improving extraction quality by c
 - Recall: correct / (correct + incorrect + missing)
 - F1 Score: harmonic mean of precision and recall
 
-### 3. Database Schema Updates (`backend/src/uu_backend/database/sqlite_client.py`)
+### 3. Persistence Updates (`backend/src/uu_backend/repositories/django_repo.py`)
 
-**New Tables:**
+**Core Tables:**
 
 ```sql
 -- Prompt versions for tracking extraction prompts
@@ -74,7 +74,7 @@ CREATE TABLE evaluations (
 );
 ```
 
-**New CRUD Methods:**
+**Repository Methods:**
 - `create_prompt_version()` - Create new prompt version
 - `get_prompt_version()` - Get prompt version by ID
 - `get_active_prompt_version()` - Get currently active prompt
@@ -86,7 +86,7 @@ CREATE TABLE evaluations (
 - `list_evaluations()` - List evaluations with filters
 - `get_evaluation_summary()` - Get aggregated metrics
 
-### 4. API Routes (`backend/src/uu_backend/api/routes/evaluation.py`)
+### 4. API Routes (`backend/src/uu_backend/django_api/evaluation/views.py`)
 
 **Evaluation Endpoints:**
 - `POST /api/evaluation/run` - Run extraction evaluation
@@ -214,17 +214,17 @@ GET /api/evaluation/compare/prompts
 
 ### API Integration
 
-The evaluation system is fully integrated into the main FastAPI app:
+The evaluation system is integrated into the Django API runtime:
 
 ```python
-# backend/src/uu_backend/api/main.py
-from uu_backend.api.routes import evaluation
+# backend/src/uu_backend/django_api/evaluation/urls.py
+from django.urls import path, re_path
+from .views import EvaluationRootView, EvaluationPrefixView
 
-app.include_router(
-    evaluation.router,
-    prefix=settings.api_prefix,
-    tags=["evaluation"],
-)
+urlpatterns = [
+    path("evaluation", EvaluationRootView.as_view(), name="evaluation-root"),
+    re_path(r"^evaluation/(?P<subpath>.+)$", EvaluationPrefixView.as_view(), name="evaluation-prefix"),
+]
 ```
 
 ## Key Benefits
@@ -341,7 +341,7 @@ app.include_router(
 ### Created
 - `backend/src/uu_backend/models/evaluation.py`
 - `backend/src/uu_backend/services/evaluation_service.py`
-- `backend/src/uu_backend/api/routes/evaluation.py`
+- `backend/src/uu_backend/django_api/evaluation.py`
 - `backend/tests/test_evaluation.py`
 - `frontend/client/src/pages/Evaluation.tsx`
 - `docs/EVALUATION_SYSTEM.md`
@@ -349,10 +349,10 @@ app.include_router(
 - `docs/EVALUATION_IMPLEMENTATION.md`
 
 ### Modified
-- `backend/src/uu_backend/database/sqlite_client.py` - Added tables and CRUD methods
+- `backend/src/uu_backend/repositories/django_repo.py` - Added table access and CRUD methods
 - `backend/src/uu_backend/services/extraction_service.py` - Added prompt version support
 - `backend/src/uu_backend/llm/prompts.py` - Added extraction prompt templates
-- `backend/src/uu_backend/api/main.py` - Registered evaluation router
+- `backend/src/uu_backend/django_project/urls.py` - Registered evaluation routes
 
 ## Technical Notes
 

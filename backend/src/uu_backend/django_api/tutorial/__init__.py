@@ -1,0 +1,2 @@
+"""Tutorial endpoint group."""
+

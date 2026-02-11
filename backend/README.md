@@ -2,6 +2,23 @@
 
 The backend API for Unstructured Unlocked, a document intelligence system for temporal analysis.
 
+## Current Runtime Architecture
+
+```mermaid
+flowchart LR
+    REQ[HTTP Request] --> DISP[uu_backend.asgi_dispatcher]
+    DISP --> DJ[Django + DRF]
+    DJ --> REPO[Repository Factory]
+    REPO --> SQL[(Postgres via Django ORM)]
+    DJ --> CH[(Chroma)]
+    DJ --> NEO[(Neo4j)]
+    DJ --> RQ[(Redis + Celery workers)]
+```
+
+- Dispatcher entrypoint: `uu_backend.asgi_dispatcher:application`
+- SQL backend: Django ORM + Postgres
+- Async backend: Celery workers via Redis
+
 ## Quick Start
 
 ### Prerequisites
@@ -29,10 +46,7 @@ uv sync
 
 ```bash
 # Run the development server
-uv run uvicorn uu_backend.api.main:app --reload --port 8000
-
-# Or use the module directly
-uv run python -m uu_backend.api.main
+uv run uvicorn uu_backend.asgi_dispatcher:application --reload --port 8000
 ```
 
 ### Running with Docker
@@ -58,25 +72,25 @@ docker-compose up --build
 ## API Documentation
 
 Once running, visit:
-- Swagger UI: http://localhost:8000/docs
+- API docs (Django / drf-spectacular): http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
+- OpenAPI schema: http://localhost:8000/api/schema/
 
 ## Project Structure
 
 ```
 backend/
 ├── src/uu_backend/
-│   ├── api/
-│   │   ├── main.py           # FastAPI application
-│   │   └── routes/           # API endpoints
-│   ├── database/
-│   │   └── vector_store.py   # ChromaDB operations
+│   ├── asgi_dispatcher.py    # ASGI entrypoint (Django-only)
+│   ├── django_project/       # Django settings/asgi/wsgi
+│   ├── django_api/           # Django DRF route groups
+│   ├── repositories/         # Django ORM repository layer
+│   ├── database/             # Chroma/Neo4j clients
 │   ├── ingestion/
-│   │   ├── converter.py      # MarkItDown wrapper
-│   │   ├── chunker.py        # Document chunking
-│   │   └── dates.py          # Date extraction
-│   ├── models/               # Pydantic models
-│   └── config.py             # Settings
+│   ├── services/
+│   ├── tasks/                # Celery tasks
+│   ├── models/
+│   └── config.py
 ├── pyproject.toml            # Project configuration
 └── Dockerfile
 ```
@@ -92,6 +106,16 @@ backend/
 | `CHUNK_SIZE` | `1000` | Characters per chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between chunks |
 | `CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed CORS origins |
+
+## Migration Utilities
+
+```bash
+# Run smoke checks against a running backend (default localhost:8000)
+./scripts/smoke_frontend_flows.sh
+
+# Apply Django migrations
+PYTHONPATH=src uv run python manage.py migrate
+```
 
 ## Development
 

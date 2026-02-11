@@ -6,9 +6,9 @@ from typing import Optional
 from openai import AsyncOpenAI
 
 from uu_backend.llm.options import reasoning_options_for_model
-from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.models.taxonomy import Classification, DocumentType
+from uu_backend.repositories import get_repository
 
 
 class ClassificationService:
@@ -37,7 +37,7 @@ class ClassificationService:
             - confidence: Confidence score
             - reasoning: Explanation for the classification
         """
-        sqlite_client = get_sqlite_client()
+        repository = get_repository()
         vector_store = get_vector_store()
         
         # Get document
@@ -46,7 +46,7 @@ class ClassificationService:
             raise ValueError(f"Document {document_id} not found")
         
         # Get all document types
-        doc_types = sqlite_client.list_document_types()
+        doc_types = repository.list_document_types()
         if not doc_types:
             raise ValueError("No document types defined. Create document types first.")
         
@@ -147,7 +147,7 @@ Classify this document into one of the available types. Return your response as 
             
             # Save classification if auto_save is enabled
             if auto_save:
-                classification = sqlite_client.classify_document(
+                classification = repository.classify_document(
                     document_id=document_id,
                     document_type_id=matched_type.id,
                     confidence=result.get("confidence", 0.7),

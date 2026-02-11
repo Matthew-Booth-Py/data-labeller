@@ -38,7 +38,7 @@ interface Project {
   type?: string;
   coverage?: number;
   lastEval?: string;
-  driftRisk?: "Low" | "Medium" | "High";
+  driftRisk?: "Low" | "Medium" | "High" | "Unknown";
   docCount?: number;
   model?: string;
 }
@@ -70,6 +70,15 @@ export default function ProjectWorkspace() {
   const [activeTab, setActiveTab] = useState(getTabFromUrl());
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [savingDeploymentVersion, setSavingDeploymentVersion] = useState(false);
+  const [liveMetrics, setLiveMetrics] = useState<{
+    coverage: number;
+    lastEval: string;
+    driftRisk: "Low" | "Medium" | "High" | "Unknown";
+  }>({
+    coverage: 0,
+    lastEval: "Never",
+    driftRisk: "Unknown",
+  });
 
   // Update URL hash when tab changes
   const handleTabChange = (tab: string) => {
@@ -131,6 +140,98 @@ export default function ProjectWorkspace() {
     setActiveTab("label");
   }, []);
 
+  useEffect(() => {
+    const persistProjectMetrics = (coverage: number, lastEval: string, driftRisk: "Low" | "Medium" | "High" | "Unknown") => {
+      if (!id) return;
+      try {
+        const stored = localStorage.getItem("uu-projects");
+        if (!stored) return;
+        const projects = JSON.parse(stored);
+        const idx = projects.findIndex((p: any) => p.id === id);
+        if (idx < 0) return;
+        projects[idx] = {
+          ...projects[idx],
+          coverage,
+          lastEval,
+          driftRisk,
+        };
+        localStorage.setItem("uu-projects", JSON.stringify(projects));
+      } catch {
+        // ignore persistence errors
+      }
+    };
+
+    const loadLiveMetrics = async () => {
+      if (!id) return;
+      let documentIds: string[] = [];
+      try {
+        const stored = localStorage.getItem("uu-projects");
+        if (stored) {
+          const projects = JSON.parse(stored);
+          const found = projects.find((p: any) => p.id === id);
+          documentIds = found?.documentIds || [];
+        }
+      } catch {
+        documentIds = [];
+      }
+
+      const docCount = documentIds.length;
+      if (docCount === 0) {
+        const next = { coverage: 0, lastEval: "Never", driftRisk: "Unknown" as const };
+        setLiveMetrics(next);
+        persistProjectMetrics(next.coverage, next.lastEval, next.driftRisk);
+        return;
+      }
+
+      try {
+        const response = await api.listEvaluations({ limit: 1000 });
+        const docSet = new Set(documentIds);
+        const projectEvals = (response.evaluations || []).filter((e: any) => docSet.has(e.document_id));
+        const evaluatedDocs = new Set(projectEvals.map((e: any) => e.document_id));
+        const coverage = Math.round((evaluatedDocs.size / docCount) * 100);
+
+        const latestEval = projectEvals
+          .map((e: any) => e.evaluated_at)
+          .filter(Boolean)
+          .sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime())[0];
+
+        const sortedByDate = [...projectEvals].sort(
+          (a: any, b: any) => new Date(a.evaluated_at).getTime() - new Date(b.evaluated_at).getTime()
+        );
+        const f1Series = sortedByDate
+          .map((e: any) => Number(e.metrics?.f1_score ?? 0))
+          .filter((v: number) => Number.isFinite(v));
+
+        let driftRisk: "Low" | "Medium" | "High" | "Unknown" = "Unknown";
+        if (f1Series.length >= 2) {
+          const recent = f1Series.slice(-5);
+          const previous = f1Series.slice(-10, -5);
+          const avg = (arr: number[]) => (arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : 0);
+          const recentAvg = avg(recent);
+          const previousAvg = previous.length ? avg(previous) : recentAvg;
+          const delta = Math.abs(recentAvg - previousAvg);
+          if (recentAvg < 0.75 || delta > 0.15) driftRisk = "High";
+          else if (recentAvg < 0.9 || delta > 0.08) driftRisk = "Medium";
+          else driftRisk = "Low";
+        }
+
+        const next = {
+          coverage,
+          lastEval: latestEval ? new Date(latestEval).toLocaleString() : "Never",
+          driftRisk,
+        };
+        setLiveMetrics(next);
+        persistProjectMetrics(next.coverage, next.lastEval, next.driftRisk);
+      } catch {
+        const next = { coverage: 0, lastEval: "Never", driftRisk: "Unknown" as const };
+        setLiveMetrics(next);
+        persistProjectMetrics(next.coverage, next.lastEval, next.driftRisk);
+      }
+    };
+
+    loadLiveMetrics();
+  }, [id]);
+
   const handleCreateDeploymentVersion = async () => {
     if (!id) return;
     setSavingDeploymentVersion(true);
@@ -185,15 +286,15 @@ export default function ProjectWorkspace() {
             <div className="flex items-center gap-6 text-sm text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                Coverage: <span className="text-foreground font-mono font-medium">{project.coverage ?? 0}%</span>
+                Coverage: <span className="text-foreground font-mono font-medium">{liveMetrics.coverage}%</span>
               </span>
               <span className="flex items-center gap-1.5">
                 <RotateCcw className="h-3.5 w-3.5" />
-                Last eval: <span className="text-foreground">{project.lastEval || "Never"}</span>
+                Last eval: <span className="text-foreground">{liveMetrics.lastEval}</span>
               </span>
               <span className="flex items-center gap-1.5">
                 <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                Drift Risk: <span className="text-foreground">{project.driftRisk || "Low"}</span>
+                Drift Risk: <span className="text-foreground">{liveMetrics.driftRisk}</span>
               </span>
             </div>
           </div>

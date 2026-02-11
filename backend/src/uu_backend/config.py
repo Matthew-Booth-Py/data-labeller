@@ -33,9 +33,6 @@ class Settings(BaseModel):
     # File Storage Settings
     file_storage_directory: str = "./data/files"
 
-    # SQLite Settings
-    sqlite_database_path: str = "./data/taxonomy.db"
-
     # Document Processing Settings
     chunk_size: int = 1000
     chunk_overlap: int = 200
@@ -75,7 +72,6 @@ class Settings(BaseModel):
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-
 _ENV_TO_FIELD = {
     "API_HOST": "api_host",
     "API_PORT": "api_port",
@@ -84,7 +80,6 @@ _ENV_TO_FIELD = {
     "CHROMA_PERSIST_DIRECTORY": "chroma_persist_directory",
     "CHROMA_COLLECTION_NAME": "chroma_collection_name",
     "FILE_STORAGE_DIRECTORY": "file_storage_directory",
-    "SQLITE_DATABASE_PATH": "sqlite_database_path",
     "CHUNK_SIZE": "chunk_size",
     "CHUNK_OVERLAP": "chunk_overlap",
     "CORS_ORIGINS": "cors_origins",

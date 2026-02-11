@@ -9,8 +9,8 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from uu_backend.config import get_settings
-from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.models.feedback import TrainingResult, TrainingStatus
+from uu_backend.repositories import get_repository
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +77,8 @@ class MLService:
 
     def get_training_status(self) -> TrainingStatus:
         """Get current training status from database."""
-        sqlite = get_sqlite_client()
-        return sqlite.get_training_status()
+        repository = get_repository()
+        return repository.get_training_status()
 
     def should_use_local_model(self) -> bool:
         """Check if we have enough training data to use local model."""
@@ -91,8 +91,8 @@ class MLService:
 
     def should_retrain(self) -> bool:
         """Check if model should be retrained based on new feedback."""
-        sqlite = get_sqlite_client()
-        status = sqlite.get_training_status()
+        repository = get_repository()
+        status = repository.get_training_status()
 
         if not status.ready_to_train:
             return False
@@ -115,10 +115,10 @@ class MLService:
             import lightgbm as lgb
             from sklearn.model_selection import train_test_split
 
-            sqlite = get_sqlite_client()
+            repository = get_repository()
 
             # Get positive feedback for training
-            feedback_list = sqlite.get_positive_feedback(with_embeddings=True)
+            feedback_list = repository.get_positive_feedback(with_embeddings=True)
 
             if len(feedback_list) < self.MIN_SAMPLES:
                 return TrainingResult(
@@ -210,12 +210,12 @@ class MLService:
             self._save_model()
 
             # Count positive/negative samples
-            all_feedback = sqlite.get_all_training_feedback(with_embeddings=False)
+            all_feedback = repository.get_all_training_feedback(with_embeddings=False)
             positive_count = len([f for f in all_feedback if f.feedback_type.value in ("correct", "accepted")])
             negative_count = len([f for f in all_feedback if f.feedback_type.value in ("incorrect", "rejected")])
 
             # Save status to database
-            sqlite.save_model_status(
+            repository.save_model_status(
                 sample_count=len(embeddings),
                 positive_samples=positive_count,
                 negative_samples=negative_count,

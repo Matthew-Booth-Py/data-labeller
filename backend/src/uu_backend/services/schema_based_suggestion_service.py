@@ -6,10 +6,10 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from uu_backend.config import get_settings
-from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.annotation import AnnotationCreate, AnnotationType
+from uu_backend.repositories import get_repository
 from uu_backend.services.schema_generator import generate_pydantic_schema
 
 
@@ -45,7 +45,7 @@ class SchemaBasedSuggestionService:
         settings = get_settings()
         self.client = OpenAI(api_key=settings.openai_api_key)
         self.model = settings.openai_tagging_model or settings.openai_model
-        self.sqlite_client = get_sqlite_client()
+        self.repository = get_repository()
         self.vector_store = get_vector_store()
 
     def _find_text_spans(
@@ -113,17 +113,17 @@ class SchemaBasedSuggestionService:
             raise ValueError(f"Document {document_id} not found")
         
         # Get classification
-        classification = self.sqlite_client.get_classification(document_id)
+        classification = self.repository.get_classification(document_id)
         if not classification:
             raise ValueError(f"Document {document_id} is not classified")
         
         # Get document type with schema
-        doc_type = self.sqlite_client.get_document_type(classification.document_type_id)
+        doc_type = self.repository.get_document_type(classification.document_type_id)
         if not doc_type or not doc_type.schema_fields:
             raise ValueError(f"Document type has no schema fields")
         
         # Get labels for this document type only (no globals)
-        labels = self.sqlite_client.list_labels(document_type_id=doc_type.id, include_global=False)
+        labels = self.repository.list_labels(document_type_id=doc_type.id, include_global=False)
         label_map = {label.name: label for label in labels}
         
         content = document.content or ""
@@ -254,7 +254,7 @@ Schema fields to extract:
                                 metadata=suggestion.metadata,
                                 created_by="ai_schema_suggestion",
                             )
-                            self.sqlite_client.create_annotation(document_id, annotation_create)
+                            self.repository.create_annotation(document_id, annotation_create)
                 print(f"Auto-accepted {len(suggestions)} annotation suggestions")
             
             return SchemaBasedSuggestionResponse(

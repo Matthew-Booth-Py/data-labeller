@@ -47,6 +47,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   const [editedProperties, setEditedProperties] = useState<Array<{name: string, type: FieldType, description?: string}>>([]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [postProcessing, setPostProcessing] = useState("");
+  const [extractionModel, setExtractionModel] = useState("gpt-5-mini");
+  const [ocrEngine, setOcrEngine] = useState("azure-di-prebuilt");
   
   // State for adding field
   const [isAddingField, setIsAddingField] = useState(false);
@@ -94,6 +96,11 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
         ? api.listFieldPromptVersions(selectedTypeId, editingField)
         : Promise.resolve({ field_prompt_versions: [], total: 0 }),
     enabled: !!selectedTypeId && !!editingField,
+  });
+
+  const { data: providerModelsData } = useQuery({
+    queryKey: ["provider-models", "openai", "enabled"],
+    queryFn: () => api.listOpenAIProviderModels(true),
   });
 
   useEffect(() => {
@@ -145,6 +152,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     const nextType = availableTypes.find((type) => type.id === nextTypeId);
     setSystemPrompt(nextType?.system_prompt || "");
     setPostProcessing(nextType?.post_processing || "");
+    setExtractionModel(nextType?.extraction_model || "gpt-5-mini");
+    setOcrEngine(nextType?.ocr_engine || "azure-di-prebuilt");
   }, [typesData, selectedTypeId, selectedTypeStorageKey]);
   
   // Update local state when selected type changes
@@ -154,6 +163,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     if (type) {
       setSystemPrompt(type.system_prompt || "");
       setPostProcessing(type.post_processing || "");
+      setExtractionModel(type.extraction_model || "gpt-5-mini");
+      setOcrEngine(type.ocr_engine || "azure-di-prebuilt");
     }
   };
   
@@ -166,6 +177,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       setSelectedType(result.type.id);
       setSystemPrompt(result.type.system_prompt || "");
       setPostProcessing(result.type.post_processing || "");
+      setExtractionModel(result.type.extraction_model || "gpt-5-mini");
+      setOcrEngine(result.type.ocr_engine || "azure-di-prebuilt");
       setIsCreating(false);
       setNewTypeName("");
       setNewTypeDescription("");
@@ -288,6 +301,15 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
         } else {
           setNewFieldObjectProperties([]);
         }
+      } else if (suggestion.type === "object") {
+        setNewFieldArrayItemType("string");
+        setNewFieldObjectProperties(
+          (suggestion.object_properties || []).map((property) => ({
+            name: property.name,
+            type: property.type,
+            description: property.description,
+          }))
+        );
       } else {
         setNewFieldArrayItemType("string");
         setNewFieldObjectProperties([]);
@@ -307,6 +329,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       data: {
         system_prompt: systemPrompt,
         post_processing: postProcessing,
+        extraction_model: extractionModel,
+        ocr_engine: ocrEngine,
       },
     });
   };
@@ -321,6 +345,19 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       description: newFieldDescription || undefined,
       extraction_prompt: newFieldPrompt.trim() || undefined,
     };
+
+    // Handle object type with properties
+    if (newFieldType === "object" && newFieldObjectProperties.length > 0) {
+      const properties: Record<string, SchemaField> = {};
+      newFieldObjectProperties.forEach(prop => {
+        properties[prop.name] = {
+          name: prop.name,
+          type: prop.type,
+          description: prop.description,
+        };
+      });
+      newField.properties = properties;
+    }
     
     // Handle array type with items
     if (newFieldType === "array") {
@@ -484,6 +521,20 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
           },
         };
       }
+      if (f.name === fieldName && f.type === "object") {
+        const propertiesObj: Record<string, SchemaField> = {};
+        properties.forEach(prop => {
+          propertiesObj[prop.name] = {
+            name: prop.name,
+            type: prop.type,
+            description: prop.description,
+          };
+        });
+        return {
+          ...f,
+          properties: propertiesObj,
+        };
+      }
       return f;
     });
     
@@ -645,26 +696,35 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-[10px] uppercase font-bold text-muted-foreground">Model Choice</label>
-                    <Select defaultValue="gpt4o">
+                    <Select value={extractionModel} onValueChange={setExtractionModel}>
                       <SelectTrigger className="h-8 text-xs bg-background">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="gpt4o">GPT-4o (Standard)</SelectItem>
-                        <SelectItem value="gpt4o-mini">GPT-4o Mini</SelectItem>
-                        <SelectItem value="claude">Claude 3.5 Sonnet</SelectItem>
+                        {!providerModelsData?.models?.length && (
+                          <SelectItem value={extractionModel}>{extractionModel}</SelectItem>
+                        )}
+                        {providerModelsData?.models?.length &&
+                          !providerModelsData.models.some((model) => model.model_id === extractionModel) && (
+                            <SelectItem value={extractionModel}>{extractionModel}</SelectItem>
+                          )}
+                        {(providerModelsData?.models || []).map((model) => (
+                          <SelectItem key={model.model_id} value={model.model_id}>
+                            {model.display_name || model.model_id}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] uppercase font-bold text-muted-foreground">OCR Engine</label>
-                    <Select defaultValue="azure">
+                    <Select value={ocrEngine} onValueChange={setOcrEngine}>
                       <SelectTrigger className="h-8 text-xs bg-background">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="azure">Azure DI Prebuilt</SelectItem>
-                        <SelectItem value="aws">AWS Textract</SelectItem>
+                        <SelectItem value="azure-di-prebuilt">Azure DI Prebuilt</SelectItem>
+                        <SelectItem value="aws-textract">AWS Textract</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -752,8 +812,9 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                   <p className="text-xs text-muted-foreground mb-2">{field.description}</p>
                 )}
                 
-                {/* Show nested structure for array of objects */}
-                {field.type === "array" && field.items?.type === "object" && field.items.properties && (
+                {/* Show nested structure for object and array of objects */}
+                {(field.type === "object" && field.properties) ||
+                (field.type === "array" && field.items?.type === "object" && field.items.properties) ? (
                   <div className="mb-3 p-2 bg-muted/30 rounded border text-xs space-y-1">
                     <div className="flex items-center justify-between mb-1">
                       <div className="font-medium text-muted-foreground">Object Properties:</div>
@@ -762,7 +823,9 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                         size="icon"
                         className="h-5 w-5 text-muted-foreground hover:text-primary"
                         onClick={() => {
-                          const props = Object.entries(field.items!.properties!).map(([name, schema]) => ({
+                          const sourceProps =
+                            field.type === "object" ? field.properties! : field.items!.properties!;
+                          const props = Object.entries(sourceProps).map(([name, schema]) => ({
                             name,
                             type: schema.type as FieldType,
                             description: schema.description,
@@ -774,7 +837,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                         <Edit3 className="h-3 w-3" />
                       </Button>
                     </div>
-                    {Object.entries(field.items.properties).map(([propName, propSchema]) => (
+                    {Object.entries(field.type === "object" ? field.properties! : field.items!.properties!).map(([propName, propSchema]) => (
                       <div key={propName} className="flex items-center gap-2 pl-2">
                         <span className="font-mono text-[10px]">{propName}</span>
                         <Badge variant="outline" className="text-[9px] h-3 px-1 font-mono">{propSchema.type}</Badge>
@@ -784,7 +847,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                       </div>
                     ))}
                   </div>
-                )}
+                ) : null}
                 
                 <div className="relative">
                   <label className="absolute -top-2 left-2 bg-background px-1 text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Extraction Prompt</label>
@@ -916,36 +979,38 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
               </Select>
             </div>
             
-            {/* Array Configuration */}
-            {newFieldType === "array" && (
+            {/* Object / Array Configuration */}
+            {(newFieldType === "object" || newFieldType === "array") && (
               <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <Code className="h-4 w-4" />
-                  Array Item Configuration
+                  {newFieldType === "object" ? "Object Properties" : "Array Item Configuration"}
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Item Type</label>
-                  <Select value={newFieldArrayItemType} onValueChange={(v) => setNewFieldArrayItemType(v as FieldType)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="string">String</SelectItem>
-                      <SelectItem value="number">Number</SelectItem>
-                      <SelectItem value="date">Date</SelectItem>
-                      <SelectItem value="boolean">Boolean</SelectItem>
-                      <SelectItem value="object">Object (for tables)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    {newFieldArrayItemType === "object" 
-                      ? "Perfect for extracting table rows with multiple columns" 
-                      : "Each item will be a simple value"}
-                  </p>
-                </div>
+                {newFieldType === "array" && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Item Type</label>
+                    <Select value={newFieldArrayItemType} onValueChange={(v) => setNewFieldArrayItemType(v as FieldType)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="string">String</SelectItem>
+                        <SelectItem value="number">Number</SelectItem>
+                        <SelectItem value="date">Date</SelectItem>
+                        <SelectItem value="boolean">Boolean</SelectItem>
+                        <SelectItem value="object">Object (for tables)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {newFieldArrayItemType === "object" 
+                        ? "Perfect for extracting table rows with multiple columns" 
+                        : "Each item will be a simple value"}
+                    </p>
+                  </div>
+                )}
                 
-                {/* Object Properties for Array of Objects */}
-                {newFieldArrayItemType === "object" && (
+                {/* Object Properties for object and array<object> */}
+                {(newFieldType === "object" || (newFieldType === "array" && newFieldArrayItemType === "object")) && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <label className="text-sm font-medium">Object Properties</label>
@@ -977,35 +1042,39 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                             }}
                             className="h-8 text-sm"
                           />
-                          <div className="flex gap-2">
-                            <Select 
-                              value={prop.type} 
-                              onValueChange={(v) => {
-                                const updated = [...newFieldObjectProperties];
-                                updated[idx].type = v as FieldType;
-                                setNewFieldObjectProperties(updated);
-                              }}
-                            >
-                              <SelectTrigger className="h-8 text-sm">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="string">String</SelectItem>
-                                <SelectItem value="number">Number</SelectItem>
-                                <SelectItem value="date">Date</SelectItem>
-                                <SelectItem value="boolean">Boolean</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <Input
-                              placeholder="Description (optional)"
-                              value={prop.description || ""}
-                              onChange={(e) => {
-                                const updated = [...newFieldObjectProperties];
-                                updated[idx].description = e.target.value;
-                                setNewFieldObjectProperties(updated);
-                              }}
-                              className="h-8 text-sm flex-1"
-                            />
+                          <div className="flex items-center gap-2">
+                            <div className="w-[140px]">
+                              <Select 
+                                value={prop.type} 
+                                onValueChange={(v) => {
+                                  const updated = [...newFieldObjectProperties];
+                                  updated[idx].type = v as FieldType;
+                                  setNewFieldObjectProperties(updated);
+                                }}
+                              >
+                                <SelectTrigger className="h-8 text-sm w-full">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="string">String</SelectItem>
+                                  <SelectItem value="number">Number</SelectItem>
+                                  <SelectItem value="date">Date</SelectItem>
+                                  <SelectItem value="boolean">Boolean</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <Input
+                                placeholder="Description (optional)"
+                                value={prop.description || ""}
+                                onChange={(e) => {
+                                  const updated = [...newFieldObjectProperties];
+                                  updated[idx].description = e.target.value;
+                                  setNewFieldObjectProperties(updated);
+                                }}
+                                className="h-8 text-sm w-full min-w-[180px] text-foreground caret-primary"
+                              />
+                            </div>
                           </div>
                         </div>
                         <Button
@@ -1044,11 +1113,15 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
             </div>
             
             {/* Example Preview */}
-            {newFieldType === "array" && newFieldArrayItemType === "object" && newFieldObjectProperties.length > 0 && (
+            {(newFieldType === "object" || (newFieldType === "array" && newFieldArrayItemType === "object")) && newFieldObjectProperties.length > 0 && (
               <div className="p-3 bg-muted/50 rounded border text-xs space-y-2">
                 <div className="font-medium">Example Output:</div>
                 <pre className="text-[10px] overflow-x-auto">
-{`{
+{newFieldType === "object" ? `{
+  "${newFieldName || 'field_name'}": {
+${newFieldObjectProperties.map(p => `    "${p.name || 'property'}": ${p.type === 'number' ? '0' : p.type === 'boolean' ? 'true' : '"value"'}`).join(',\n')}
+  }
+}` : `{
   "${newFieldName || 'field_name'}": [
     {
 ${newFieldObjectProperties.map(p => `      "${p.name || 'property'}": ${p.type === 'number' ? '0' : p.type === 'boolean' ? 'true' : '"value"'}`).join(',\n')}
@@ -1069,7 +1142,12 @@ ${newFieldObjectProperties.map(p => `      "${p.name || 'property'}": ${p.type =
             }}>Cancel</Button>
             <Button 
               onClick={addField}
-              disabled={!newFieldName.trim() || updateTypeMutation.isPending || (newFieldType === "array" && newFieldArrayItemType === "object" && newFieldObjectProperties.length === 0)}
+              disabled={
+                !newFieldName.trim() ||
+                updateTypeMutation.isPending ||
+                (newFieldType === "object" && newFieldObjectProperties.length === 0) ||
+                (newFieldType === "array" && newFieldArrayItemType === "object" && newFieldObjectProperties.length === 0)
+              }
             >
               {updateTypeMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Add Field
@@ -1242,35 +1320,39 @@ ${newFieldObjectProperties.map(p => `      "${p.name || 'property'}": ${p.type =
                     }}
                     className="h-8 text-sm"
                   />
-                  <div className="flex gap-2">
-                    <Select 
-                      value={prop.type} 
-                      onValueChange={(v) => {
-                        const updated = [...editedProperties];
-                        updated[idx].type = v as FieldType;
-                        setEditedProperties(updated);
-                      }}
-                    >
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="string">String</SelectItem>
-                        <SelectItem value="number">Number</SelectItem>
-                        <SelectItem value="date">Date</SelectItem>
-                        <SelectItem value="boolean">Boolean</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      placeholder="Description (optional)"
-                      value={prop.description || ""}
-                      onChange={(e) => {
-                        const updated = [...editedProperties];
-                        updated[idx].description = e.target.value;
-                        setEditedProperties(updated);
-                      }}
-                      className="h-8 text-sm flex-1"
-                    />
+                  <div className="flex items-center gap-2">
+                    <div className="w-[140px]">
+                      <Select 
+                        value={prop.type} 
+                        onValueChange={(v) => {
+                          const updated = [...editedProperties];
+                          updated[idx].type = v as FieldType;
+                          setEditedProperties(updated);
+                        }}
+                      >
+                        <SelectTrigger className="h-8 text-sm w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="string">String</SelectItem>
+                          <SelectItem value="number">Number</SelectItem>
+                          <SelectItem value="date">Date</SelectItem>
+                          <SelectItem value="boolean">Boolean</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <Input
+                        placeholder="Description (optional)"
+                        value={prop.description || ""}
+                        onChange={(e) => {
+                          const updated = [...editedProperties];
+                          updated[idx].description = e.target.value;
+                          setEditedProperties(updated);
+                        }}
+                        className="h-8 text-sm w-full min-w-[180px] text-foreground caret-primary"
+                      />
+                    </div>
                   </div>
                 </div>
                 <Button

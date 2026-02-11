@@ -1,0 +1,59 @@
+{% extends "account/email/base_message.html" %}
+{% load account %}
+{% load i18n %}
+
+{% block message_content %}
+<div class="notification-container">
+    <div class="alert alert-warning border-start border-warning border-4 rounded-start-0 mb-3" role="alert">
+        <h5 class="alert-heading mb-2">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            {% trans "Account Security Notice" %}
+        </h5>
+        <p class="mb-2">{% trans "You are receiving this mail because the following change was made to your account:" %}</p>
+        
+        <div class="notification-message bg-white p-3 rounded border-start border-4 border-info">
+            <strong>{% block notification_message %}{% endblock notification_message %}</strong>
+        </div>
+    </div>
+    
+    <div class="security-details bg-light p-3 rounded">
+        <h6 class="mb-2">
+            <i class="fas fa-shield-alt me-2 text-info"></i>
+            {% trans "Security Information" %}
+        </h6>
+        <p class="mb-2 text-muted">
+            {% trans "If you do not recognize this change then please take proper security precautions immediately. The change to your account originates from:" %}
+        </p>
+        
+        <div class="row g-2">
+            <div class="col-md-4">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-globe me-2 text-secondary"></i>
+                    <small class="text-muted">
+                        <strong>{% trans "IP Address:" %}</strong><br />
+                        {{ ip|default:"Unknown" }}
+                    </small>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-browser me-2 text-secondary"></i>
+                    <small class="text-muted">
+                        <strong>{% trans "Browser:" %}</strong><br />
+                        {{ user_agent|default:"Unknown" }}
+                    </small>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-clock me-2 text-secondary"></i>
+                    <small class="text-muted">
+                        <strong>{% trans "Date:" %}</strong><br />
+                        {{ timestamp|default:"Unknown" }}
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock message_content %}

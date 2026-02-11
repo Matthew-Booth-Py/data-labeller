@@ -1,0 +1,45 @@
+{% load static i18n %}
+
+{% get_current_language as LANGUAGE_CODE %}
+<!DOCTYPE html>
+<html lang="{{ LANGUAGE_CODE }}">
+    <!--begin::Head-->
+    <head>
+        {% block title %}
+            <title>{{ APP_NAME }}
+                {% if page_title %}| {{ page_title }}{% endif %}
+            </title>
+        {% endblock title %}
+        {% include "partials/meta.html" %}
+        {% include "partials/favicon.html" %}
+        {% include "partials/styles.html" %}
+        {% block inline_styles %}
+        {% endblock inline_styles %}
+    </head>
+    <!--end::Head-->
+    <!--begin::Body-->
+  <body class="login-page bg-body-secondary">
+    <div class="login-box">
+      <div class="login-logo">
+        <a href="{% url 'core:dashboard' %}">
+            {{ APP_NAME }}
+        </a>
+      </div>
+      <!-- /.login-logo -->
+      <div class="card">
+            {% block content %}
+            {% endblock content %}
+        <!-- /.login-card-body -->
+      </div>
+    </div>
+    <!-- /.login-box -->
+        <!--begin::Script-->
+        {% include 'partials/scripts.html' %}
+        <!--end::Script-->
+        <!--begin::Inline Script-->
+        {% block inline_javascript %}
+        {% endblock inline_javascript %}
+        <!--end::Inline Script-->
+    </body>
+    <!--end::Body-->
+</html>
