@@ -6,7 +6,8 @@ import environ
 
 from uu_backend.config import get_settings
 
-BASE_DIR = Path(__file__).resolve().parents[3]
+# /backend/src/uu_backend/django_project/settings/base.py -> /backend
+BASE_DIR = Path(__file__).resolve().parents[4]
 env = environ.Env()
 
 app_settings = get_settings()
@@ -60,10 +61,12 @@ TEMPLATES = [
 ]
 
 # Minimal DB for framework internals in phase 1. Domain data stays in existing stores.
+django_db_default = BASE_DIR / "data" / "django.db"
+django_db_default.parent.mkdir(parents=True, exist_ok=True)
 DATABASES = {
     "default": env.db(
         "DJANGO_DATABASE_URL",
-        default=f"sqlite:///{(BASE_DIR / 'data' / 'django.db').as_posix()}",
+        default=f"sqlite:///{django_db_default.as_posix()}",
     )
 }
 

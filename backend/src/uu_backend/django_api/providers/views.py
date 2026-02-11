@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
-from uu_backend.database.sqlite_client import get_sqlite_client
+from uu_backend.repositories import get_repository
 
 
 def _mask_api_key(value: str) -> str:
@@ -47,8 +47,8 @@ def _reset_openai_runtime_singletons() -> None:
 
 def _get_effective_openai_key() -> tuple[str, str]:
     """Return active key and source."""
-    sqlite_client = get_sqlite_client()
-    provider = sqlite_client.get_llm_provider_settings("openai")
+    repository = get_repository()
+    provider = repository.get_llm_provider_settings("openai")
     override = (provider or {}).get("api_key_override")
     if override:
         return override, "override"
@@ -131,8 +131,8 @@ class OpenAIProviderStatusView(APIView):
     permission_classes: list = []
 
     def get(self, request):
-        sqlite_client = get_sqlite_client()
-        persisted = sqlite_client.get_llm_provider_settings("openai") or {}
+        repository = get_repository()
+        persisted = repository.get_llm_provider_settings("openai") or {}
         key, source = _get_effective_openai_key()
         settings = get_settings()
 
@@ -150,7 +150,7 @@ class OpenAIProviderStatusView(APIView):
         return Response(payload.model_dump(mode="json"))
 
     def put(self, request):
-        sqlite_client = get_sqlite_client()
+        repository = get_repository()
         body = request.data if isinstance(request.data, dict) else {}
         try:
             parsed = OpenAIProviderUpdateRequest.model_validate(body)
@@ -159,7 +159,7 @@ class OpenAIProviderStatusView(APIView):
 
         if parsed.api_key is not None:
             normalized = parsed.api_key.strip()
-            sqlite_client.upsert_llm_provider_api_key("openai", normalized or None)
+            repository.upsert_llm_provider_api_key("openai", normalized or None)
             if normalized:
                 os.environ["OPENAI_API_KEY"] = normalized
             else:
@@ -174,7 +174,7 @@ class OpenAIProviderTestView(APIView):
     permission_classes: list = []
 
     def post(self, request):
-        sqlite_client = get_sqlite_client()
+        repository = get_repository()
         body = request.data if isinstance(request.data, dict) else {}
         try:
             parsed = OpenAIProviderTestRequest.model_validate(body)
@@ -187,13 +187,13 @@ class OpenAIProviderTestView(APIView):
 
         tested_at = datetime.utcnow().isoformat()
         if not test_key:
-            sqlite_client.update_llm_provider_test_status("openai", "failed")
+            repository.update_llm_provider_test_status("openai", "failed")
             return Response({"detail": "No OpenAI API key configured"}, status=400)
 
         try:
             client = OpenAI(api_key=test_key)
             client.models.list()
-            sqlite_client.update_llm_provider_test_status("openai", "connected")
+            repository.update_llm_provider_test_status("openai", "connected")
             payload = OpenAIProviderTestResponse(
                 provider="openai",
                 connected=True,
@@ -203,7 +203,7 @@ class OpenAIProviderTestView(APIView):
             )
             return Response(payload.model_dump(mode="json"))
         except Exception as exc:
-            sqlite_client.update_llm_provider_test_status("openai", "failed")
+            repository.update_llm_provider_test_status("openai", "failed")
             return Response({"detail": f"Connection failed: {exc}"}, status=400)
 
 
@@ -215,8 +215,8 @@ class OpenAIProviderModelListView(APIView):
         enabled_only_raw = str(request.query_params.get("enabled_only", "false")).lower()
         enabled_only = enabled_only_raw in {"1", "true", "yes", "on"}
 
-        sqlite_client = get_sqlite_client()
-        models = sqlite_client.list_llm_provider_models("openai", enabled_only=enabled_only)
+        repository = get_repository()
+        models = repository.list_llm_provider_models("openai", enabled_only=enabled_only)
         payload = OpenAIProviderModelListResponse(
             models=[OpenAIProviderModel.model_validate(model) for model in models],
             total=len(models),
@@ -224,14 +224,14 @@ class OpenAIProviderModelListView(APIView):
         return Response(payload.model_dump(mode="json"))
 
     def post(self, request):
-        sqlite_client = get_sqlite_client()
+        repository = get_repository()
         body = request.data if isinstance(request.data, dict) else {}
         try:
             parsed = OpenAIProviderModelCreateRequest.model_validate(body)
         except ValidationError as exc:
             return _validation_error_response(exc)
 
-        model = sqlite_client.upsert_llm_provider_model(
+        model = repository.upsert_llm_provider_model(
             provider="openai",
             model_id=parsed.model_id.strip(),
             display_name=parsed.display_name,
@@ -246,14 +246,14 @@ class OpenAIProviderModelDetailView(APIView):
     permission_classes: list = []
 
     def patch(self, request, model_id: str):
-        sqlite_client = get_sqlite_client()
+        repository = get_repository()
         body = request.data if isinstance(request.data, dict) else {}
         try:
             parsed = OpenAIProviderModelUpdateRequest.model_validate(body)
         except ValidationError as exc:
             return _validation_error_response(exc)
 
-        updated = sqlite_client.update_llm_provider_model(
+        updated = repository.update_llm_provider_model(
             provider="openai",
             model_id=model_id,
             display_name=parsed.display_name,
@@ -266,8 +266,8 @@ class OpenAIProviderModelDetailView(APIView):
         return Response(payload.model_dump(mode="json"))
 
     def delete(self, request, model_id: str):
-        sqlite_client = get_sqlite_client()
-        deleted = sqlite_client.delete_llm_provider_model("openai", model_id)
+        repository = get_repository()
+        deleted = repository.delete_llm_provider_model("openai", model_id)
         if not deleted:
             return Response({"detail": "Model not found"}, status=404)
         return Response({"status": "deleted"})
@@ -278,12 +278,12 @@ class OpenAIProviderModelTestView(APIView):
     permission_classes: list = []
 
     def post(self, request, model_id: str):
-        sqlite_client = get_sqlite_client()
+        repository = get_repository()
         key, _ = _get_effective_openai_key()
         tested_at = datetime.utcnow().isoformat()
 
         if not key:
-            sqlite_client.update_llm_provider_test_status("openai", "failed")
+            repository.update_llm_provider_test_status("openai", "failed")
             return Response({"detail": "No OpenAI API key configured"}, status=400)
 
         try:
@@ -301,7 +301,7 @@ class OpenAIProviderModelTestView(APIView):
                     max_completion_tokens=12,
                 )
 
-            sqlite_client.update_llm_provider_test_status("openai", "connected")
+            repository.update_llm_provider_test_status("openai", "connected")
             payload = OpenAIProviderModelTestResponse(
                 provider="openai",
                 model_id=model_id,
@@ -311,6 +311,5 @@ class OpenAIProviderModelTestView(APIView):
             )
             return Response(payload.model_dump(mode="json"))
         except Exception as exc:
-            sqlite_client.update_llm_provider_test_status("openai", "failed")
+            repository.update_llm_provider_test_status("openai", "failed")
             return Response({"detail": f"Model test failed for '{model_id}': {exc}"}, status=400)
-

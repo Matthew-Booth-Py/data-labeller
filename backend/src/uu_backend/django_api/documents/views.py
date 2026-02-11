@@ -7,10 +7,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
-from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.ingestion.converter import get_converter
 from uu_backend.models.document import DocumentListResponse, DocumentResponse
+from uu_backend.repositories import get_repository
 
 
 def get_original_file_path(document_id: str, file_type: str) -> Path | None:
@@ -60,13 +60,13 @@ class DocumentsListView(APIView):
 
     def get(self, request):
         store = get_vector_store()
-        sqlite_client = get_sqlite_client()
+        repository = get_repository()
         documents = store.get_all_documents()
 
         for doc in documents:
-            classification = sqlite_client.get_classification(doc.id)
+            classification = repository.get_classification(doc.id)
             if classification:
-                doc_type = sqlite_client.get_document_type(classification.document_type_id)
+                doc_type = repository.get_document_type(classification.document_type_id)
                 if doc_type:
                     doc.document_type = doc_type
 

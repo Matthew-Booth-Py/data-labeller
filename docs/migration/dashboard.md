@@ -7,8 +7,8 @@
 | Phase 0: Baseline + Harness | In Progress | Endpoint inventory, smoke script, and contract harness added |
 | Phase 1: Django Foundation + Dispatcher | In Progress | Django project scaffolded; dispatcher active with feature flags |
 | Phase 2: DRF Migration + Celery | In Progress | Wave A-D routed through Django (`health`, `timeline`, `search`, `documents`, `graph`, `providers`, `ingest`, `suggestions`, `tutorial`, `taxonomy`, `annotations`, `deployments`, `evaluation`) |
-| Phase 3: Repository Abstraction | Not Started | Pending adapter layer implementation |
-| Phase 4: ORM + Postgres Migration | Not Started | Pending Django model parity and import tooling |
+| Phase 3: Repository Abstraction | Complete | Django API and service layers use repository abstraction; adapters remain SQLite-backed pending ORM implementation |
+| Phase 4: ORM + Postgres Migration | In Progress | ORM parity models + migration/import/parity-check commands added; Postgres runtime cutover still pending |
 | Phase 5: FastAPI Decommission | Not Started | Pending full route parity in Django |
 
 ## Route Group Ownership

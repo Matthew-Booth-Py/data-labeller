@@ -36,21 +36,42 @@ Unstructured Unlocked is a document extraction workbench focused on two outcomes
 
 ```mermaid
 flowchart LR
-    UI[React Frontend] --> API[FastAPI Backend]
-    API --> SQLITE[(SQLite taxonomy.db)]
-    API --> CHROMA[(Chroma Vector Store)]
-    API --> NEO4J[(Neo4j Graph DB)]
-    API --> FILES[(File Storage)]
-    API --> LLM[LLM Provider via API]
+    UI[React Frontend] --> DISP[ASGI Dispatcher]
+
+    DISP -->|migrated groups| DJ[DJango + DRF APIs]
+    DISP -->|fallback groups| FA[FastAPI APIs]
+
+    DJ --> REPO[Repository Layer]
+    FA --> REPO
+
+    REPO --> SQLITE[(SQLite taxonomy.db)]
+    REPO --> DJDATA[(Django Data App - Phase 4 target)]
+
+    DJ --> CHROMA[(Chroma Vector Store)]
+    DJ --> NEO4J[(Neo4j Graph DB)]
+    DJ --> FILES[(File Storage)]
+    DJ --> REDIS[(Redis/Celery Broker)]
+    DJ --> LLM[LLM Provider API]
+
+    FA --> CHROMA
+    FA --> NEO4J
+    FA --> FILES
+    FA --> LLM
 ```
 
 - Frontend (`frontend/client`): schema builder, labeling UI, extraction runner, evaluation board, deployment manager.
-- Backend (`backend/src/uu_backend`): phased FastAPI-to-Django API migration via ASGI dispatcher, plus ingestion/classification/suggestions/extraction/evaluation/deployments.
+- Backend (`backend/src/uu_backend`): phased FastAPI-to-Django migration via composite ASGI dispatcher (`uu_backend.asgi_dispatcher`).
 - Persistence:
   - SQLite: schemas, labels, annotations, evaluations, versions, deployment snapshots.
   - Chroma: chunk embeddings and semantic retrieval.
   - Neo4j: entity/relationship graph features.
   - File storage: uploaded source documents.
+
+### Runtime Routing (Wave Status)
+- Route ownership is controlled by `DJANGO_MIGRATED_GROUPS`.
+- Current migrated groups: `health,timeline,search,documents,graph,providers,ingest,suggestions,tutorial,taxonomy,annotations,deployments,evaluation`.
+- Phase 3 status: Django route layer uses repository abstraction; services are still being migrated.
+- Wave D note: some Django-routed groups are currently proxied to legacy FastAPI handlers to preserve contract during cutover.
 
 ## Data Flow (Current)
 
@@ -85,8 +106,8 @@ Saving a new version creates a deployable extraction snapshot for the selected p
 
 ## API (Deployment)
 
-All routes are served by FastAPI under `/api/v1`.
-Migration note: the backend now runs through a composite ASGI dispatcher (`uu_backend.asgi_dispatcher`) and can route selected endpoint groups to Django using `DJANGO_MIGRATED_GROUPS`.
+All public APIs remain under `/api/v1`.
+Runtime request ownership is resolved by the composite ASGI dispatcher (`uu_backend.asgi_dispatcher`) using `DJANGO_MIGRATED_GROUPS`.
 
 - `POST /api/v1/deployments/versions`
   - Create a new deployment snapshot version.
@@ -104,7 +125,7 @@ Migration note: the backend now runs through a composite ASGI dispatcher (`uu_ba
 ## Endpoint Dependencies
 
 ### Core Runtime Dependencies
-- FastAPI backend running (`backend`)
+- Backend ASGI dispatcher running (`backend`)
 - SQLite available at configured `SQLITE_DATABASE_PATH`
 - File storage path writable for document uploads
 - Chroma available for chunk/embedding retrieval
@@ -115,12 +136,12 @@ Migration note: the backend now runs through a composite ASGI dispatcher (`uu_ba
 
 | Endpoint Group | Key Routes | Depends On |
 |---|---|---|
-| Health | `/docs`, `/api/v1/health` | FastAPI process, service checks |
+| Health | `/health`, `/api/v1/health` | Dispatcher + service checks |
 | Documents/Ingestion | `/api/v1/ingest`, `/api/v1/documents*` | File storage, converter/chunker, Chroma, SQLite metadata |
-| Taxonomy/Schema | `/api/v1/document-types*`, `/api/v1/labels*`, `/api/v1/fields*` | SQLite |
+| Taxonomy/Schema | `/api/v1/taxonomy/*` | SQLite |
 | Classification/Suggestions | `/api/v1/documents/{id}/classify`, `/api/v1/documents/{id}/suggest*` | SQLite, document content, LLM |
 | Annotations | `/api/v1/documents/{id}/annotations*`, `/api/v1/annotations*` | SQLite |
-| Extraction | `/api/v1/extraction*` and workspace extraction actions | SQLite schema/prompts, document content, LLM |
+| Extraction | `/api/v1/documents/{id}/extract`, `/api/v1/documents/{id}/extraction` | SQLite schema/prompts, document content, LLM |
 | Evaluation | `/api/v1/evaluation*` | SQLite evaluations + annotations + schema metadata, extraction pipeline, LLM (when enabled) |
 | Deployments | `/api/v1/deployments*` | SQLite deployment snapshots, extraction service, active/pinned version resolution, LLM |
 | Timeline/Graph/Search | `/api/v1/timeline`, `/api/v1/graph*`, `/api/v1/search*`, `/api/v1/ask` | Chroma, Neo4j, SQLite metadata, LLM (for Q&A) |
@@ -143,7 +164,7 @@ Migration note: the backend now runs through a composite ASGI dispatcher (`uu_ba
   - Tailwind CSS + shadcn/ui
   - Recharts
 - Backend
-  - FastAPI (Python)
+  - Composite ASGI runtime (Django + DRF + FastAPI during migration)
   - Pydantic models
   - Service-layer extraction/evaluation pipelines
 - Data + Infra
@@ -175,7 +196,7 @@ Use your `.env` file. Important keys include:
 
 ## Repo Layout
 
-- `backend/` FastAPI, extraction, evaluation, persistence
+- `backend/` dispatcher runtime, Django + FastAPI APIs, extraction, evaluation, persistence
 - `frontend/` React app (schema, labeling, eval, deployment UI)
 - `docs/` implementation notes and guides
 - `data/` local runtime storage

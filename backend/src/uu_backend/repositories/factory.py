@@ -20,6 +20,10 @@ class DualRepository:
             "django": self.django.health(),
         }
 
+    def __getattr__(self, name: str):
+        """Use SQLite as source of truth while dual validation evolves."""
+        return getattr(self.sqlite, name)
+
 
 def get_repository():
     """Return repository adapter according to DATA_BACKEND setting."""

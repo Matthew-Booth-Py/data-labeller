@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import uuid4
 
-from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.models.evaluation import (
     BenchmarkGateResult,
@@ -17,6 +16,7 @@ from uu_backend.models.evaluation import (
     ExtractionEvaluationMetrics,
     FieldEvaluation,
 )
+from uu_backend.repositories import get_repository
 from uu_backend.services.extraction_service import get_extraction_service
 
 
@@ -25,7 +25,7 @@ class EvaluationService:
 
     def __init__(self):
         self.extraction_service = get_extraction_service()
-        self.sqlite_client = get_sqlite_client()
+        self.repository = get_repository()
         self.vector_store = get_vector_store()
 
     def evaluate_extraction(
@@ -59,12 +59,12 @@ class EvaluationService:
             raise ValueError(f"Document {document_id} not found")
 
         # Get classification
-        classification = self.sqlite_client.get_classification(document_id)
+        classification = self.repository.get_classification(document_id)
         if not classification:
             raise ValueError(f"Document {document_id} is not classified")
 
         # Get document type
-        doc_type = self.sqlite_client.get_document_type(classification.document_type_id)
+        doc_type = self.repository.get_document_type(classification.document_type_id)
         if not doc_type:
             raise ValueError(f"Document type {classification.document_type_id} not found")
 
@@ -72,7 +72,7 @@ class EvaluationService:
             raise ValueError(f"Document type '{doc_type.name}' has no schema fields")
 
         # Get ground truth annotations
-        annotations = self.sqlite_client.list_annotations(document_id=document_id)
+        annotations = self.repository.list_annotations(document_id=document_id)
         if not annotations:
             raise ValueError(
                 f"Document {document_id} has no annotations. Please label it first to create ground truth."
@@ -118,10 +118,10 @@ class EvaluationService:
         prompt_version = None
         prompt_version_name = None
         if prompt_version_id:
-            prompt_version = self.sqlite_client.get_prompt_version(prompt_version_id)
+            prompt_version = self.repository.get_prompt_version(prompt_version_id)
             if prompt_version:
                 prompt_version_name = prompt_version.name
-        active_field_prompt_versions = self.sqlite_client.list_active_field_prompt_version_names(
+        active_field_prompt_versions = self.repository.list_active_field_prompt_version_names(
             doc_type.id
         )
         field_prompt_versions = {
@@ -146,7 +146,7 @@ class EvaluationService:
         )
 
         # Save evaluation
-        self.sqlite_client.save_evaluation(evaluation)
+        self.repository.save_evaluation(evaluation)
 
         return evaluation
 
@@ -992,7 +992,7 @@ class EvaluationService:
             List of ExtractionEvaluation results for each document
         """
         # Get all document IDs with this document type
-        document_ids = self.sqlite_client.get_documents_by_type(document_type_id)
+        document_ids = self.repository.get_documents_by_type(document_type_id)
         
         if not document_ids:
             raise ValueError(f"No documents found for document type {document_type_id}")
@@ -1003,7 +1003,7 @@ class EvaluationService:
         for document_id in document_ids:
             try:
                 # Check if document has annotations
-                annotations = self.sqlite_client.list_annotations(
+                annotations = self.repository.list_annotations(
                     document_id=document_id
                 )
                 if not annotations:
@@ -1053,7 +1053,7 @@ class EvaluationService:
         required_field_gates: Optional[dict[str, dict[str, float]]] = None,
     ) -> BenchmarkRunResult:
         """Run benchmark evaluation over a dataset split and persist run summary."""
-        dataset = self.sqlite_client.get_benchmark_dataset(dataset_id)
+        dataset = self.repository.get_benchmark_dataset(dataset_id)
         if not dataset:
             raise ValueError(f"Benchmark dataset {dataset_id} not found")
         if not dataset["documents"]:
@@ -1105,7 +1105,7 @@ class EvaluationService:
 
         drift_delta = None
         if baseline_run_id:
-            baseline = self.sqlite_client.get_benchmark_run(baseline_run_id)
+            baseline = self.repository.get_benchmark_run(baseline_run_id)
             if baseline:
                 drift_delta = {
                     metric: overall_metrics[metric] - baseline["overall_metrics"].get(metric, 0.0)
@@ -1134,7 +1134,7 @@ class EvaluationService:
             notes=notes,
         )
 
-        self.sqlite_client.save_benchmark_run(
+        self.repository.save_benchmark_run(
             {
                 **run.model_dump(),
                 "created_at": run.created_at,

@@ -10,13 +10,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
-from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.ingestion.chunker import get_chunker
 from uu_backend.ingestion.converter import get_converter
 from uu_backend.models.annotation import LabelCreate
 from uu_backend.models.document import Document, DocumentMetadata
 from uu_backend.models.taxonomy import DocumentTypeCreate, FieldType, SchemaField
+from uu_backend.repositories import get_repository
 
 SAMPLE_DOCUMENTS = [
     "claim_form_auto_2024.pdf",
@@ -120,7 +120,7 @@ class TutorialSetupView(APIView):
     permission_classes: list = []
 
     def post(self, request):
-        sqlite_client = get_sqlite_client()
+        repository = get_repository()
         vector_store = get_vector_store()
         settings = get_settings()
 
@@ -129,7 +129,7 @@ class TutorialSetupView(APIView):
         label_ids: list[str] = []
 
         for type_def in DOCUMENT_TYPES:
-            existing = sqlite_client.get_document_type_by_name(type_def["name"])
+            existing = repository.get_document_type_by_name(type_def["name"])
             if existing:
                 document_type_ids.append(existing.id)
                 continue
@@ -138,7 +138,7 @@ class TutorialSetupView(APIView):
                 SchemaField(name=field["name"], type=FieldType(field["type"]), description=field["description"])
                 for field in type_def["schema_fields"]
             ]
-            doc_type = sqlite_client.create_document_type(
+            doc_type = repository.create_document_type(
                 DocumentTypeCreate(
                     name=type_def["name"],
                     description=type_def["description"],
@@ -148,12 +148,12 @@ class TutorialSetupView(APIView):
             document_type_ids.append(doc_type.id)
 
         for label_def in DEFAULT_LABELS:
-            existing = sqlite_client.get_label_by_name(label_def["name"])
+            existing = repository.get_label_by_name(label_def["name"])
             if existing:
                 label_ids.append(existing.id)
                 continue
 
-            label = sqlite_client.create_label(
+            label = repository.create_label(
                 LabelCreate(
                     name=label_def["name"],
                     color=label_def["color"],
@@ -242,16 +242,16 @@ class TutorialStatusView(APIView):
     permission_classes: list = []
 
     def get(self, request):
-        sqlite_client = get_sqlite_client()
+        repository = get_repository()
         vector_store = get_vector_store()
 
         all_docs = vector_store.get_all_documents()
         sample_doc_ids = [doc.id for doc in all_docs if doc.filename in SAMPLE_DOCUMENTS]
 
-        doc_types = sqlite_client.list_document_types()
+        doc_types = repository.list_document_types()
         tutorial_type_count = sum(1 for doc_type in doc_types if any(row["name"] == doc_type.name for row in DOCUMENT_TYPES))
 
-        labels = sqlite_client.list_labels()
+        labels = repository.list_labels()
         tutorial_label_count = sum(1 for label in labels if any(row["name"] == label.name for row in DEFAULT_LABELS))
 
         payload = TutorialStatusResponse(
@@ -331,4 +331,3 @@ class TutorialSampleDocumentsView(APIView):
                 "expected_total": len(SAMPLE_DOCUMENTS),
             }
         )
-

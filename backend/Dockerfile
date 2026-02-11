@@ -32,6 +32,7 @@ COPY src/ ./src/
 
 # Copy sample documents for tutorial
 COPY sample_docs/ ./sample_docs/
+COPY manage.py ./manage.py
 
 # Reinstall just the local package (fast - dependencies are already cached)
 RUN uv sync --no-dev

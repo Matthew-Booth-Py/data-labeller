@@ -10,10 +10,10 @@ from uuid import uuid4
 from openai import OpenAI
 
 from uu_backend.config import get_settings
-from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.taxonomy import ExtractedField, ExtractionResult, SchemaField
+from uu_backend.repositories import get_repository
 from uu_backend.services.schema_generator import generate_pydantic_schema, schema_to_json_schema
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ class ExtractionService:
         Returns:
             ExtractionResult with extracted field values
         """
-        sqlite_client = get_sqlite_client()
+        repository = get_repository()
         vector_store = get_vector_store()
         
         # Get document
@@ -62,12 +62,12 @@ class ExtractionService:
             raise ValueError(f"Document {document_id} not found")
         
         # Get classification
-        classification = sqlite_client.get_classification(document_id)
+        classification = repository.get_classification(document_id)
         if not classification:
             raise ValueError(f"Document {document_id} is not classified. Please classify first.")
         
         # Get document type with schema
-        doc_type = sqlite_client.get_document_type(classification.document_type_id)
+        doc_type = repository.get_document_type(classification.document_type_id)
         if not doc_type:
             raise ValueError(f"Document type {classification.document_type_id} not found")
         
@@ -97,7 +97,7 @@ class ExtractionService:
         model_name = doc_type.extraction_model or self.model
 
         if prompt_version_id:
-            prompt_version = sqlite_client.get_prompt_version(prompt_version_id)
+            prompt_version = repository.get_prompt_version(prompt_version_id)
             if prompt_version:
                 system_prompt = f"{prompt_version.system_prompt}\n\n{self._raw_guardrails}"
         
@@ -257,7 +257,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
         Returns:
             ExtractionResult with extracted field values
         """
-        sqlite_client = get_sqlite_client()
+        repository = get_repository()
         vector_store = get_vector_store()
         
         # Get document
@@ -266,12 +266,12 @@ Extract all fields according to the schema. Return null for fields that cannot b
             raise ValueError(f"Document {document_id} not found")
         
         # Get classification
-        classification = sqlite_client.get_classification(document_id)
+        classification = repository.get_classification(document_id)
         if not classification:
             raise ValueError(f"Document {document_id} is not classified. Please classify first.")
         
         # Get document type with schema
-        doc_type = sqlite_client.get_document_type(classification.document_type_id)
+        doc_type = repository.get_document_type(classification.document_type_id)
         if not doc_type:
             raise ValueError(f"Document type {classification.document_type_id} not found")
         
@@ -284,7 +284,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
         )
         
         # Get annotations
-        annotations = sqlite_client.list_annotations(document_id=document_id)
+        annotations = repository.list_annotations(document_id=document_id)
         
         # Build initial extraction from annotations
         extracted_fields: list[ExtractedField] = []
@@ -400,8 +400,8 @@ Extract all fields according to the schema. Return null for fields that cannot b
         self, document_type_id: str, schema_fields: list[SchemaField]
     ) -> list[SchemaField]:
         """Overlay active field prompt versions onto schema field definitions."""
-        sqlite_client = get_sqlite_client()
-        active_prompts = sqlite_client.list_active_field_prompt_versions(document_type_id)
+        repository = get_repository()
+        active_prompts = repository.list_active_field_prompt_versions(document_type_id)
         if not active_prompts:
             return schema_fields
         return [
@@ -418,7 +418,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
         prompt_version_id: Optional[str] = None
     ) -> list[ExtractedField]:
         """Use LLM to refine and fill in missing extracted fields."""
-        sqlite_client = get_sqlite_client()
+        repository = get_repository()
         
         # Build context from annotations
         annotation_context = "\n".join([
@@ -449,7 +449,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
         user_prompt_template = None
         
         if prompt_version_id:
-            prompt_version = sqlite_client.get_prompt_version(prompt_version_id)
+            prompt_version = repository.get_prompt_version(prompt_version_id)
             if prompt_version:
                 system_prompt = prompt_version.system_prompt
                 user_prompt_template = prompt_version.user_prompt_template
@@ -518,8 +518,8 @@ Extract all fields according to the schema. Return null for fields that cannot b
 
     def _save_extraction(self, result: ExtractionResult):
         """Save extraction result to database."""
-        sqlite_client = get_sqlite_client()
-        sqlite_client.save_extraction_result(result)
+        repository = get_repository()
+        repository.save_extraction_result(result)
 
 
 # Singleton instance

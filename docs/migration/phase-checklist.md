@@ -24,12 +24,16 @@
 
 ## Phase 3
 - [x] Repository abstraction scaffold added
-- [ ] Route/service adoption of repository interface
+- [x] Django API routes switched from direct SQLite client calls to repository factory (`get_repository`)
+- [x] Service-layer migration from direct SQLite calls to repository interface
 
 ## Phase 4
 - [x] Initial Django ORM model scaffold (`DocumentTypeModel`)
 - [x] SQLite import management command scaffold
-- [ ] Full model parity and data validation tooling
+- [x] Expanded ORM parity models for core SQLite domain tables (`django_data.models`)
+- [x] SQLite -> ORM import command supports full table set (`import_sqlite`)
+- [x] SQLite vs ORM row-count parity command added (`validate_sql_parity`)
+- [ ] Postgres-backed runtime cutover and dual-write validation gate
 
 ## Phase 5
 - [ ] Full Django ownership for all route groups

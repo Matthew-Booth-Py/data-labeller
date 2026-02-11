@@ -9,10 +9,10 @@ from openai import OpenAI
 from pydantic import BaseModel, Field, create_model
 
 from uu_backend.config import get_settings
-from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.suggestion import SuggestedAnnotation, SuggestionResponse
+from uu_backend.repositories import get_repository
 from uu_backend.services.ml_service import get_ml_service
 from uu_backend.services.label_suggestion_service import GLOBAL_FIELD_LIBRARY
 
@@ -26,7 +26,7 @@ class SuggestionService:
         self.settings = get_settings()
         self.client = OpenAI(api_key=self.settings.openai_api_key)
         self.model = self.settings.openai_model
-        self.sqlite = get_sqlite_client()
+        self.repository = get_repository()
         self._ml_service = None
 
     @property
@@ -60,7 +60,7 @@ class SuggestionService:
                 docs = vector_store.get_all_documents()
                 
                 for doc in docs:
-                    doc_annotations = self.sqlite.list_annotations(
+                    doc_annotations = self.repository.list_annotations(
                         document_id=doc.id,
                         label_id=label.id
                     )
@@ -260,20 +260,20 @@ class SuggestionService:
         """Resolve strict label allowlist for a suggestion run."""
         if label_ids:
             allowed = set(label_ids)
-            return [l for l in self.sqlite.list_labels() if l.id in allowed]
+            return [l for l in self.repository.list_labels() if l.id in allowed]
 
-        classification = self.sqlite.get_classification(document_id)
+        classification = self.repository.get_classification(document_id)
         if classification:
-            doc_type = self.sqlite.get_document_type(classification.document_type_id)
+            doc_type = self.repository.get_document_type(classification.document_type_id)
             if doc_type:
                 schema_names = {f.name for f in (doc_type.schema_fields or [])}
-                labels = self.sqlite.list_labels(
+                labels = self.repository.list_labels(
                     document_type_id=doc_type.id,
                     include_global=False,
                 )
                 return [l for l in labels if l.name in schema_names]
 
-        return self.sqlite.list_labels()
+        return self.repository.list_labels()
 
     def _filter_existing_annotations(
         self,
@@ -282,7 +282,7 @@ class SuggestionService:
     ) -> SuggestionResponse:
         """Filter out suggestions that overlap with existing annotations."""
         # Get existing annotations for this document
-        existing_annotations = self.sqlite.list_annotations(document_id=document_id)
+        existing_annotations = self.repository.list_annotations(document_id=document_id)
         
         if not existing_annotations:
             return response
@@ -355,13 +355,13 @@ class SuggestionService:
         """Generate annotation suggestions using LLM."""
 
         # Get document classification and type for schema context
-        classification = self.sqlite.get_classification(document_id)
+        classification = self.repository.get_classification(document_id)
         doc_type = None
         if classification:
-            doc_type = self.sqlite.get_document_type(classification.document_type_id)
+            doc_type = self.repository.get_document_type(classification.document_type_id)
         
         # Get available labels
-        labels = self.sqlite.list_labels()
+        labels = self.repository.list_labels()
         if label_ids:
             labels = [l for l in labels if l.id in label_ids]
 

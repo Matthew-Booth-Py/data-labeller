@@ -24,12 +24,16 @@ services:
       - DJANGO_MIGRATED_GROUPS=${DJANGO_MIGRATED_GROUPS:-}
       - DATA_BACKEND=${DATA_BACKEND:-sqlite}
       - ASYNC_EXECUTOR=${ASYNC_EXECUTOR:-inline}
+      - DISPATCHER_ENABLE_FASTAPI_FALLBACK=${DISPATCHER_ENABLE_FASTAPI_FALLBACK:-false}
+      - DJANGO_DATABASE_URL=${DJANGO_DATABASE_URL:-postgres://uu:uu@postgres:5432/uu_django}
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       neo4j:
         condition: service_healthy
       redis:
         condition: service_started
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -93,6 +97,7 @@ services:
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
       - CHROMA_PERSIST_DIRECTORY=/app/data/chroma
       - ASYNC_EXECUTOR=celery
+      - DJANGO_DATABASE_URL=${DJANGO_DATABASE_URL:-postgres://uu:uu@postgres:5432/uu_django}
     volumes:
       - chroma_data:/app/data/chroma
       - file_storage:/app/data/files
@@ -101,6 +106,23 @@ services:
     depends_on:
       - redis
       - neo4j
+      - postgres
+
+  postgres:
+    image: postgres:16
+    container_name: uu-postgres
+    environment:
+      - POSTGRES_DB=uu_django
+      - POSTGRES_USER=uu
+      - POSTGRES_PASSWORD=uu
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uu -d uu_django"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
 volumes:
   chroma_data:
@@ -112,6 +134,8 @@ volumes:
   neo4j_data:
     driver: local
   neo4j_logs:
+    driver: local
+  postgres_data:
     driver: local
 
 networks:

@@ -58,6 +58,7 @@ class Settings(BaseModel):
     django_migrated_groups: list[str] = []
     data_backend: str = "sqlite"
     async_executor: str = "inline"
+    dispatcher_enable_fastapi_fallback: bool = False
 
     @property
     def chroma_path(self) -> Path:
@@ -101,6 +102,7 @@ _ENV_TO_FIELD = {
     "DJANGO_MIGRATED_GROUPS": "django_migrated_groups",
     "DATA_BACKEND": "data_backend",
     "ASYNC_EXECUTOR": "async_executor",
+    "DISPATCHER_ENABLE_FASTAPI_FALLBACK": "dispatcher_enable_fastapi_fallback",
 }
 
 
@@ -108,7 +110,7 @@ def _coerce_value(field_name: str, raw: str) -> Any:
     """Coerce env/.env string values into typed settings values."""
     if field_name in {"api_port", "chunk_size", "chunk_overlap"}:
         return int(raw)
-    if field_name == "debug":
+    if field_name in {"debug", "dispatcher_enable_fastapi_fallback"}:
         return raw.strip().lower() in {"1", "true", "yes", "on"}
     if field_name == "cors_origins":
         value = raw.strip()

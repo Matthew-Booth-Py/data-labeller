@@ -4,7 +4,6 @@ from pydantic import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from uu_backend.database.sqlite_client import get_sqlite_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.models.feedback import (
     FeedbackCreate,
@@ -12,6 +11,7 @@ from uu_backend.models.feedback import (
     TrainingResult,
 )
 from uu_backend.models.suggestion import SuggestionRequest
+from uu_backend.repositories import get_repository
 from uu_backend.services.ml_service import get_ml_service
 from uu_backend.services.suggestion_service import get_suggestion_service
 
@@ -71,13 +71,13 @@ class FeedbackView(APIView):
         except ValidationError as exc:
             return _validation_error_response(exc)
 
-        sqlite = get_sqlite_client()
+        repository = get_repository()
         ml_service = get_ml_service()
 
         try:
             embedding = ml_service.embed_text(parsed.text)
-            feedback = sqlite.create_feedback(parsed, embedding=embedding)
-            feedback_count = sqlite.get_feedback_count()
+            feedback = repository.create_feedback(parsed, embedding=embedding)
+            feedback_count = repository.get_feedback_count()
             should_retrain = ml_service.should_retrain()
 
             payload = FeedbackResponse(
@@ -99,8 +99,8 @@ class FeedbackView(APIView):
         if limit < 1 or limit > 1000:
             return Response({"detail": "limit must be between 1 and 1000"}, status=422)
 
-        sqlite = get_sqlite_client()
-        feedback = sqlite.list_feedback(label_id=label_id)
+        repository = get_repository()
+        feedback = repository.list_feedback(label_id=label_id)
         return Response([item.model_dump(mode="json") for item in feedback[:limit]])
 
 
@@ -134,4 +134,3 @@ class ModelTrainView(APIView):
 
         result = ml_service.train_model()
         return Response(result.model_dump(mode="json"))
-
