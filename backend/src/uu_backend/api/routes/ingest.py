@@ -43,6 +43,29 @@ def process_entity_extraction(
         pass
 
 
+def dispatch_entity_extraction(
+    doc_id: str,
+    content: str,
+    date_extracted,
+) -> None:
+    """Dispatch entity extraction according to configured async executor."""
+    settings = get_settings()
+    executor = settings.async_executor.strip().lower()
+
+    if executor == "celery":
+        try:
+            from uu_backend.tasks.extraction_tasks import process_entity_extraction_task
+
+            date_iso = date_extracted.isoformat() if date_extracted else None
+            process_entity_extraction_task.delay(doc_id=doc_id, content=content, date_extracted_iso=date_iso)
+            return
+        except Exception:
+            # Fall back to in-process dispatch if broker/worker is unavailable.
+            pass
+
+    process_entity_extraction(doc_id=doc_id, content=content, date_extracted=date_extracted)
+
+
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest_documents(
     files: Annotated[list[UploadFile], File(description="Documents to ingest")],
@@ -61,6 +84,7 @@ async def ingest_documents(
     start_time = time.time()
 
     settings = get_settings()
+    async_executor = settings.async_executor.strip().lower()
     converter = get_converter()
     chunker = get_chunker()
     vector_store = get_vector_store()
@@ -141,13 +165,21 @@ async def ingest_documents(
                 created_at=document.created_at,
             )
 
-            # Queue background entity extraction
-            background_tasks.add_task(
-                process_entity_extraction,
-                doc_id,
-                result.content,
-                date_extracted,
-            )
+            # Queue/dispatch entity extraction
+            if async_executor == "inline":
+                background_tasks.add_task(
+                    process_entity_extraction,
+                    doc_id,
+                    result.content,
+                    date_extracted,
+                )
+            else:
+                background_tasks.add_task(
+                    dispatch_entity_extraction,
+                    doc_id,
+                    result.content,
+                    date_extracted,
+                )
 
             documents_processed += 1
             chunks_created += len(chunks)

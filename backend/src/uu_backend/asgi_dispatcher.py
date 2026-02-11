@@ -1,0 +1,35 @@
+"""Composite ASGI app that dispatches between FastAPI and Django by route group."""
+
+import os
+from typing import Optional
+
+from uu_backend.config import get_settings
+from uu_backend.migration.routing import resolve_route_group
+
+# Ensure Django loads with local defaults unless explicitly set.
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "uu_backend.django_project.settings.local")
+
+from uu_backend.api.main import app as fastapi_app  # noqa: E402
+from uu_backend.django_project.asgi import application as django_app  # noqa: E402
+
+
+def _route_group(path: str) -> Optional[str]:
+    """Backward-compatible alias for route-group resolution."""
+    return resolve_route_group(path)
+
+
+async def application(scope, receive, send):
+    """Dispatch to Django for migrated groups, otherwise FastAPI."""
+    if scope.get("type") != "http":
+        await fastapi_app(scope, receive, send)
+        return
+
+    path = scope.get("path", "")
+    group = resolve_route_group(path)
+    migrated_groups = get_settings().django_migrated_groups_set
+
+    if group and group in migrated_groups:
+        await django_app(scope, receive, send)
+        return
+
+    await fastapi_app(scope, receive, send)

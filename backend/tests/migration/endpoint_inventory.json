@@ -1,0 +1,491 @@
+{
+  "total_endpoints": 102,
+  "groups": {
+    "annotations": {
+      "file": "/Users/matthewbooth/Documents/git/data-labeller/backend/src/uu_backend/api/routes/annotations.py",
+      "endpoint_count": 17,
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/labels"
+        },
+        {
+          "method": "POST",
+          "path": "/labels"
+        },
+        {
+          "method": "GET",
+          "path": "/labels/{label_id}"
+        },
+        {
+          "method": "PUT",
+          "path": "/labels/{label_id}"
+        },
+        {
+          "method": "DELETE",
+          "path": "/labels/{label_id}"
+        },
+        {
+          "method": "POST",
+          "path": "/labels/suggest"
+        },
+        {
+          "method": "POST",
+          "path": "/labels/suggestions/{suggestion_id}/accept"
+        },
+        {
+          "method": "POST",
+          "path": "/labels/suggestions/{suggestion_id}/reject"
+        },
+        {
+          "method": "POST",
+          "path": "/documents/{document_id}/suggest-annotations"
+        },
+        {
+          "method": "GET",
+          "path": "/documents/{document_id}/annotations"
+        },
+        {
+          "method": "POST",
+          "path": "/documents/{document_id}/annotations"
+        },
+        {
+          "method": "GET",
+          "path": "/annotations/{annotation_id}"
+        },
+        {
+          "method": "DELETE",
+          "path": "/annotations/{annotation_id}"
+        },
+        {
+          "method": "DELETE",
+          "path": "/documents/{document_id}/annotations"
+        },
+        {
+          "method": "GET",
+          "path": "/documents/{document_id}/annotations/stats"
+        },
+        {
+          "method": "GET",
+          "path": "/annotations/export"
+        },
+        {
+          "method": "GET",
+          "path": "/documents/{document_id}/export"
+        }
+      ]
+    },
+    "deployments": {
+      "file": "/Users/matthewbooth/Documents/git/data-labeller/backend/src/uu_backend/api/routes/deployments.py",
+      "endpoint_count": 7,
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/versions"
+        },
+        {
+          "method": "GET",
+          "path": "/projects/{project_id}/versions"
+        },
+        {
+          "method": "GET",
+          "path": "/projects/{project_id}/active"
+        },
+        {
+          "method": "POST",
+          "path": "/projects/{project_id}/versions/{version_id}/activate"
+        },
+        {
+          "method": "POST",
+          "path": "/projects/{project_id}/extract"
+        },
+        {
+          "method": "POST",
+          "path": "/projects/{project_id}/versions/{version_id}/extract"
+        },
+        {
+          "method": "POST",
+          "path": "/projects/{project_id}/v/{version}/extract"
+        }
+      ]
+    },
+    "documents": {
+      "file": "/Users/matthewbooth/Documents/git/data-labeller/backend/src/uu_backend/api/routes/documents.py",
+      "endpoint_count": 5,
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/documents"
+        },
+        {
+          "method": "GET",
+          "path": "/documents/{document_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/documents/{document_id}/file"
+        },
+        {
+          "method": "DELETE",
+          "path": "/documents/{document_id}"
+        },
+        {
+          "method": "POST",
+          "path": "/documents/{document_id}/reprocess"
+        }
+      ]
+    },
+    "evaluation": {
+      "file": "/Users/matthewbooth/Documents/git/data-labeller/backend/src/uu_backend/api/routes/evaluation.py",
+      "endpoint_count": 24,
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/benchmarks/datasets"
+        },
+        {
+          "method": "GET",
+          "path": "/benchmarks/datasets"
+        },
+        {
+          "method": "POST",
+          "path": "/benchmarks/datasets/{dataset_id}/documents"
+        },
+        {
+          "method": "POST",
+          "path": "/run-benchmark"
+        },
+        {
+          "method": "GET",
+          "path": "/benchmarks/runs/{run_id}"
+        },
+        {
+          "method": "POST",
+          "path": "/run"
+        },
+        {
+          "method": "POST",
+          "path": "/run-project"
+        },
+        {
+          "method": "GET",
+          "path": "/results/{evaluation_id}"
+        },
+        {
+          "method": "DELETE",
+          "path": "/results/{evaluation_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/summary/aggregate"
+        },
+        {
+          "method": "GET",
+          "path": "/compare/prompts"
+        },
+        {
+          "method": "POST",
+          "path": "/prompts"
+        },
+        {
+          "method": "GET",
+          "path": "/prompts/{version_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/prompts"
+        },
+        {
+          "method": "PATCH",
+          "path": "/prompts/{version_id}"
+        },
+        {
+          "method": "DELETE",
+          "path": "/prompts/{version_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/prompts/active/current"
+        },
+        {
+          "method": "POST",
+          "path": "/field-prompts"
+        },
+        {
+          "method": "GET",
+          "path": "/field-prompts/version/{version_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/field-prompts/list"
+        },
+        {
+          "method": "PATCH",
+          "path": "/field-prompts/version/{version_id}"
+        },
+        {
+          "method": "DELETE",
+          "path": "/field-prompts/version/{version_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/field-prompts/active/current"
+        },
+        {
+          "method": "GET",
+          "path": "/field-prompts/active/by-document-type"
+        }
+      ]
+    },
+    "graph": {
+      "file": "/Users/matthewbooth/Documents/git/data-labeller/backend/src/uu_backend/api/routes/graph.py",
+      "endpoint_count": 5,
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/graph"
+        },
+        {
+          "method": "GET",
+          "path": "/graph/entities"
+        },
+        {
+          "method": "GET",
+          "path": "/graph/entities/{entity_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/graph/timeline"
+        },
+        {
+          "method": "GET",
+          "path": "/graph/stats"
+        }
+      ]
+    },
+    "health": {
+      "file": "/Users/matthewbooth/Documents/git/data-labeller/backend/src/uu_backend/api/routes/health.py",
+      "endpoint_count": 1,
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/health"
+        }
+      ]
+    },
+    "ingest": {
+      "file": "/Users/matthewbooth/Documents/git/data-labeller/backend/src/uu_backend/api/routes/ingest.py",
+      "endpoint_count": 2,
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/ingest"
+        },
+        {
+          "method": "GET",
+          "path": "/ingest/status"
+        }
+      ]
+    },
+    "providers": {
+      "file": "/Users/matthewbooth/Documents/git/data-labeller/backend/src/uu_backend/api/routes/providers.py",
+      "endpoint_count": 8,
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/openai"
+        },
+        {
+          "method": "PUT",
+          "path": "/openai"
+        },
+        {
+          "method": "POST",
+          "path": "/openai/test"
+        },
+        {
+          "method": "GET",
+          "path": "/openai/models"
+        },
+        {
+          "method": "POST",
+          "path": "/openai/models"
+        },
+        {
+          "method": "PATCH",
+          "path": "/openai/models/{model_id}"
+        },
+        {
+          "method": "DELETE",
+          "path": "/openai/models/{model_id}"
+        },
+        {
+          "method": "POST",
+          "path": "/openai/models/{model_id}/test"
+        }
+      ]
+    },
+    "search": {
+      "file": "/Users/matthewbooth/Documents/git/data-labeller/backend/src/uu_backend/api/routes/search.py",
+      "endpoint_count": 2,
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/search"
+        },
+        {
+          "method": "POST",
+          "path": "/ask"
+        }
+      ]
+    },
+    "suggestions": {
+      "file": "/Users/matthewbooth/Documents/git/data-labeller/backend/src/uu_backend/api/routes/suggestions.py",
+      "endpoint_count": 5,
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/documents/{document_id}/suggest"
+        },
+        {
+          "method": "POST",
+          "path": "/feedback"
+        },
+        {
+          "method": "GET",
+          "path": "/feedback"
+        },
+        {
+          "method": "GET",
+          "path": "/model/status"
+        },
+        {
+          "method": "POST",
+          "path": "/model/train"
+        }
+      ]
+    },
+    "taxonomy": {
+      "file": "/Users/matthewbooth/Documents/git/data-labeller/backend/src/uu_backend/api/routes/taxonomy.py",
+      "endpoint_count": 20,
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/taxonomy/field-assistant"
+        },
+        {
+          "method": "GET",
+          "path": "/taxonomy/fields"
+        },
+        {
+          "method": "POST",
+          "path": "/taxonomy/fields"
+        },
+        {
+          "method": "GET",
+          "path": "/taxonomy/fields/{field_id}"
+        },
+        {
+          "method": "PUT",
+          "path": "/taxonomy/fields/{field_id}"
+        },
+        {
+          "method": "DELETE",
+          "path": "/taxonomy/fields/{field_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/taxonomy/types"
+        },
+        {
+          "method": "POST",
+          "path": "/taxonomy/types"
+        },
+        {
+          "method": "GET",
+          "path": "/taxonomy/types/{type_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/taxonomy/types/{type_id}/schema-versions"
+        },
+        {
+          "method": "PUT",
+          "path": "/taxonomy/types/{type_id}"
+        },
+        {
+          "method": "DELETE",
+          "path": "/taxonomy/types/{type_id}"
+        },
+        {
+          "method": "POST",
+          "path": "/documents/{document_id}/classify"
+        },
+        {
+          "method": "POST",
+          "path": "/documents/{document_id}/auto-classify"
+        },
+        {
+          "method": "GET",
+          "path": "/documents/{document_id}/classification"
+        },
+        {
+          "method": "DELETE",
+          "path": "/documents/{document_id}/classification"
+        },
+        {
+          "method": "GET",
+          "path": "/taxonomy/types/{type_id}/documents"
+        },
+        {
+          "method": "POST",
+          "path": "/documents/{document_id}/extract"
+        },
+        {
+          "method": "GET",
+          "path": "/documents/{document_id}/extraction"
+        },
+        {
+          "method": "DELETE",
+          "path": "/documents/{document_id}/extraction"
+        }
+      ]
+    },
+    "timeline": {
+      "file": "/Users/matthewbooth/Documents/git/data-labeller/backend/src/uu_backend/api/routes/timeline.py",
+      "endpoint_count": 2,
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/timeline"
+        },
+        {
+          "method": "GET",
+          "path": "/timeline/range"
+        }
+      ]
+    },
+    "tutorial": {
+      "file": "/Users/matthewbooth/Documents/git/data-labeller/backend/src/uu_backend/api/routes/tutorial.py",
+      "endpoint_count": 4,
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/tutorial/setup"
+        },
+        {
+          "method": "GET",
+          "path": "/tutorial/status"
+        },
+        {
+          "method": "POST",
+          "path": "/tutorial/reset"
+        },
+        {
+          "method": "GET",
+          "path": "/tutorial/sample-documents"
+        }
+      ]
+    }
+  }
+}

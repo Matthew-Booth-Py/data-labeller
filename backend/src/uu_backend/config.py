@@ -54,6 +54,11 @@ class Settings(BaseModel):
     openai_tagging_model: str = "gpt-5-mini"
     openai_reasoning_effort: str = "low"
 
+    # Migration rollout controls
+    django_migrated_groups: list[str] = []
+    data_backend: str = "sqlite"
+    async_executor: str = "inline"
+
     @property
     def chroma_path(self) -> Path:
         """Return ChromaDB persist directory as Path."""
@@ -67,6 +72,11 @@ class Settings(BaseModel):
         path = Path(self.file_storage_directory)
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    @property
+    def django_migrated_groups_set(self) -> set[str]:
+        """Return normalized migrated route groups."""
+        return {group.strip().lower() for group in self.django_migrated_groups if group.strip()}
 
 
 _ENV_TO_FIELD = {
@@ -88,6 +98,9 @@ _ENV_TO_FIELD = {
     "OPENAI_MODEL": "openai_model",
     "OPENAI_TAGGING_MODEL": "openai_tagging_model",
     "OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
+    "DJANGO_MIGRATED_GROUPS": "django_migrated_groups",
+    "DATA_BACKEND": "data_backend",
+    "ASYNC_EXECUTOR": "async_executor",
 }
 
 
@@ -103,6 +116,13 @@ def _coerce_value(field_name: str, raw: str) -> Any:
             parsed = json.loads(value)
             if isinstance(parsed, list):
                 return [str(item) for item in parsed]
+        return [part.strip() for part in value.split(",") if part.strip()]
+    if field_name == "django_migrated_groups":
+        value = raw.strip()
+        if value.startswith("["):
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if str(item).strip()]
         return [part.strip() for part in value.split(",") if part.strip()]
     return raw
 

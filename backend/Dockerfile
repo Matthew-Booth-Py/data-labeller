@@ -48,4 +48,4 @@ ENV CHROMA_PERSIST_DIRECTORY=/app/data/chroma
 EXPOSE 8000
 
 # Run the application
-CMD ["uv", "run", "uvicorn", "uu_backend.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "uu_backend.asgi_dispatcher:application", "--host", "0.0.0.0", "--port", "8000"]

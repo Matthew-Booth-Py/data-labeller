@@ -1,0 +1,20 @@
+"""Background extraction tasks for migration phase 2."""
+
+from celery import shared_task
+
+from uu_backend.api.routes.ingest import process_entity_extraction
+
+
+@shared_task(name="uu_backend.tasks.process_entity_extraction")
+def process_entity_extraction_task(doc_id: str, content: str, date_extracted_iso: str | None = None) -> None:
+    """Celery wrapper for entity extraction side effects."""
+    from datetime import datetime
+
+    parsed_date = None
+    if date_extracted_iso:
+        try:
+            parsed_date = datetime.fromisoformat(date_extracted_iso)
+        except ValueError:
+            parsed_date = None
+
+    process_entity_extraction(doc_id=doc_id, content=content, date_extracted=parsed_date)

@@ -1,0 +1,19 @@
+{
+  "endpoint": "/health",
+  "method": "GET",
+  "required_top_level_keys": [
+    "status",
+    "version",
+    "services",
+    "stats"
+  ],
+  "required_service_keys": [
+    "vector_db",
+    "neo4j",
+    "openai"
+  ],
+  "required_stats_keys": [
+    "documents",
+    "graph"
+  ]
+}

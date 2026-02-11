@@ -29,7 +29,7 @@ uv sync
 
 ```bash
 # Run the development server
-uv run uvicorn uu_backend.api.main:app --reload --port 8000
+uv run uvicorn uu_backend.asgi_dispatcher:application --reload --port 8000
 
 # Or use the module directly
 uv run python -m uu_backend.api.main
@@ -92,6 +92,19 @@ backend/
 | `CHUNK_SIZE` | `1000` | Characters per chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between chunks |
 | `CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed CORS origins |
+| `DJANGO_MIGRATED_GROUPS` | `` | Comma-separated route groups served by Django (`health,timeline,search`) |
+| `DATA_BACKEND` | `sqlite` | Persistence backend mode (`sqlite`, `dual`, `django`) |
+| `ASYNC_EXECUTOR` | `inline` | Background executor (`inline`, `celery`) |
+
+## Migration Utilities
+
+```bash
+# Regenerate endpoint inventory and docs
+python scripts/generate_endpoint_inventory.py
+
+# Run smoke checks against a running backend (default localhost:8000)
+./scripts/smoke_frontend_flows.sh
+```
 
 ## Development
 

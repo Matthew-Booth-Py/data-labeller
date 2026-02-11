@@ -45,7 +45,7 @@ flowchart LR
 ```
 
 - Frontend (`frontend/client`): schema builder, labeling UI, extraction runner, evaluation board, deployment manager.
-- Backend (`backend/src/uu_backend`): ingestion, classification, suggestions, extraction, evaluation, deployments.
+- Backend (`backend/src/uu_backend`): phased FastAPI-to-Django API migration via ASGI dispatcher, plus ingestion/classification/suggestions/extraction/evaluation/deployments.
 - Persistence:
   - SQLite: schemas, labels, annotations, evaluations, versions, deployment snapshots.
   - Chroma: chunk embeddings and semantic retrieval.
@@ -86,6 +86,7 @@ Saving a new version creates a deployable extraction snapshot for the selected p
 ## API (Deployment)
 
 All routes are served by FastAPI under `/api/v1`.
+Migration note: the backend now runs through a composite ASGI dispatcher (`uu_backend.asgi_dispatcher`) and can route selected endpoint groups to Django using `DJANGO_MIGRATED_GROUPS`.
 
 - `POST /api/v1/deployments/versions`
   - Create a new deployment snapshot version.
