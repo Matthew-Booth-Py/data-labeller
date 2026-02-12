@@ -31,7 +31,7 @@ services:
       neo4j:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       postgres:
         condition: service_healthy
     restart: unless-stopped
@@ -81,7 +81,7 @@ services:
       - ./data/documents:/app/data/documents
     depends_on:
       redis:
-        condition: service_started
+        condition: service_healthy
       neo4j:
         condition: service_healthy
       postgres:
@@ -110,8 +110,16 @@ services:
       start_period: 60s
 
   redis:
-    image: redis:7.2
+    image: redis:7.4
     container_name: uu-redis
+    # Redis is used as a broker/result backend here; keep it ephemeral to avoid
+    # startup failures from incompatible persisted dump formats.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--dir", "/tmp"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   postgres:

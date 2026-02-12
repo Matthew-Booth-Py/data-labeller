@@ -18,39 +18,66 @@ import { api, SearchResult, QuestionResponse, QuestionSource } from "@/lib/api";
 
 interface SearchPanelProps {
   onDocumentClick?: (documentId: string) => void;
+  projectId?: string;
 }
 
-export function SearchPanel({ onDocumentClick }: SearchPanelProps) {
+export function SearchPanel({ onDocumentClick, projectId }: SearchPanelProps) {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"search" | "qa">("qa");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [qaResult, setQaResult] = useState<QuestionResponse | null>(null);
+  const [scopeMessage, setScopeMessage] = useState<string | null>(null);
+
+  const getProjectDocumentIds = useCallback((): string[] => {
+    if (!projectId) return [];
+    try {
+      const stored = localStorage.getItem("uu-projects");
+      if (!stored) return [];
+      const projects = JSON.parse(stored);
+      const project = projects.find((p: { id: string; documentIds?: string[] }) => p.id === projectId);
+      return project?.documentIds || [];
+    } catch {
+      return [];
+    }
+  }, [projectId]);
 
   const searchMutation = useMutation({
-    mutationFn: (q: string) => api.semanticSearch(q, 10),
+    mutationFn: ({ q, documentIds }: { q: string; documentIds: string[] }) =>
+      api.semanticSearch(q, 10, documentIds),
     onSuccess: (data) => {
       setSearchResults(data.results);
       setQaResult(null);
+      setScopeMessage(null);
     },
   });
 
   const qaMutation = useMutation({
-    mutationFn: (question: string) => api.askQuestion(question),
+    mutationFn: ({ question, documentIds }: { question: string; documentIds: string[] }) =>
+      api.askQuestion(question, documentIds),
     onSuccess: (data) => {
       setQaResult(data);
       setSearchResults([]);
+      setScopeMessage(null);
     },
   });
 
   const handleSubmit = useCallback(() => {
     if (!query.trim()) return;
-    
-    if (mode === "search") {
-      searchMutation.mutate(query);
-    } else {
-      qaMutation.mutate(query);
+
+    const scopedDocumentIds = getProjectDocumentIds();
+    if (scopedDocumentIds.length === 0) {
+      setSearchResults([]);
+      setQaResult(null);
+      setScopeMessage("This project has no documents yet. Upload documents first.");
+      return;
     }
-  }, [query, mode, searchMutation, qaMutation]);
+
+    if (mode === "search") {
+      searchMutation.mutate({ q: query, documentIds: scopedDocumentIds });
+    } else {
+      qaMutation.mutate({ question: query, documentIds: scopedDocumentIds });
+    }
+  }, [query, mode, searchMutation, qaMutation, getProjectDocumentIds]);
 
   const isLoading = searchMutation.isPending || qaMutation.isPending;
 
@@ -250,10 +277,12 @@ export function SearchPanel({ onDocumentClick }: SearchPanelProps) {
             <CardContent className="text-center text-muted-foreground py-12">
               <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p className="text-lg font-medium">
-                {mode === "qa" ? "Ask a question about your documents" : "Search your document corpus"}
+                {scopeMessage || (mode === "qa" ? "Ask a question about your documents" : "Search your document corpus")}
               </p>
               <p className="text-sm mt-1">
-                {mode === "qa" 
+                {scopeMessage
+                  ? "Search is scoped to documents in this project only."
+                  : mode === "qa" 
                   ? "I'll find relevant context and generate an answer"
                   : "I'll find the most semantically similar content"
                 }

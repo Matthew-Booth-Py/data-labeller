@@ -421,7 +421,7 @@ export default function ProjectWorkspace() {
               <Timeline projectId={id} onDocumentClick={handleDocumentClick} />
             </TabsContent>
             <TabsContent value="search" className="h-full m-0 p-6 overflow-auto">
-              <SearchPanel onDocumentClick={handleDocumentClick} />
+              <SearchPanel projectId={id} onDocumentClick={handleDocumentClick} />
             </TabsContent>
             <TabsContent value="drift" className="h-full m-0 p-6 overflow-auto">
               <DriftMap />

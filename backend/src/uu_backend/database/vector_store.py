@@ -440,8 +440,11 @@ class VectorStore:
         Returns:
             List of search results with document info and relevance scores
         """
+        if document_ids is not None and len(document_ids) == 0:
+            return []
+
         where_filter = None
-        if document_ids:
+        if document_ids is not None:
             where_filter = {"document_id": {"$in": document_ids}}
         
         results = self._collection.query(

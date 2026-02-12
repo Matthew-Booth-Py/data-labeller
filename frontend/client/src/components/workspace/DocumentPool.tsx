@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient, useQueries } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +50,7 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
   const [classifyingDocs, setClassifyingDocs] = useState<Set<string>>(new Set());
   const [suggestingLabels, setSuggestingLabels] = useState(false);
   const [suggestingLabelDocs, setSuggestingLabelDocs] = useState<Set<string>>(new Set());
+  const [queuedNeoDocIds, setQueuedNeoDocIds] = useState<Set<string>>(new Set());
   const [editingDoc, setEditingDoc] = useState<string | null>(null);
   const [classifications, setClassifications] = useState<Map<string, {
     type: string;
@@ -76,6 +77,7 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     queryKey: ["graph-indexing-status"],
     queryFn: () => api.getGraphIndexingStatus(),
     staleTime: 10000,
+    refetchInterval: queuedNeoDocIds.size > 0 ? 3000 : false,
   });
 
   // Fetch document types for manual classification
@@ -481,7 +483,19 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
 
   const indexGraphMutation = useMutation({
     mutationFn: (documentIds: string[]) => api.indexGraphDocuments(documentIds),
-    onSuccess: async (result) => {
+    onSuccess: async (result, requestedDocumentIds) => {
+      const missingIds = new Set(result.missing_document_ids);
+      const alreadyIndexedIds = new Set(result.already_indexed_document_ids);
+      const enqueuedIds = requestedDocumentIds.filter(
+        (id) => !missingIds.has(id) && !alreadyIndexedIds.has(id),
+      );
+      if (enqueuedIds.length > 0) {
+        setQueuedNeoDocIds((prev) => {
+          const next = new Set(prev);
+          enqueuedIds.forEach((id) => next.add(id));
+          return next;
+        });
+      }
       await queryClient.invalidateQueries({ queryKey: ["graph-indexing-status"] });
       await queryClient.invalidateQueries({ queryKey: ["graph"] });
       toast({
@@ -533,6 +547,22 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     () => new Set(graphIndexingStatus?.pending_document_ids || []),
     [graphIndexingStatus],
   );
+  useEffect(() => {
+    // Keep local queued markers only for docs still pending in backend status.
+    setQueuedNeoDocIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (pendingIdSet.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [pendingIdSet]);
+
   const projectPendingDocuments = useMemo(
     () => projectDocumentIds.filter((id) => pendingIdSet.has(id)).length,
     [projectDocumentIds, pendingIdSet],
@@ -799,6 +829,7 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
                 <TableHead>Chunks</TableHead>
                 <TableHead>Tokens</TableHead>
                 <TableHead>Labels</TableHead>
+                <TableHead>Indexed in Neo4j</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -1001,6 +1032,22 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
                       <span className="font-mono text-sm">
                         {annotationCountByDoc.get(doc.id) ?? 0}
                       </span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {queuedNeoDocIds.has(doc.id) ? (
+                      <Badge variant="secondary" className="gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Queued
+                      </Badge>
+                    ) : pendingIdSet.has(doc.id) ? (
+                      <Badge variant="outline" className="text-amber-700 border-amber-300">
+                        Pending
+                      </Badge>
+                    ) : (
+                      <Badge variant="default" className="bg-emerald-600">
+                        Indexed
+                      </Badge>
                     )}
                   </TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
