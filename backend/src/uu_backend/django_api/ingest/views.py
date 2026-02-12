@@ -87,7 +87,7 @@ class IngestView(APIView):
                     vector_store.delete_document(doc_id)
                     original_file_path.unlink(missing_ok=True)
                     errors.append(
-                        f\"{filename}: Failed to enqueue Neo4j indexing job: {enqueue_error}\"
+                        f"{filename}: Failed to enqueue Neo4j indexing job: {enqueue_error}"
                     )
                     continue
 
