@@ -207,3 +207,37 @@ def test_reconcile_documents_removes_stale_graph_docs():
     assert summary["deleted_documents"] == 2
     assert summary["deleted_document_relationships"] == 4
     assert summary["pruned_entities"] == 6
+
+
+class _ChunkIndexedSession:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        _ = exc_type, exc, tb
+        return False
+
+    def run(self, query, **kwargs):
+        _ = kwargs
+        if "MATCH (d:Document)<-[:FROM_DOCUMENT]-(:Chunk)" in query:
+            return _FakeResult([{"id": "doc-1"}, {"id": "doc-2"}])
+        return _FakeResult([])
+
+
+class _ChunkIndexedDriver:
+    def session(self):
+        return _ChunkIndexedSession()
+
+    def verify_connectivity(self):
+        return None
+
+    def close(self):
+        return None
+
+
+def test_get_document_ids_with_chunks_returns_distinct_document_ids():
+    client = Neo4jClient(driver=_ChunkIndexedDriver())
+
+    indexed_ids = client.get_document_ids_with_chunks()
+
+    assert indexed_ids == {"doc-1", "doc-2"}

@@ -166,6 +166,17 @@ class Neo4jClient:
             result = session.run("MATCH (d:Document) RETURN d.id as id")
             return {record["id"] for record in result if record.get("id")}
 
+    def get_document_ids_with_chunks(self) -> set[str]:
+        """Get document IDs that have at least one graph chunk linked for Q&A retrieval."""
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (d:Document)<-[:FROM_DOCUMENT]-(:Chunk)
+                RETURN DISTINCT d.id as id
+                """
+            )
+            return {record["id"] for record in result if record.get("id")}
+
     def delete_document(self, doc_id: str) -> bool:
         """Delete a document and related graph data."""
         summary = self.delete_document_graph_data(doc_id)

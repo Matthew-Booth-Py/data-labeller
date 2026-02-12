@@ -70,11 +70,14 @@ class AskView(APIView):
         if n_context < 1 or n_context > 20:
             return Response({"detail": "n_context must be between 1 and 20"}, status=422)
 
-        result = get_qa_service().ask(
-            question=question,
-            document_ids=document_ids,
-            n_context=n_context,
-        )
+        try:
+            result = get_qa_service().ask(
+                question=question,
+                document_ids=document_ids,
+                n_context=n_context,
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=422)
         return Response(
             {
                 "question": question,

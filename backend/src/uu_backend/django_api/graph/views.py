@@ -18,10 +18,10 @@ def _compute_indexing_status() -> tuple[int, int, list[str]]:
 
     vector_docs = vector_store.get_all_documents()
     vector_doc_ids = {doc.id for doc in vector_docs}
-    neo4j_doc_ids = neo4j_client.get_all_document_ids()
+    neo4j_doc_ids_with_chunks = neo4j_client.get_document_ids_with_chunks()
 
-    indexed_ids = vector_doc_ids.intersection(neo4j_doc_ids)
-    pending_ids = sorted(vector_doc_ids - neo4j_doc_ids)
+    indexed_ids = vector_doc_ids.intersection(neo4j_doc_ids_with_chunks)
+    pending_ids = sorted(vector_doc_ids - neo4j_doc_ids_with_chunks)
     return len(vector_doc_ids), len(indexed_ids), pending_ids
 
 
@@ -152,12 +152,18 @@ class GraphTimelineView(APIView):
         try:
             start_date = date.fromisoformat(start_date_raw) if start_date_raw else None
         except ValueError:
-            return Response({"detail": "Invalid start_date. Use ISO date format YYYY-MM-DD."}, status=422)
+            return Response(
+                {"detail": "Invalid start_date. Use ISO date format YYYY-MM-DD."},
+                status=422,
+            )
 
         try:
             end_date = date.fromisoformat(end_date_raw) if end_date_raw else None
         except ValueError:
-            return Response({"detail": "Invalid end_date. Use ISO date format YYYY-MM-DD."}, status=422)
+            return Response(
+                {"detail": "Invalid end_date. Use ISO date format YYYY-MM-DD."},
+                status=422,
+            )
 
         client = get_neo4j_client()
         try:
@@ -255,12 +261,16 @@ class GraphIndexDocumentsView(APIView):
         try:
             vector_store = get_vector_store()
             vector_doc_ids = {doc.id for doc in vector_store.get_all_documents()}
-            neo4j_doc_ids = get_neo4j_client().get_all_document_ids()
+            neo4j_doc_ids_with_chunks = get_neo4j_client().get_document_ids_with_chunks()
 
             missing_ids = [doc_id for doc_id in requested_ids if doc_id not in vector_doc_ids]
             eligible_ids = [doc_id for doc_id in requested_ids if doc_id in vector_doc_ids]
-            already_indexed_ids = [doc_id for doc_id in eligible_ids if doc_id in neo4j_doc_ids]
-            enqueue_ids = [doc_id for doc_id in eligible_ids if doc_id not in neo4j_doc_ids]
+            already_indexed_ids = [
+                doc_id for doc_id in eligible_ids if doc_id in neo4j_doc_ids_with_chunks
+            ]
+            enqueue_ids = [
+                doc_id for doc_id in eligible_ids if doc_id not in neo4j_doc_ids_with_chunks
+            ]
 
             task_ids: list[str] = []
             for doc_id in enqueue_ids:
