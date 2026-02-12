@@ -1,9 +1,13 @@
 """Background extraction tasks for migration phase 2."""
 
+import logging
+
 from celery import shared_task
 
 from uu_backend.extraction.entities import extract_entities
 from uu_backend.extraction.relationships import store_entities_and_relationships
+
+logger = logging.getLogger(__name__)
 
 
 def process_entity_extraction(doc_id: str, content: str, date_extracted) -> None:
@@ -18,7 +22,8 @@ def process_entity_extraction(doc_id: str, content: str, date_extracted) -> None
                 document_date=date_extracted,
             )
     except Exception:
-        pass
+        logger.exception("Entity extraction task failed for document %s", doc_id)
+        raise
 
 
 @shared_task(name="uu_backend.tasks.process_entity_extraction")

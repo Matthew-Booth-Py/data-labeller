@@ -159,7 +159,7 @@ Runtime request ownership is served directly by Django via `uu_backend.asgi_disp
   - Postgres
   - ChromaDB
   - Neo4j
-  - Redis + Celery
+  - Celery + Redis (background Neo4j indexing)
   - Docker Compose
 - AI/LLM
   - OpenAI-compatible API configuration via `.env` / runtime settings

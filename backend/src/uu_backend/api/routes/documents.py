@@ -184,6 +184,7 @@ async def delete_document(document_id: str):
     Raises 404 if document not found.
     """
     store = get_vector_store()
+    neo4j_client = get_neo4j_client()
     document = store.get_document(document_id)
 
     if document:
@@ -191,6 +192,9 @@ async def delete_document(document_id: str):
         file_path = get_original_file_path(document_id, document.file_type)
         if file_path:
             file_path.unlink(missing_ok=True)
+
+    # Keep graph data consistent with document deletes.
+    neo4j_client.delete_document(document_id)
 
     deleted = store.delete_document(document_id)
 

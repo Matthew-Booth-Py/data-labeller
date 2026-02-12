@@ -27,13 +27,11 @@ class IngestView(APIView):
 
         start_time = time.time()
         settings = get_settings()
-
-        from uu_backend.tasks.extraction_tasks import process_entity_extraction_task
+        from uu_backend.tasks.neo4j_tasks import index_document_in_neo4j_task
 
         converter = get_converter()
         chunker = get_chunker()
         vector_store = get_vector_store()
-        neo4j_client = get_neo4j_client()
 
         documents_processed = 0
         chunks_created = 0
@@ -83,20 +81,15 @@ class IngestView(APIView):
                     chunks=chunks,
                 )
                 vector_store.add_document(document)
-                neo4j_client.create_document(
-                    doc_id=doc_id,
-                    filename=filename,
-                    file_type=result.metadata.file_type,
-                    date_extracted=date_extracted,
-                    created_at=document.created_at,
-                )
-
-                date_iso = date_extracted.isoformat() if date_extracted else None
-                process_entity_extraction_task.delay(
-                    doc_id=doc_id,
-                    content=result.content,
-                    date_extracted_iso=date_iso,
-                )
+                try:
+                    index_document_in_neo4j_task.delay(doc_id)
+                except Exception as enqueue_error:
+                    vector_store.delete_document(doc_id)
+                    original_file_path.unlink(missing_ok=True)
+                    errors.append(
+                        f\"{filename}: Failed to enqueue Neo4j indexing job: {enqueue_error}\"
+                    )
+                    continue
 
                 documents_processed += 1
                 chunks_created += len(chunks)

@@ -6,7 +6,10 @@ from typing import Any
 from openai import OpenAI
 
 from uu_backend.config import get_settings
-from uu_backend.llm.options import reasoning_options_for_model
+from uu_backend.llm.options import (
+    completion_token_options_for_model,
+    reasoning_options_for_model,
+)
 
 
 class OpenAIClient:
@@ -22,8 +25,7 @@ class OpenAIClient:
         self,
         prompt: str,
         system_prompt: str | None = None,
-        temperature: float = 0.0,
-        max_tokens: int = 4000,
+        max_tokens: int = 20_000,
     ) -> str:
         """Generate a completion from the model."""
         messages = []
@@ -36,8 +38,7 @@ class OpenAIClient:
         response = self._client.chat.completions.create(
             model=self._model,
             messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
+            **completion_token_options_for_model(self._model, max_tokens),
             **reasoning_options_for_model(self._model),
         )
 
@@ -47,7 +48,6 @@ class OpenAIClient:
         self,
         prompt: str,
         system_prompt: str | None = None,
-        temperature: float = 0.0,
         max_tokens: int = 4000,
     ) -> dict[str, Any]:
         """Generate a JSON completion from the model."""
@@ -61,8 +61,7 @@ class OpenAIClient:
         response = self._client.chat.completions.create(
             model=self._model,
             messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
+            **completion_token_options_for_model(self._model, max_tokens),
             response_format={"type": "json_object"},
             **reasoning_options_for_model(self._model),
         )
@@ -71,7 +70,7 @@ class OpenAIClient:
         try:
             return json.loads(content)
         except json.JSONDecodeError:
-            return {}
+            raise ValueError("Model returned invalid JSON content")
 
     def is_available(self) -> bool:
         """Check if OpenAI API is available."""

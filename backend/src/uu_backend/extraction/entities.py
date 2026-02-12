@@ -1,6 +1,6 @@
 """Entity extraction from document content."""
 
-import re
+import logging
 import uuid
 from typing import Any
 
@@ -15,6 +15,8 @@ from uu_backend.models.entity import (
     Relationship,
     RelationshipType,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ExtractedData:
@@ -49,8 +51,7 @@ class EntityExtractor:
         """
         # Check if OpenAI is available
         if not self._client.is_available():
-            fallback = self._extract_entities_rule_based(content, document_id)
-            return ExtractedData(entities=fallback, relationships=[])
+            raise RuntimeError("OpenAI client is not available for entity extraction")
 
         # Truncate content if too long (to fit in context window)
         max_chars = 15000
@@ -64,11 +65,18 @@ class EntityExtractor:
             result = self._client.complete_json(
                 prompt=prompt,
                 system_prompt=ENTITY_EXTRACTION_SYSTEM,
-                temperature=0.0,
             )
         except Exception:
-            fallback = self._extract_entities_rule_based(content, document_id)
-            return ExtractedData(entities=fallback, relationships=[])
+            logger.exception("Entity extraction request failed for document %s", document_id)
+            raise
+
+        # Validate payload shape so malformed model output cannot silently pass.
+        if not isinstance(result, dict):
+            raise ValueError("Entity extraction response is not a JSON object")
+        if "entities" not in result or not isinstance(result.get("entities"), list):
+            raise ValueError("Entity extraction response missing list field 'entities'")
+        if "relationships" not in result or not isinstance(result.get("relationships"), list):
+            raise ValueError("Entity extraction response missing list field 'relationships'")
 
         # Parse entities
         entities = self._parse_entities(result.get("entities", []))
@@ -80,93 +88,7 @@ class EntityExtractor:
             document_id,
         )
 
-        if entities:
-            return ExtractedData(entities=entities, relationships=relationships)
-
-        # If the LLM returns no usable entities, fall back to deterministic extraction.
-        fallback = self._extract_entities_rule_based(content, document_id)
-        return ExtractedData(entities=fallback, relationships=[])
-
-    def _extract_entities_rule_based(
-        self,
-        content: str,
-        document_id: str,
-    ) -> list[Entity]:
-        """Extract basic entities deterministically when LLM extraction is unavailable."""
-        text = (content or "").strip()
-        if not text:
-            return []
-
-        entities: list[Entity] = []
-        seen: set[tuple[str, EntityType]] = set()
-
-        def add_entity(name: str, entity_type: EntityType, context: str) -> None:
-            clean_name = name.strip().strip(",:;()[]{}")
-            if len(clean_name) < 3:
-                return
-            key = (clean_name.casefold(), entity_type)
-            if key in seen:
-                return
-            seen.add(key)
-
-            entities.append(
-                Entity(
-                    id=str(uuid.uuid4()),
-                    name=clean_name,
-                    type=entity_type,
-                    aliases=[],
-                    properties={
-                        "context": context,
-                        "document_id": document_id,
-                        "extraction_source": "rule_based",
-                    },
-                )
-            )
-
-        # Organizations (high precision by suffix).
-        org_pattern = re.compile(
-            r"\b([A-Z][A-Za-z0-9&'.,-]*(?:\s+[A-Z][A-Za-z0-9&'.,-]*){0,5}\s+"
-            r"(?:Inc\.?|LLC|Ltd\.?|Corporation|Corp\.?|Company|Co\.?|"
-            r"Insurance|Bank|Hospital|Clinic|University|Agency|Department))\b"
-        )
-        for match in org_pattern.finditer(text):
-            add_entity(match.group(1), EntityType.ORGANIZATION, "Rule-based org match")
-            if len(entities) >= 20:
-                break
-
-        # Person names (first + last, optional middle).
-        person_pattern = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\b")
-        person_stopwords = {
-            "Invoice Number",
-            "Policy Number",
-            "Claim Number",
-            "Date Of",
-            "Total Amount",
-            "Phone Number",
-            "Email Address",
-        }
-        for match in person_pattern.finditer(text):
-            candidate = match.group(1)
-            if candidate in person_stopwords:
-                continue
-            add_entity(candidate, EntityType.PERSON, "Rule-based person match")
-            if len(entities) >= 30:
-                break
-
-        # Location patterns like "Austin, TX".
-        location_pattern = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2},\s*[A-Z]{2})\b")
-        for match in location_pattern.finditer(text):
-            add_entity(match.group(1), EntityType.LOCATION, "Rule-based location match")
-            if len(entities) >= 35:
-                break
-
-        # If still empty, create one event-like entity from title-ish first line.
-        if not entities:
-            first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
-            if first_line:
-                add_entity(first_line[:120], EntityType.EVENT, "Rule-based fallback title entity")
-
-        return entities
+        return ExtractedData(entities=entities, relationships=relationships)
 
     def _parse_entities(self, raw_entities: list[dict[str, Any]]) -> list[Entity]:
         """Parse raw entity data into Entity objects."""

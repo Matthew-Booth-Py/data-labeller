@@ -1,5 +1,6 @@
 """DRF views for documents endpoints."""
 
+import logging
 from pathlib import Path
 
 from django.http import FileResponse
@@ -7,10 +8,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
+from uu_backend.database.neo4j_client import get_neo4j_client
 from uu_backend.database.vector_store import get_vector_store
 from uu_backend.ingestion.converter import get_converter
 from uu_backend.models.document import DocumentListResponse, DocumentResponse
 from uu_backend.repositories import get_repository
+
+logger = logging.getLogger(__name__)
 
 
 def get_original_file_path(document_id: str, file_type: str) -> Path | None:
@@ -89,6 +93,7 @@ class DocumentDetailView(APIView):
 
     def delete(self, request, document_id: str):
         store = get_vector_store()
+        neo4j_client = get_neo4j_client()
         document = store.get_document(document_id)
 
         if document:
@@ -100,7 +105,22 @@ class DocumentDetailView(APIView):
         if not deleted:
             return Response({"detail": f"Document not found: {document_id}"}, status=404)
 
-        return Response({"status": "deleted", "document_id": document_id})
+        graph_cleanup: dict[str, object]
+        try:
+            graph_cleanup = neo4j_client.delete_document_graph_data(document_id)
+            valid_doc_ids = [doc.id for doc in store.get_all_documents()]
+            graph_cleanup["reconcile"] = neo4j_client.reconcile_documents(valid_doc_ids)
+        except Exception as exc:
+            logger.exception("graph_document_delete_failed", extra={"document_id": document_id})
+            graph_cleanup = {"error": str(exc)}
+
+        return Response(
+            {
+                "status": "deleted",
+                "document_id": document_id,
+                "graph_cleanup": graph_cleanup,
+            }
+        )
 
 
 class DocumentFileView(APIView):
