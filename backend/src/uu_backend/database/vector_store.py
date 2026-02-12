@@ -1,11 +1,10 @@
-"""ChromaDB vector store for document storage and retrieval."""
+"""Neo4j-based vector store for document storage and retrieval."""
 
 from collections import defaultdict
 from datetime import date, datetime
 
-import chromadb
 import tiktoken
-from chromadb.config import Settings as ChromaSettings
+from neo4j import GraphDatabase
 
 from uu_backend.config import get_settings
 from uu_backend.models.document import Document, DocumentChunk, DocumentMetadata, DocumentSummary
@@ -18,29 +17,18 @@ from uu_backend.models.timeline import (
 
 
 class VectorStore:
-    """ChromaDB-based vector store for documents."""
+    """Neo4j-based vector store for documents."""
 
     def __init__(self):
         """Initialize the vector store."""
         settings = get_settings()
-
-        # Initialize ChromaDB with persistent storage
-        self._client = chromadb.PersistentClient(
-            path=str(settings.chroma_path),
-            settings=ChromaSettings(anonymized_telemetry=False),
+        
+        # Initialize Neo4j driver
+        self._driver = GraphDatabase.driver(
+            settings.neo4j_uri,
+            auth=(settings.neo4j_user, settings.neo4j_password),
         )
-
-        # Get or create the documents collection
-        self._collection = self._client.get_or_create_collection(
-            name=settings.chroma_collection_name,
-            metadata={"description": "Unstructured Unlocked document chunks"},
-        )
-
-        # Separate collection for document metadata
-        self._docs_collection = self._client.get_or_create_collection(
-            name=f"{settings.chroma_collection_name}_metadata",
-            metadata={"description": "Document metadata"},
-        )
+        self._database = settings.neo4j_database
         self._token_encoding = tiktoken.get_encoding("cl100k_base")
 
     def _count_tokens(self, text: str) -> int:
@@ -51,55 +39,22 @@ class VectorStore:
     def add_document(self, document: Document) -> None:
         """
         Add a document and its chunks to the store.
+        
+        Note: Documents are now managed by GraphIngestionService.
+        This method is kept for API compatibility but does minimal work.
 
         Args:
             document: The document to add
         """
-        # Store document metadata
-        doc_metadata = {
-            "filename": document.filename,
-            "file_type": document.file_type,
-            "created_at": document.created_at.isoformat(),
-            "chunk_count": len(document.chunks),
-            "token_count": self._count_tokens(document.content or ""),
-        }
-
-        if document.date_extracted:
-            doc_metadata["date_extracted"] = document.date_extracted.isoformat()
-
-        self._docs_collection.upsert(
-            ids=[document.id],
-            documents=[document.content[:1000]],  # Store excerpt
-            metadatas=[doc_metadata],
-        )
-
-        # Store chunks with embeddings
-        if document.chunks:
-            chunk_ids = [chunk.id for chunk in document.chunks]
-            chunk_texts = [chunk.content for chunk in document.chunks]
-            chunk_metadatas = [
-                {
-                    "document_id": document.id,
-                    "filename": document.filename,
-                    "chunk_index": chunk.chunk_index,
-                    "date_extracted": (
-                        document.date_extracted.isoformat()
-                        if document.date_extracted
-                        else ""
-                    ),
-                }
-                for chunk in document.chunks
-            ]
-
-            self._collection.upsert(
-                ids=chunk_ids,
-                documents=chunk_texts,
-                metadatas=chunk_metadatas,
-            )
+        # Documents and chunks are stored in Neo4j by GraphIngestionService
+        # This is a no-op for backward compatibility
+        pass
 
     def update_document_content(self, document_id: str, new_content: str) -> bool:
         """
         Update document content after reprocessing.
+        
+        Note: Document reindexing is handled by GraphIngestionService.
         
         Args:
             document_id: Document ID
@@ -108,67 +63,29 @@ class VectorStore:
         Returns:
             True if successful
         """
-        from uu_backend.ingestion.chunker import get_chunker
+        from uu_backend.services.graph_ingestion_service import get_graph_ingestion_service
         
         # Get existing document
         document = self.get_document(document_id)
         if not document:
             return False
         
-        # Delete old chunks
-        self._collection.delete(where={"document_id": document_id})
-        
-        # Create new chunks
-        chunker = get_chunker()
-        new_chunks = chunker.chunk(new_content, document_id)
-        
-        # Update document metadata with new content
-        doc_metadata = {
-            "filename": document.filename,
-            "file_type": document.file_type,
-            "created_at": document.created_at.isoformat(),
-            "chunk_count": len(new_chunks),
-            "token_count": self._count_tokens(new_content),
-        }
-        
-        if document.date_extracted:
-            doc_metadata["date_extracted"] = document.date_extracted.isoformat()
-        
-        self._docs_collection.upsert(
-            ids=[document_id],
-            documents=[new_content[:1000]],
-            metadatas=[doc_metadata],
+        # Re-index through GraphIngestionService
+        graph_service = get_graph_ingestion_service()
+        graph_service.extract_and_store_entities(
+            doc_id=document_id,
+            content=new_content,
+            document_date=document.date_extracted,
+            filename=document.filename,
+            file_type=document.file_type,
+            created_at=document.created_at,
         )
-        
-        # Add new chunks
-        if new_chunks:
-            chunk_ids = [chunk.id for chunk in new_chunks]
-            chunk_texts = [chunk.content for chunk in new_chunks]
-            chunk_metadatas = [
-                {
-                    "document_id": document_id,
-                    "filename": document.filename,
-                    "chunk_index": chunk.chunk_index,
-                    "date_extracted": (
-                        document.date_extracted.isoformat()
-                        if document.date_extracted
-                        else ""
-                    ),
-                }
-                for chunk in new_chunks
-            ]
-            
-            self._collection.upsert(
-                ids=chunk_ids,
-                documents=chunk_texts,
-                metadatas=chunk_metadatas,
-            )
         
         return True
 
     def get_document(self, document_id: str) -> Document | None:
         """
-        Retrieve a document by ID.
+        Retrieve a document by ID from Neo4j.
 
         Args:
             document_id: The document ID
@@ -176,114 +93,137 @@ class VectorStore:
         Returns:
             The document or None if not found
         """
-        # Get document metadata
-        result = self._docs_collection.get(
-            ids=[document_id],
-            include=["documents", "metadatas"],
-        )
-
-        if not result["ids"]:
-            return None
-
-        metadata = result["metadatas"][0]
-        content = result["documents"][0]
-
-        # Get associated chunks
-        chunks_result = self._collection.get(
-            where={"document_id": document_id},
-            include=["documents", "metadatas"],
-        )
-
-        chunks = [
-            DocumentChunk(
-                id=chunk_id,
-                document_id=document_id,
-                content=chunk_content,
-                chunk_index=chunk_meta.get("chunk_index", 0),
-                metadata=chunk_meta,
-            )
-            for chunk_id, chunk_content, chunk_meta in zip(
-                chunks_result["ids"],
-                chunks_result["documents"],
-                chunks_result["metadatas"],
-            )
-        ]
-
-        # Sort chunks by index
-        chunks.sort(key=lambda c: c.chunk_index)
-
-        # Reconstruct full content from chunks if available
-        if chunks:
-            full_content = "\n\n".join(c.content for c in chunks)
-        else:
-            full_content = content
-
-        # Parse date
-        date_extracted = None
-        if metadata.get("date_extracted"):
-            try:
-                date_extracted = datetime.fromisoformat(metadata["date_extracted"])
-            except ValueError:
-                pass
-
-        return Document(
-            id=document_id,
-            filename=metadata["filename"],
-            file_type=metadata["file_type"],
-            content=full_content,
-            date_extracted=date_extracted,
-            created_at=datetime.fromisoformat(metadata["created_at"]),
-            metadata=DocumentMetadata(
-                filename=metadata["filename"],
-                file_type=metadata["file_type"],
+        with self._driver.session(database=self._database) as session:
+            # Get document and its chunks
+            result = session.run(
+                """
+                MATCH (d:Document {id: $doc_id})
+                OPTIONAL MATCH (c:Chunk)-[:FROM_DOCUMENT]->(d)
+                WITH d, c
+                ORDER BY c.index
+                RETURN d.id AS id,
+                       d.filename AS filename,
+                       d.file_type AS file_type,
+                       d.date AS date_extracted,
+                       d.created_at AS created_at,
+                       collect({
+                           id: c.id,
+                           text: c.text,
+                           index: c.index
+                       }) AS chunks
+                """,
+                doc_id=document_id
+            ).single()
+            
+            if not result:
+                return None
+            
+            # Parse date
+            date_extracted = None
+            if result["date_extracted"]:
+                try:
+                    date_extracted = datetime.fromisoformat(result["date_extracted"])
+                except (ValueError, TypeError):
+                    pass
+            
+            created_at = datetime.now()
+            if result["created_at"]:
+                try:
+                    created_at = datetime.fromisoformat(result["created_at"])
+                except (ValueError, TypeError):
+                    pass
+            
+            # Build chunks
+            chunks = []
+            full_content_parts = []
+            for chunk_data in result["chunks"]:
+                if chunk_data["id"]:  # Skip null chunks from OPTIONAL MATCH
+                    chunk_text = chunk_data["text"] or ""
+                    chunks.append(
+                        DocumentChunk(
+                            id=chunk_data["id"],
+                            document_id=document_id,
+                            content=chunk_text,
+                            chunk_index=chunk_data["index"] or 0,
+                            metadata={"document_id": document_id},
+                        )
+                    )
+                    full_content_parts.append(chunk_text)
+            
+            full_content = "\n\n".join(full_content_parts) if full_content_parts else ""
+            
+            return Document(
+                id=document_id,
+                filename=result["filename"] or "Unknown",
+                file_type=result["file_type"] or "",
+                content=full_content,
                 date_extracted=date_extracted,
-            ),
-            chunks=chunks,
-        )
+                created_at=created_at,
+                metadata=DocumentMetadata(
+                    filename=result["filename"] or "Unknown",
+                    file_type=result["file_type"] or "",
+                    date_extracted=date_extracted,
+                ),
+                chunks=chunks,
+            )
 
     def get_all_documents(self) -> list[DocumentSummary]:
         """
-        Get all documents as summaries.
+        Get all documents as summaries from Neo4j.
 
         Returns:
             List of document summaries
         """
-        result = self._docs_collection.get(include=["documents", "metadatas"])
-
-        summaries = []
-        for doc_id, content, metadata in zip(
-            result["ids"], result["documents"], result["metadatas"]
-        ):
-            date_extracted = None
-            if metadata.get("date_extracted"):
-                try:
-                    date_extracted = datetime.fromisoformat(metadata["date_extracted"])
-                except ValueError:
-                    pass
-            token_count = metadata.get("token_count")
-            if token_count is None:
-                # Backfill for older records that predate token_count metadata
-                token_count = self._count_tokens(content or "")
-                metadata["token_count"] = token_count
-                self._docs_collection.upsert(
-                    ids=[doc_id],
-                    documents=[content or ""],
-                    metadatas=[metadata],
-                )
-
-            summaries.append(
-                DocumentSummary(
-                    id=doc_id,
-                    filename=metadata["filename"],
-                    file_type=metadata["file_type"],
-                    date_extracted=date_extracted,
-                    created_at=datetime.fromisoformat(metadata["created_at"]),
-                    chunk_count=metadata.get("chunk_count", 0),
-                    token_count=int(token_count or 0),
-                )
+        with self._driver.session(database=self._database) as session:
+            result = session.run(
+                """
+                MATCH (d:Document)
+                OPTIONAL MATCH (c:Chunk)-[:FROM_DOCUMENT]->(d)
+                WITH d, count(c) AS chunk_count, collect(c.text) AS chunks
+                RETURN d.id AS id,
+                       d.filename AS filename,
+                       d.file_type AS file_type,
+                       d.date AS date_extracted,
+                       d.created_at AS created_at,
+                       chunk_count,
+                       chunks
+                ORDER BY d.created_at DESC
+                """
             )
-
-        return summaries
+            
+            summaries = []
+            for record in result:
+                date_extracted = None
+                if record["date_extracted"]:
+                    try:
+                        date_extracted = datetime.fromisoformat(record["date_extracted"])
+                    except (ValueError, TypeError):
+                        pass
+                
+                created_at = datetime.now()
+                if record["created_at"]:
+                    try:
+                        created_at = datetime.fromisoformat(record["created_at"])
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Calculate token count from chunks
+                full_text = "\n\n".join(record["chunks"]) if record["chunks"] else ""
+                token_count = self._count_tokens(full_text)
+                
+                summaries.append(
+                    DocumentSummary(
+                        id=record["id"],
+                        filename=record["filename"] or "Unknown",
+                        file_type=record["file_type"] or "",
+                        date_extracted=date_extracted,
+                        created_at=created_at,
+                        chunk_count=int(record["chunk_count"] or 0),
+                        token_count=token_count,
+                    )
+                )
+            
+            return summaries
 
     def get_timeline(
         self,
@@ -291,7 +231,7 @@ class VectorStore:
         end_date: date | None = None,
     ) -> TimelineResponse:
         """
-        Get documents grouped by date for timeline visualization.
+        Get documents grouped by date for timeline visualization from Neo4j.
 
         Args:
             start_date: Optional start date filter
@@ -300,70 +240,89 @@ class VectorStore:
         Returns:
             TimelineResponse with grouped documents
         """
-        # Get all documents with dates
-        result = self._docs_collection.get(include=["documents", "metadatas"])
-
-        # Group by date
-        by_date: dict[date, list[TimelineDocument]] = defaultdict(list)
-        earliest: date | None = None
-        latest: date | None = None
-        total = 0
-
-        for doc_id, excerpt, metadata in zip(
-            result["ids"], result["documents"], result["metadatas"]
-        ):
-            date_str = metadata.get("date_extracted")
-            if not date_str:
-                continue
-
-            try:
-                doc_date = datetime.fromisoformat(date_str).date()
-            except ValueError:
-                continue
-
-            # Apply date filters
-            if start_date and doc_date < start_date:
-                continue
-            if end_date and doc_date > end_date:
-                continue
-
-            # Track range
-            if earliest is None or doc_date < earliest:
-                earliest = doc_date
-            if latest is None or doc_date > latest:
-                latest = doc_date
-
-            total += 1
-
-            by_date[doc_date].append(
-                TimelineDocument(
-                    id=doc_id,
-                    filename=metadata["filename"],
-                    file_type=metadata["file_type"],
-                    title=metadata["filename"],
-                    excerpt=excerpt[:200] if excerpt else None,
+        with self._driver.session(database=self._database) as session:
+            # Build query with optional date filters
+            cypher_query = """
+            MATCH (d:Document)
+            WHERE d.date IS NOT NULL
+            """
+            
+            params = {}
+            if start_date:
+                cypher_query += " AND date(d.date) >= date($start_date)"
+                params["start_date"] = start_date.isoformat()
+            if end_date:
+                cypher_query += " AND date(d.date) <= date($end_date)"
+                params["end_date"] = end_date.isoformat()
+            
+            cypher_query += """
+            OPTIONAL MATCH (c:Chunk)-[:FROM_DOCUMENT]->(d)
+            WITH d, collect(c.text)[0..200] AS excerpt
+            RETURN d.id AS id,
+                   d.filename AS filename,
+                   d.file_type AS file_type,
+                   d.date AS date_extracted,
+                   excerpt
+            ORDER BY d.date
+            """
+            
+            result = session.run(cypher_query, **params)
+            
+            # Group by date
+            by_date: dict[date, list[TimelineDocument]] = defaultdict(list)
+            earliest: date | None = None
+            latest: date | None = None
+            total = 0
+            
+            for record in result:
+                date_str = record["date_extracted"]
+                if not date_str:
+                    continue
+                
+                try:
+                    doc_date = datetime.fromisoformat(date_str).date()
+                except (ValueError, TypeError):
+                    continue
+                
+                # Track range
+                if earliest is None or doc_date < earliest:
+                    earliest = doc_date
+                if latest is None or doc_date > latest:
+                    latest = doc_date
+                
+                total += 1
+                
+                excerpt_text = record["excerpt"][:200] if record["excerpt"] else None
+                
+                by_date[doc_date].append(
+                    TimelineDocument(
+                        id=record["id"],
+                        filename=record["filename"] or "Unknown",
+                        file_type=record["file_type"] or "",
+                        title=record["filename"] or "Unknown",
+                        excerpt=excerpt_text,
+                    )
                 )
+            
+            # Convert to timeline entries
+            timeline = [
+                TimelineEntry(
+                    date=d,
+                    document_count=len(docs),
+                    documents=docs,
+                )
+                for d, docs in sorted(by_date.items())
+            ]
+            
+            return TimelineResponse(
+                timeline=timeline,
+                date_range=DateRange(earliest=earliest, latest=latest),
+                total_documents=total,
             )
-
-        # Convert to timeline entries
-        timeline = [
-            TimelineEntry(
-                date=d,
-                document_count=len(docs),
-                documents=docs,
-            )
-            for d, docs in sorted(by_date.items())
-        ]
-
-        return TimelineResponse(
-            timeline=timeline,
-            date_range=DateRange(earliest=earliest, latest=latest),
-            total_documents=total,
-        )
 
     def delete_document(self, document_id: str) -> bool:
         """
-        Delete a document and its chunks.
+        Delete a document and its chunks from Neo4j.
 
         Args:
             document_id: The document ID to delete
@@ -371,57 +330,50 @@ class VectorStore:
         Returns:
             True if deleted, False if not found
         """
-        # Check if exists
-        result = self._docs_collection.get(ids=[document_id])
-        if not result["ids"]:
-            return False
-
-        # Delete chunks
-        chunks = self._collection.get(where={"document_id": document_id})
-        if chunks["ids"]:
-            self._collection.delete(ids=chunks["ids"])
-
-        # Delete document
-        self._docs_collection.delete(ids=[document_id])
-
+        from uu_backend.database.neo4j_client import get_neo4j_client
+        
+        neo4j_client = get_neo4j_client()
+        neo4j_client.delete_document_graph_data(document_id)
         return True
 
     def get_document_id_for_chunk(self, chunk_id: str) -> str | None:
         """
-        Resolve a document ID from a chunk ID.
+        Resolve a document ID from a chunk ID in Neo4j.
 
         Args:
-            chunk_id: Chunk ID in the chunk collection
+            chunk_id: Chunk ID
 
         Returns:
             Document ID if found, otherwise None
         """
-        try:
-            result = self._collection.get(
-                ids=[chunk_id],
-                include=["metadatas"],
-            )
-        except Exception:
+        with self._driver.session(database=self._database) as session:
+            result = session.run(
+                """
+                MATCH (c:Chunk {id: $chunk_id})-[:FROM_DOCUMENT]->(d:Document)
+                RETURN d.id AS document_id
+                """,
+                chunk_id=chunk_id
+            ).single()
+            
+            if result:
+                return result["document_id"]
             return None
-
-        if not result.get("ids"):
-            return None
-
-        metadatas = result.get("metadatas") or []
-        if not metadatas:
-            return None
-
-        metadata = metadatas[0] or {}
-        document_id = metadata.get("document_id")
-        return str(document_id) if document_id else None
 
     def count(self) -> int:
-        """Get the total number of documents."""
-        return self._docs_collection.count()
+        """Get the total number of documents in Neo4j."""
+        with self._driver.session(database=self._database) as session:
+            result = session.run(
+                "MATCH (d:Document) RETURN count(d) AS count"
+            ).single()
+            return int(result["count"] or 0)
 
     def chunk_count(self) -> int:
-        """Get the total number of chunks."""
-        return self._collection.count()
+        """Get the total number of chunks in Neo4j."""
+        with self._driver.session(database=self._database) as session:
+            result = session.run(
+                "MATCH (c:Chunk) RETURN count(c) AS count"
+            ).single()
+            return int(result["count"] or 0)
 
     def semantic_search(
         self, 
@@ -430,7 +382,7 @@ class VectorStore:
         document_ids: list[str] | None = None
     ) -> list[dict]:
         """
-        Search for documents using semantic similarity.
+        Search for documents using semantic similarity via Neo4j vector search.
         
         Args:
             query: The search query
@@ -442,38 +394,63 @@ class VectorStore:
         """
         if document_ids is not None and len(document_ids) == 0:
             return []
-
-        where_filter = None
-        if document_ids is not None:
-            where_filter = {"document_id": {"$in": document_ids}}
         
-        results = self._collection.query(
-            query_texts=[query],
-            n_results=n_results,
-            where=where_filter,
-            include=["documents", "metadatas", "distances"],
+        # Generate query embedding using OpenAI
+        from neo4j_graphrag.embeddings.openai import OpenAIEmbeddings
+        settings = get_settings()
+        
+        if not settings.openai_api_key:
+            return []
+        
+        embedder = OpenAIEmbeddings(
+            model=settings.graphrag_embedding_model,
+            api_key=settings.openai_api_key,
         )
+        query_embedding = embedder.embed_query(query)
         
-        search_results = []
-        if results["ids"] and results["ids"][0]:
-            for i, chunk_id in enumerate(results["ids"][0]):
-                metadata = results["metadatas"][0][i] if results["metadatas"] else {}
-                content = results["documents"][0][i] if results["documents"] else ""
-                distance = results["distances"][0][i] if results["distances"] else 0
-                
-                # Convert distance to similarity score (ChromaDB uses L2 distance)
-                similarity = 1.0 / (1.0 + distance)
-                
+        with self._driver.session(database=self._database) as session:
+            # Use Neo4j vector search
+            cypher_query = """
+            CALL db.index.vector.queryNodes($index_name, $top_k, $query_vector)
+            YIELD node AS chunk, score
+            MATCH (chunk)-[:FROM_DOCUMENT]->(d:Document)
+            """
+            
+            # Add document filter if specified
+            if document_ids:
+                cypher_query += "WHERE d.id IN $document_ids\n"
+            
+            cypher_query += """
+            RETURN chunk.id AS chunk_id,
+                   d.id AS document_id,
+                   d.filename AS filename,
+                   chunk.index AS chunk_index,
+                   chunk.text AS content,
+                   score AS similarity
+            ORDER BY similarity DESC
+            LIMIT $top_k
+            """
+            
+            result = session.run(
+                cypher_query,
+                index_name=settings.graphrag_vector_index_name,
+                top_k=n_results,
+                query_vector=query_embedding,
+                document_ids=document_ids
+            )
+            
+            search_results = []
+            for record in result:
                 search_results.append({
-                    "chunk_id": chunk_id,
-                    "document_id": metadata.get("document_id"),
-                    "filename": metadata.get("filename"),
-                    "chunk_index": metadata.get("chunk_index", 0),
-                    "content": content,
-                    "similarity": similarity,
+                    "chunk_id": record["chunk_id"],
+                    "document_id": record["document_id"],
+                    "filename": record["filename"] or "Unknown",
+                    "chunk_index": int(record["chunk_index"] or 0),
+                    "content": record["content"] or "",
+                    "similarity": float(record["similarity"] or 0.0),
                 })
-        
-        return search_results
+            
+            return search_results
 
 
 # Module-level instance

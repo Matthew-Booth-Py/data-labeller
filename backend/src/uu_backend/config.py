@@ -26,10 +26,6 @@ class Settings(BaseModel):
     api_prefix: str = "/api/v1"
     debug: bool = False
 
-    # ChromaDB Settings
-    chroma_persist_directory: str = "./data/chroma"
-    chroma_collection_name: str = "documents"
-
     # File Storage Settings
     file_storage_directory: str = "./data/files"
 
@@ -63,13 +59,6 @@ class Settings(BaseModel):
     graphrag_similarity_fn: str = "cosine"
 
     @property
-    def chroma_path(self) -> Path:
-        """Return ChromaDB persist directory as Path."""
-        path = Path(self.chroma_persist_directory)
-        path.mkdir(parents=True, exist_ok=True)
-        return path
-
-    @property
     def file_storage_path(self) -> Path:
         """Return file storage directory as Path."""
         path = Path(self.file_storage_directory)
@@ -81,8 +70,6 @@ _ENV_TO_FIELD = {
     "API_PORT": "api_port",
     "API_PREFIX": "api_prefix",
     "DEBUG": "debug",
-    "CHROMA_PERSIST_DIRECTORY": "chroma_persist_directory",
-    "CHROMA_COLLECTION_NAME": "chroma_collection_name",
     "FILE_STORAGE_DIRECTORY": "file_storage_directory",
     "CHUNK_SIZE": "chunk_size",
     "CHUNK_OVERLAP": "chunk_overlap",
@@ -168,8 +155,13 @@ def _build_settings_payload() -> dict[str, Any]:
     # settings.yml
     payload.update(_read_settings_yaml())
 
-    # .env
-    dotenv_values = _read_dotenv_file(Path.cwd() / ".env")
+    # .env - check current directory and parent directory
+    dotenv_values = {}
+    for env_path in [Path.cwd() / ".env", Path.cwd().parent / ".env"]:
+        if env_path.exists():
+            dotenv_values = _read_dotenv_file(env_path)
+            break
+    
     for env_key, field_name in _ENV_TO_FIELD.items():
         raw = dotenv_values.get(env_key)
         if raw is not None:

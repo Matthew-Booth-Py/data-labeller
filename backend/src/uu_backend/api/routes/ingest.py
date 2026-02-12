@@ -105,15 +105,11 @@ async def ingest_documents(
                 chunks=chunks,
             )
 
-            # Store in vector database (for RAG/Q&A)
-            vector_store.add_document(document)
-
-            # Queue Neo4j indexing in Celery only (no inline fallback).
+            # Queue Neo4j indexing in Celery only (Neo4j handles all storage)
             try:
                 index_document_in_neo4j_task.delay(doc_id)
             except Exception as enqueue_error:
-                # Keep ingestion atomic per document if queueing fails.
-                vector_store.delete_document(doc_id)
+                # Clean up on failure
                 original_file_path.unlink(missing_ok=True)
                 errors.append(f"{filename}: Failed to enqueue Neo4j indexing job: {enqueue_error}")
                 logger.exception("Failed to enqueue Celery Neo4j indexing for %s", filename)

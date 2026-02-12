@@ -19,4 +19,4 @@ neo4j_password: "password"
 
 openai_model: "gpt-5-mini"
 openai_tagging_model: "gpt-5-mini"
-openai_reasoning_effort: "low"
+openai_reasoning_effort: "medium"
