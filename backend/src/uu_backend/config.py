@@ -46,6 +46,10 @@ class Settings(BaseModel):
     neo4j_password: str = "password"
     neo4j_database: str | None = None
 
+    # Celery Settings
+    celery_broker_url: str = "redis://localhost:6379/0"
+    celery_result_backend: str = "redis://localhost:6379/1"
+
     # OpenAI Settings
     openai_api_key: str = ""
     openai_model: str = "gpt-5-mini"
@@ -87,6 +91,8 @@ _ENV_TO_FIELD = {
     "NEO4J_USER": "neo4j_user",
     "NEO4J_PASSWORD": "neo4j_password",
     "NEO4J_DATABASE": "neo4j_database",
+    "CELERY_BROKER_URL": "celery_broker_url",
+    "CELERY_RESULT_BACKEND": "celery_result_backend",
     "OPENAI_API_KEY": "openai_api_key",
     "OPENAI_MODEL": "openai_model",
     "OPENAI_TAGGING_MODEL": "openai_tagging_model",

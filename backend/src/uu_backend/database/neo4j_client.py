@@ -160,6 +160,12 @@ class Neo4jClient:
                 return dict(record["d"])
             return None
 
+    def get_all_document_ids(self) -> set[str]:
+        """Get all document IDs currently stored in Neo4j."""
+        with self._session() as session:
+            result = session.run("MATCH (d:Document) RETURN d.id as id")
+            return {record["id"] for record in result if record.get("id")}
+
     def delete_document(self, doc_id: str) -> bool:
         """Delete a document and related graph data."""
         summary = self.delete_document_graph_data(doc_id)
@@ -385,6 +391,10 @@ class Neo4jClient:
         finally:
             if owns_session:
                 session.close()
+
+    def clear_graph(self) -> None:
+        """Backward-compatible alias for clearing all graph data."""
+        self.clear_all_data()
 
     # =========================================================================
     # Entity Operations

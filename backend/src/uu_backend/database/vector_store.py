@@ -2,7 +2,6 @@
 
 from collections import defaultdict
 from datetime import date, datetime
-from typing import Any
 
 import chromadb
 import tiktoken
@@ -386,6 +385,35 @@ class VectorStore:
         self._docs_collection.delete(ids=[document_id])
 
         return True
+
+    def get_document_id_for_chunk(self, chunk_id: str) -> str | None:
+        """
+        Resolve a document ID from a chunk ID.
+
+        Args:
+            chunk_id: Chunk ID in the chunk collection
+
+        Returns:
+            Document ID if found, otherwise None
+        """
+        try:
+            result = self._collection.get(
+                ids=[chunk_id],
+                include=["metadatas"],
+            )
+        except Exception:
+            return None
+
+        if not result.get("ids"):
+            return None
+
+        metadatas = result.get("metadatas") or []
+        if not metadatas:
+            return None
+
+        metadata = metadatas[0] or {}
+        document_id = metadata.get("document_id")
+        return str(document_id) if document_id else None
 
     def count(self) -> int:
         """Get the total number of documents."""

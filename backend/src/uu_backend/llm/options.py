@@ -13,3 +13,14 @@ def reasoning_options_for_model(model: str | None) -> dict:
         return {"reasoning_effort": effort}
     return {}
 
+
+def completion_token_options_for_model(
+    model: str | None,
+    max_tokens: int | None,
+) -> dict:
+    """Return the correct token limit parameter for the target model family."""
+    if max_tokens is None:
+        return {}
+    if model and model.startswith("gpt-5"):
+        return {"max_completion_tokens": max_tokens}
+    return {"max_tokens": max_tokens}

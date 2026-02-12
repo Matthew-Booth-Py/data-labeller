@@ -25,6 +25,7 @@ import {
   Sparkles,
   Edit2,
   Tags,
+  Network,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -66,6 +67,15 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     queryKey: ["documents"],
     queryFn: () => api.listDocuments(),
     staleTime: 0, // Always refetch when invalidated to show latest classification
+  });
+
+  const {
+    data: graphIndexingStatus,
+    refetch: refetchGraphIndexingStatus,
+  } = useQuery({
+    queryKey: ["graph-indexing-status"],
+    queryFn: () => api.getGraphIndexingStatus(),
+    staleTime: 10000,
   });
 
   // Fetch document types for manual classification
@@ -149,6 +159,7 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
       queryClient.invalidateQueries({ queryKey: ["graph"] });
       queryClient.invalidateQueries({ queryKey: ["ingest-status"] });
       queryClient.invalidateQueries({ queryKey: ["health"] });
+      queryClient.invalidateQueries({ queryKey: ["graph-indexing-status"] });
     },
     onError: (error: Error) => {
       toast({
@@ -194,6 +205,7 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
       queryClient.invalidateQueries({ queryKey: ["graph"] });
       queryClient.invalidateQueries({ queryKey: ["ingest-status"] });
       queryClient.invalidateQueries({ queryKey: ["health"] });
+      queryClient.invalidateQueries({ queryKey: ["graph-indexing-status"] });
     },
     onError: (error: Error) => {
       toast({
@@ -467,6 +479,99 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     },
   });
 
+  const indexGraphMutation = useMutation({
+    mutationFn: (documentIds: string[]) => api.indexGraphDocuments(documentIds),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["graph-indexing-status"] });
+      await queryClient.invalidateQueries({ queryKey: ["graph"] });
+      toast({
+        title: "Index DB queued",
+        description:
+          result.enqueued_documents > 0
+            ? `Queued ${result.enqueued_documents} of ${result.valid_documents} project document(s)`
+            : `No project documents needed indexing (${result.already_indexed_documents} already indexed)`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Index DB failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteGraphDbMutation = useMutation({
+    mutationFn: () => api.deleteGraphDatabase(),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["graph-indexing-status"] });
+      await queryClient.invalidateQueries({ queryKey: ["graph"] });
+      const deletedEntities =
+        result.stats_before.persons +
+        result.stats_before.organizations +
+        result.stats_before.locations +
+        result.stats_before.events;
+      toast({
+        title: "DB deleted",
+        description: `Removed ${result.stats_before.documents} docs, ${deletedEntities} entities, ${result.stats_before.relationships} relationships from Neo4j`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Delete DB failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const projectDocumentIds = useMemo(
+    () => (filteredData?.documents || []).map((doc) => doc.id),
+    [filteredData],
+  );
+  const pendingIdSet = useMemo(
+    () => new Set(graphIndexingStatus?.pending_document_ids || []),
+    [graphIndexingStatus],
+  );
+  const projectPendingDocuments = useMemo(
+    () => projectDocumentIds.filter((id) => pendingIdSet.has(id)).length,
+    [projectDocumentIds, pendingIdSet],
+  );
+  const projectIndexedDocuments = projectDocumentIds.length - projectPendingDocuments;
+
+  const removeGraphDocMutation = useMutation({
+    mutationFn: (documentOrChunkId: string) => api.removeGraphDocument(documentOrChunkId),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["graph-indexing-status"] });
+      await queryClient.invalidateQueries({ queryKey: ["graph"] });
+      if (result.removed) {
+        toast({
+          title: "Removed from Knowledge Graph",
+          description:
+            result.removed_documents > 1
+              ? `Removed ${result.removed_documents} matching documents from Neo4j`
+              : `Removed ${result.resolved_document_id} from Neo4j`,
+        });
+      } else {
+        toast({
+          title: "Not found in Knowledge Graph",
+          description: `No Neo4j documents found for ${result.requested_id}`,
+        });
+      }
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Knowledge Graph removal failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const pendingGraphDocuments = projectPendingDocuments;
+  const graphEntityCount = graphIndexingStatus?.graph_entities_total || 0;
+  const graphRelationshipCount = graphIndexingStatus?.graph_relationships_total || 0;
+
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -543,9 +648,50 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
             )}
             Suggest Labels
           </Button>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => indexGraphMutation.mutate(projectDocumentIds)}
+            disabled={
+              indexGraphMutation.isPending
+              || projectDocumentIds.length === 0
+              || pendingGraphDocuments === 0
+            }
+          >
+            {indexGraphMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Network className="h-4 w-4" />
+            )}
+            Index DB
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-2 text-destructive hover:text-destructive"
+            onClick={() => {
+              if (window.confirm("Delete the Neo4j graph database now?")) {
+                deleteGraphDbMutation.mutate();
+              }
+            }}
+            disabled={deleteGraphDbMutation.isPending}
+          >
+            {deleteGraphDbMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+            Delete DB
+          </Button>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => refetch()}>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => {
+              refetch();
+              refetchGraphIndexingStatus();
+            }}
+          >
             <RefreshCw className="h-4 w-4" />
           </Button>
           <div className="flex items-center gap-0 border rounded-md p-1 bg-background">
@@ -572,6 +718,18 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
       {/* Stats */}
       <div className="flex items-center gap-4 text-sm text-muted-foreground">
         <span>{filteredData?.total || 0} document{(filteredData?.total || 0) !== 1 ? "s" : ""}</span>
+        <span>
+          KG (project): {projectIndexedDocuments}/{projectDocumentIds.length} indexed
+        </span>
+        <span>
+          {pendingGraphDocuments} pending
+        </span>
+        <span>
+          {graphEntityCount} entities
+        </span>
+        <span>
+          {graphRelationshipCount} relationships
+        </span>
       </div>
 
       {isLoading ? (
@@ -656,13 +814,27 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
                       <div className="h-10 w-8 bg-muted/20 border rounded flex items-center justify-center shrink-0">
                         <FileText className="h-4 w-4 text-muted-foreground" />
                       </div>
-                      <div className="flex flex-col">
+                      <div className="flex flex-col gap-1">
                         <span className="font-medium text-sm truncate max-w-[200px]" title={doc.filename}>
                           {doc.filename}
                         </span>
-                        <span className="text-[10px] text-muted-foreground font-mono">
-                          {doc.id.slice(0, 8)}...
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-muted-foreground font-mono">
+                            {doc.id.slice(0, 8)}...
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2 text-[11px] text-amber-700 border-amber-300 hover:bg-amber-50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeGraphDocMutation.mutate(doc.filename);
+                            }}
+                            disabled={removeGraphDocMutation.isPending}
+                          >
+                            Remove from KG
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </TableCell>

@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from starlette.concurrency import run_in_threadpool
 
 from uu_backend.config import get_settings
 from uu_backend.database.neo4j_client import get_neo4j_client
@@ -16,7 +15,7 @@ from uu_backend.ingestion.chunker import get_chunker
 from uu_backend.ingestion.converter import get_converter
 from uu_backend.ingestion.dates import extract_date
 from uu_backend.models.document import Document, IngestResponse
-from uu_backend.services.graph_ingestion_service import get_graph_ingestion_service
+from uu_backend.tasks.neo4j_tasks import index_document_in_neo4j_task
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -42,7 +41,6 @@ async def ingest_documents(
     converter = get_converter()
     chunker = get_chunker()
     vector_store = get_vector_store()
-    graph_service = get_graph_ingestion_service()
 
     documents_processed = 0
     chunks_created = 0
@@ -110,32 +108,15 @@ async def ingest_documents(
             # Store in vector database (for RAG/Q&A)
             vector_store.add_document(document)
 
+            # Queue Neo4j indexing in Celery only (no inline fallback).
             try:
-                await run_in_threadpool(
-                    graph_service.extract_and_store_entities,
-                    doc_id=doc_id,
-                    content=result.content,
-                    document_date=date_extracted,
-                    filename=filename,
-                    file_type=result.metadata.file_type,
-                    file_path=str(original_file_path),
-                    created_at=document.created_at,
-                )
-            except Exception as graph_exc:
-                logger.exception(
-                    "graph_indexing_failed",
-                    extra={"document_id": doc_id, "document_filename": filename},
-                )
-                try:
-                    get_neo4j_client().delete_document_graph_data(doc_id)
-                except Exception:
-                    logger.exception(
-                        "graph_indexing_rollback_failed",
-                        extra={"document_id": doc_id},
-                    )
+                index_document_in_neo4j_task.delay(doc_id)
+            except Exception as enqueue_error:
+                # Keep ingestion atomic per document if queueing fails.
                 vector_store.delete_document(doc_id)
                 original_file_path.unlink(missing_ok=True)
-                errors.append(f"{filename}: Graph indexing failed: {str(graph_exc)}")
+                errors.append(f"{filename}: Failed to enqueue Neo4j indexing job: {enqueue_error}")
+                logger.exception("Failed to enqueue Celery Neo4j indexing for %s", filename)
                 continue
 
             documents_processed += 1
@@ -144,6 +125,7 @@ async def ingest_documents(
 
         except Exception as e:
             errors.append(f"{filename}: {str(e)}")
+            logger.exception("Document ingestion failed for %s", filename)
 
         finally:
             # Reset file position for potential retry

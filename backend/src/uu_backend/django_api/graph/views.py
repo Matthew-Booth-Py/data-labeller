@@ -6,7 +6,57 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.database.neo4j_client import get_neo4j_client
+from uu_backend.database.vector_store import get_vector_store
 from uu_backend.models.entity import EntityDetailResponse, EntityListResponse, EntityType
+from uu_backend.tasks.neo4j_tasks import index_document_in_neo4j_task
+
+
+def _compute_indexing_status() -> tuple[int, int, list[str]]:
+    """Return (total_docs, indexed_docs, pending_ids)."""
+    vector_store = get_vector_store()
+    neo4j_client = get_neo4j_client()
+
+    vector_docs = vector_store.get_all_documents()
+    vector_doc_ids = {doc.id for doc in vector_docs}
+    neo4j_doc_ids = neo4j_client.get_all_document_ids()
+
+    indexed_ids = vector_doc_ids.intersection(neo4j_doc_ids)
+    pending_ids = sorted(vector_doc_ids - neo4j_doc_ids)
+    return len(vector_doc_ids), len(indexed_ids), pending_ids
+
+
+def _resolve_document_ids(document_or_chunk_id: str) -> list[str]:
+    """Resolve document IDs from document id, filename, or chunk identifier."""
+    raw = (document_or_chunk_id or "").strip()
+    if not raw:
+        raise ValueError("identifier is empty")
+
+    vector_store = get_vector_store()
+    documents = vector_store.get_all_documents()
+    document_ids = {doc.id for doc in documents}
+
+    doc_from_chunk = vector_store.get_document_id_for_chunk(raw)
+    if doc_from_chunk:
+        return [doc_from_chunk]
+
+    if raw in document_ids:
+        return [raw]
+
+    exact_name_matches = [doc.id for doc in documents if doc.filename == raw]
+    if exact_name_matches:
+        return sorted(set(exact_name_matches))
+
+    ci_name_matches = [doc.id for doc in documents if doc.filename.lower() == raw.lower()]
+    if ci_name_matches:
+        return sorted(set(ci_name_matches))
+
+    for separator in (":", "#", "|"):
+        if separator in raw:
+            prefix = raw.split(separator, 1)[0].strip()
+            if prefix and prefix in document_ids:
+                return [prefix]
+
+    raise ValueError("no matching document for provided identifier")
 
 
 class GraphView(APIView):
@@ -127,3 +177,174 @@ class GraphStatsView(APIView):
             return Response(client.get_stats())
         except Exception as exc:
             return Response({"detail": f"Failed to retrieve graph stats: {exc}"}, status=500)
+
+
+class GraphIndexingStatusView(APIView):
+    authentication_classes: list = []
+    permission_classes: list = []
+
+    def get(self, request):
+        try:
+            total_docs, indexed_docs, pending_ids = _compute_indexing_status()
+            neo4j_stats = get_neo4j_client().get_stats()
+            total_entities = (
+                neo4j_stats.get("persons", 0)
+                + neo4j_stats.get("organizations", 0)
+                + neo4j_stats.get("locations", 0)
+                + neo4j_stats.get("events", 0)
+            )
+            return Response(
+                {
+                    "total_documents": total_docs,
+                    "indexed_documents": indexed_docs,
+                    "pending_documents": len(pending_ids),
+                    "pending_document_ids": pending_ids,
+                    "graph_documents_total": neo4j_stats.get("documents", 0),
+                    "graph_entities_total": total_entities,
+                    "graph_relationships_total": neo4j_stats.get("relationships", 0),
+                }
+            )
+        except Exception as exc:
+            return Response(
+                {"detail": f"Failed to retrieve graph indexing status: {exc}"},
+                status=500,
+            )
+
+
+class GraphIndexMissingView(APIView):
+    authentication_classes: list = []
+    permission_classes: list = []
+
+    def post(self, request):
+        try:
+            total_docs, indexed_docs, pending_ids = _compute_indexing_status()
+            task_ids: list[str] = []
+            for doc_id in pending_ids:
+                async_result = index_document_in_neo4j_task.delay(doc_id)
+                task_ids.append(async_result.id)
+
+            return Response(
+                {
+                    "total_documents": total_docs,
+                    "indexed_documents": indexed_docs,
+                    "pending_documents_before": len(pending_ids),
+                    "enqueued_documents": len(task_ids),
+                    "enqueued_task_ids": task_ids,
+                }
+            )
+        except Exception as exc:
+            return Response(
+                {"detail": f"Failed to enqueue graph indexing jobs: {exc}"},
+                status=500,
+            )
+
+
+class GraphIndexDocumentsView(APIView):
+    authentication_classes: list = []
+    permission_classes: list = []
+
+    def post(self, request):
+        requested = request.data.get("document_ids", [])
+        if not isinstance(requested, list):
+            return Response({"detail": "document_ids must be a list"}, status=422)
+
+        requested_ids = sorted({str(doc_id).strip() for doc_id in requested if str(doc_id).strip()})
+        if not requested_ids:
+            return Response({"detail": "document_ids is required"}, status=400)
+
+        try:
+            vector_store = get_vector_store()
+            vector_doc_ids = {doc.id for doc in vector_store.get_all_documents()}
+            neo4j_doc_ids = get_neo4j_client().get_all_document_ids()
+
+            missing_ids = [doc_id for doc_id in requested_ids if doc_id not in vector_doc_ids]
+            eligible_ids = [doc_id for doc_id in requested_ids if doc_id in vector_doc_ids]
+            already_indexed_ids = [doc_id for doc_id in eligible_ids if doc_id in neo4j_doc_ids]
+            enqueue_ids = [doc_id for doc_id in eligible_ids if doc_id not in neo4j_doc_ids]
+
+            task_ids: list[str] = []
+            for doc_id in enqueue_ids:
+                async_result = index_document_in_neo4j_task.delay(doc_id)
+                task_ids.append(async_result.id)
+
+            return Response(
+                {
+                    "requested_documents": len(requested_ids),
+                    "valid_documents": len(eligible_ids),
+                    "missing_documents": len(missing_ids),
+                    "already_indexed_documents": len(already_indexed_ids),
+                    "enqueued_documents": len(enqueue_ids),
+                    "enqueued_task_ids": task_ids,
+                    "missing_document_ids": missing_ids,
+                    "already_indexed_document_ids": already_indexed_ids,
+                }
+            )
+        except Exception as exc:
+            return Response(
+                {"detail": f"Failed to enqueue specific graph indexing jobs: {exc}"},
+                status=500,
+            )
+
+
+class GraphDeleteDbView(APIView):
+    authentication_classes: list = []
+    permission_classes: list = []
+
+    def delete(self, request):
+        try:
+            neo4j_client = get_neo4j_client()
+            stats_before = neo4j_client.get_stats()
+            neo4j_client.clear_graph()
+            stats_after = neo4j_client.get_stats()
+            total_docs, indexed_docs, pending_ids = _compute_indexing_status()
+
+            return Response(
+                {
+                    "deleted": True,
+                    "stats_before": stats_before,
+                    "stats_after": stats_after,
+                    "total_documents": total_docs,
+                    "indexed_documents": indexed_docs,
+                    "pending_documents": len(pending_ids),
+                }
+            )
+        except Exception as exc:
+            return Response({"detail": f"Failed to delete graph database: {exc}"}, status=500)
+
+
+class GraphRemoveDocumentView(APIView):
+    authentication_classes: list = []
+    permission_classes: list = []
+
+    def delete(self, request):
+        requested_id = (request.query_params.get("document_or_chunk_id") or "").strip()
+        if not requested_id:
+            return Response({"detail": "document_or_chunk_id is required"}, status=422)
+
+        try:
+            resolved_document_ids = _resolve_document_ids(requested_id)
+            neo4j_client = get_neo4j_client()
+
+            removed_document_ids: list[str] = []
+            for doc_id in resolved_document_ids:
+                if neo4j_client.delete_document(doc_id):
+                    removed_document_ids.append(doc_id)
+
+            total_docs, indexed_docs, pending_ids = _compute_indexing_status()
+            return Response(
+                {
+                    "requested_id": requested_id,
+                    "resolved_document_id": resolved_document_ids[0],
+                    "resolved_document_ids": resolved_document_ids,
+                    "removed": len(removed_document_ids) > 0,
+                    "removed_documents": len(removed_document_ids),
+                    "removed_document_ids": removed_document_ids,
+                    "total_documents": total_docs,
+                    "indexed_documents": indexed_docs,
+                    "pending_documents": len(pending_ids),
+                }
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+        except Exception as exc:
+            return Response({"detail": f"Failed to remove graph document: {exc}"}, status=500)

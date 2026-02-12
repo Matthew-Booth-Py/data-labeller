@@ -33,6 +33,56 @@ export interface GraphStats {
   relationships: number;
 }
 
+export interface GraphIndexingStatus {
+  total_documents: number;
+  indexed_documents: number;
+  pending_documents: number;
+  pending_document_ids: string[];
+  graph_documents_total: number;
+  graph_entities_total: number;
+  graph_relationships_total: number;
+}
+
+export interface GraphIndexingEnqueueResult {
+  total_documents: number;
+  indexed_documents: number;
+  pending_documents_before: number;
+  enqueued_documents: number;
+  enqueued_task_ids: string[];
+}
+
+export interface GraphIndexDocumentsResult {
+  requested_documents: number;
+  valid_documents: number;
+  missing_documents: number;
+  already_indexed_documents: number;
+  enqueued_documents: number;
+  enqueued_task_ids: string[];
+  missing_document_ids: string[];
+  already_indexed_document_ids: string[];
+}
+
+export interface GraphDeleteDbResult {
+  deleted: boolean;
+  stats_before: GraphStats;
+  stats_after: GraphStats;
+  total_documents: number;
+  indexed_documents: number;
+  pending_documents: number;
+}
+
+export interface GraphRemoveResult {
+  requested_id: string;
+  resolved_document_id: string;
+  resolved_document_ids: string[];
+  removed: boolean;
+  removed_documents: number;
+  removed_document_ids: string[];
+  total_documents: number;
+  indexed_documents: number;
+  pending_documents: number;
+}
+
 export interface DocumentMetadata {
   filename: string;
   file_type: string;
@@ -836,6 +886,38 @@ class ApiClient {
 
   async getGraphStats(): Promise<GraphStats> {
     return this.request(`${API_PREFIX}/graph/stats`);
+  }
+
+  async getGraphIndexingStatus(): Promise<GraphIndexingStatus> {
+    return this.request(`${API_PREFIX}/graph/indexing/status`);
+  }
+
+  async indexMissingGraphDocuments(): Promise<GraphIndexingEnqueueResult> {
+    return this.request(`${API_PREFIX}/graph/indexing/index-missing`, {
+      method: 'POST',
+    });
+  }
+
+  async indexGraphDocuments(documentIds: string[]): Promise<GraphIndexDocumentsResult> {
+    return this.request(`${API_PREFIX}/graph/indexing/index-documents`, {
+      method: 'POST',
+      body: JSON.stringify({ document_ids: documentIds }),
+    });
+  }
+
+  async deleteGraphDatabase(): Promise<GraphDeleteDbResult> {
+    return this.request(`${API_PREFIX}/graph/indexing/delete-db`, {
+      method: 'DELETE',
+    });
+  }
+
+  async removeGraphDocument(documentOrChunkId: string): Promise<GraphRemoveResult> {
+    const params = new URLSearchParams({
+      document_or_chunk_id: documentOrChunkId,
+    });
+    return this.request(`${API_PREFIX}/graph/indexing/remove?${params.toString()}`, {
+      method: 'DELETE',
+    });
   }
 
   // Taxonomy - Document Types

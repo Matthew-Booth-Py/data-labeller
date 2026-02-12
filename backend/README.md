@@ -47,6 +47,9 @@ uv sync
 ```bash
 # Run the development server
 uv run uvicorn uu_backend.asgi_dispatcher:application --reload --port 8000
+
+# Run Celery worker(s)
+uv run celery -A uu_backend.django_project.celery_app worker -l info
 ```
 
 ### Running with Docker
@@ -106,6 +109,8 @@ backend/
 | `CHUNK_SIZE` | `1000` | Characters per chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between chunks |
 | `CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed CORS origins |
+| `CELERY_BROKER_URL` | `redis://localhost:6379/0` | Celery broker URL |
+| `CELERY_RESULT_BACKEND` | `redis://localhost:6379/1` | Celery result backend URL |
 
 ## Migration Utilities
 
