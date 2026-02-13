@@ -285,8 +285,98 @@ class Neo4jClient:
         summary = self.delete_document_graph_data(doc_id)
         return summary["deleted_documents"] > 0
 
+    def delete_document_graph_data_for_reindex(self, doc_id: str) -> dict[str, int]:
+        """
+        Delete graph data for re-indexing, but preserve the Document node.
+        
+        This removes chunks, entities, and relationships while keeping the Document node
+        visible in the UI during re-indexing. Used by GraphRAG pipeline for idempotent re-indexing.
+        """
+        with self._session() as session:
+            record = session.run(
+                """
+                MATCH (d:Document {id: $id})
+                OPTIONAL MATCH (d)-[:MENTIONS]->(e:Entity)
+                OPTIONAL MATCH (c:Chunk)-[:FROM_DOCUMENT]->(d)
+                RETURN count(DISTINCT d) as docs,
+                       collect(DISTINCT e.id) as entity_ids,
+                       collect(DISTINCT elementId(c)) as chunk_ids
+                """,
+                id=doc_id,
+            ).single()
+
+            doc_count = int(record["docs"] or 0) if record else 0
+            entity_ids = [
+                eid for eid in ((record.get("entity_ids") if record else []) or []) if eid
+            ]
+            chunk_ids = [cid for cid in ((record.get("chunk_ids") if record else []) or []) if cid]
+
+            # Delete document relationships
+            rel_record = session.run(
+                """
+                MATCH ()-[r]->()
+                WHERE r.document_id = $id
+                WITH collect(r) as rels, size(collect(r)) as rel_count
+                FOREACH (rel IN rels | DELETE rel)
+                RETURN rel_count
+                """,
+                id=doc_id,
+            ).single()
+            deleted_doc_rels = int(rel_record["rel_count"] or 0) if rel_record else 0
+
+            # Delete chunks
+            deleted_chunks = 0
+            if chunk_ids:
+                chunk_record = session.run(
+                    """
+                    UNWIND $chunk_ids AS chunk_id
+                    MATCH (c:Chunk)
+                    WHERE elementId(c) = chunk_id
+                    WITH collect(c) as chunks, size(collect(c)) as chunk_count
+                    FOREACH (chunk IN chunks | DETACH DELETE chunk)
+                    RETURN chunk_count
+                    """,
+                    chunk_ids=chunk_ids,
+                ).single()
+                deleted_chunks = int(chunk_record["chunk_count"] or 0) if chunk_record else 0
+
+            # Reset indexed flag on Document (will be set to true after successful indexing)
+            if doc_count > 0:
+                session.run(
+                    """
+                    MATCH (d:Document {id: $id})
+                    SET d.indexed = false
+                    """,
+                    id=doc_id,
+                )
+
+            # Update entity mention counts
+            if entity_ids:
+                session.run(
+                    """
+                    UNWIND $entity_ids AS entity_id
+                    MATCH (e:Entity {id: entity_id})
+                    OPTIONAL MATCH (:Document)-[m:MENTIONS]->(e)
+                    WITH e, count(m) as mention_count, min(m.first_seen) as first_mentioned,
+                         max(m.last_seen) as last_mentioned
+                    SET e.mention_count = mention_count,
+                        e.first_mentioned = first_mentioned,
+                        e.last_mentioned = last_mentioned,
+                        e.updated_at = $now
+                    """,
+                    entity_ids=entity_ids,
+                    now=datetime.utcnow().isoformat(),
+                )
+
+            return {
+                "deleted_documents": 0,  # Document preserved
+                "deleted_chunks": deleted_chunks,
+                "deleted_document_relationships": deleted_doc_rels,
+                "pruned_entities": 0,
+            }
+
     def delete_document_graph_data(self, doc_id: str) -> dict[str, int]:
-        """Delete one document and graph data derived from it."""
+        """Delete one document and all graph data derived from it."""
         with self._session() as session:
             record = session.run(
                 """

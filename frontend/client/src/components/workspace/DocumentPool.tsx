@@ -334,7 +334,7 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
       console.log(`📤 [${index + 1}/${unclassified.length}] Sending request for: ${doc.filename}`);
       
       try {
-        const result = await api.autoClassifyDocument(doc.id, false);
+        const result = await api.autoClassifyDocument(doc.id, true); // Changed to true to auto-save
         const elapsed = ((Date.now() - docStartTime) / 1000).toFixed(2);
         console.log(`✅ [${index + 1}/${unclassified.length}] Completed ${doc.filename} in ${elapsed}s -> ${result.document_type_name}`);
         
@@ -383,9 +383,12 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     
     setClassifying(false);
     
+    // Refetch documents to show updated classifications
+    await queryClient.refetchQueries({ queryKey: ["documents"] });
+    
     toast({
       title: "Classification Complete",
-      description: `Successfully classified ${successCount} of ${unclassified.length} documents in ${totalElapsed}s`,
+      description: `Successfully classified and saved ${successCount} of ${unclassified.length} documents in ${totalElapsed}s`,
     });
   };
 

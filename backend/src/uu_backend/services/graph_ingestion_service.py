@@ -183,6 +183,7 @@ class GraphIngestionService:
         use_pdf_pipeline = bool(file_path and str(file_path).lower().endswith(".pdf"))
 
         # Idempotent re-index for a given document id.
+        # Delete all graph data (GraphRAG will recreate the Document node)
         self.neo4j_client.delete_document_graph_data(doc_id)
         self._ensure_chunk_vector_index()
         pipeline = self._get_pipeline(from_pdf=use_pdf_pipeline)
