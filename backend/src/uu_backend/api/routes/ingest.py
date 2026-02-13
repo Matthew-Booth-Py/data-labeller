@@ -15,7 +15,6 @@ from uu_backend.ingestion.chunker import get_chunker
 from uu_backend.ingestion.converter import get_converter
 from uu_backend.ingestion.dates import extract_date
 from uu_backend.models.document import Document, IngestResponse
-from uu_backend.tasks.neo4j_tasks import index_document_in_neo4j_task
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -105,14 +104,32 @@ async def ingest_documents(
                 chunks=chunks,
             )
 
-            # Queue Neo4j indexing in Celery only (Neo4j handles all storage)
+            # Store document and chunks immediately in Neo4j for visibility
+            # Full GraphRAG indexing will be triggered separately via "Index DB" button
             try:
-                index_document_in_neo4j_task.delay(doc_id)
-            except Exception as enqueue_error:
+                neo4j_client = get_neo4j_client()
+                chunk_data = [
+                    {
+                        "id": chunk.id,
+                        "content": chunk.content,
+                        "chunk_index": chunk.chunk_index,
+                    }
+                    for chunk in chunks
+                ]
+                neo4j_client.create_document_with_chunks(
+                    doc_id=doc_id,
+                    filename=filename,
+                    file_type=result.metadata.file_type,
+                    content=result.content,
+                    chunks=chunk_data,
+                    date_extracted=date_extracted,
+                )
+                logger.info("Document %s stored in Neo4j (pending full indexing)", doc_id)
+            except Exception as neo4j_error:
                 # Clean up on failure
                 original_file_path.unlink(missing_ok=True)
-                errors.append(f"{filename}: Failed to enqueue Neo4j indexing job: {enqueue_error}")
-                logger.exception("Failed to enqueue Celery Neo4j indexing for %s", filename)
+                errors.append(f"{filename}: Failed to store in Neo4j: {neo4j_error}")
+                logger.exception("Failed to store document %s in Neo4j", filename)
                 continue
 
             documents_processed += 1

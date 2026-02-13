@@ -148,6 +148,80 @@ class Neo4jClient:
                 props=props,
             )
 
+    def create_document_with_chunks(
+        self,
+        doc_id: str,
+        filename: str,
+        file_type: str,
+        content: str,
+        chunks: list[dict[str, Any]],
+        date_extracted: datetime | None = None,
+        created_at: datetime | None = None,
+    ) -> None:
+        """
+        Create a document node with basic chunk nodes for immediate visibility.
+        
+        This creates the document and chunks without running the full GraphRAG pipeline,
+        allowing documents to appear in the UI immediately after upload.
+        The full entity extraction and graph indexing can be run later via "Index DB".
+        
+        Args:
+            doc_id: Document ID
+            filename: Original filename
+            file_type: File type/extension
+            content: Full document content (for reference, stored as property)
+            chunks: List of chunk dicts with 'id', 'content', 'chunk_index'
+            date_extracted: Optional extracted document date
+            created_at: Optional creation timestamp
+        """
+        import uuid
+        
+        with self._session() as session:
+            now_iso = (created_at or datetime.utcnow()).isoformat()
+            
+            # Create document node
+            doc_props: dict[str, Any] = {
+                "id": doc_id,
+                "filename": filename,
+                "file_type": file_type,
+                "created_at": now_iso,
+                "graph_version": GRAPH_VERSION,
+                "indexed": False,  # Mark as not fully indexed yet
+            }
+            if date_extracted:
+                doc_props["date"] = date_extracted.isoformat()
+            
+            session.run(
+                """
+                MERGE (d:Document {id: $id})
+                ON CREATE SET d.created_at = $created_at
+                SET d += $props
+                """,
+                id=doc_id,
+                created_at=now_iso,
+                props=doc_props,
+            )
+            
+            # Create chunk nodes and link to document
+            for chunk in chunks:
+                chunk_id = chunk.get("id") or str(uuid.uuid4())
+                chunk_text = chunk.get("content", "")
+                chunk_index = chunk.get("chunk_index", 0)
+                
+                session.run(
+                    """
+                    MATCH (d:Document {id: $doc_id})
+                    MERGE (c:Chunk {id: $chunk_id})
+                    ON CREATE SET c.text = $text, c.index = $index
+                    ON MATCH SET c.text = $text, c.index = $index
+                    MERGE (c)-[:FROM_DOCUMENT]->(d)
+                    """,
+                    doc_id=doc_id,
+                    chunk_id=chunk_id,
+                    text=chunk_text,
+                    index=chunk_index,
+                )
+
     def get_document(self, doc_id: str) -> dict[str, Any] | None:
         """Get a document by ID."""
         with self._session() as session:
@@ -176,6 +250,35 @@ class Neo4jClient:
                 """
             )
             return {record["id"] for record in result if record.get("id")}
+
+    def get_fully_indexed_document_ids(self) -> set[str]:
+        """
+        Get document IDs that have been fully indexed with GraphRAG.
+        
+        This checks the `indexed` property on Document nodes, which is set to True
+        after full entity extraction and graph indexing completes.
+        Documents with `indexed=False` or no indexed property are pending full indexing.
+        """
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (d:Document)
+                WHERE d.indexed = true
+                RETURN DISTINCT d.id as id
+                """
+            )
+            return {record["id"] for record in result if record.get("id")}
+
+    def mark_document_indexed(self, doc_id: str) -> None:
+        """Mark a document as fully indexed after GraphRAG processing."""
+        with self._session() as session:
+            session.run(
+                """
+                MATCH (d:Document {id: $id})
+                SET d.indexed = true
+                """,
+                id=doc_id,
+            )
 
     def delete_document(self, doc_id: str) -> bool:
         """Delete a document and related graph data."""

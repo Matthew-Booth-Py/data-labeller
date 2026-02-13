@@ -27,11 +27,10 @@ class IngestView(APIView):
 
         start_time = time.time()
         settings = get_settings()
-        from uu_backend.tasks.neo4j_tasks import index_document_in_neo4j_task
 
         converter = get_converter()
         chunker = get_chunker()
-        vector_store = get_vector_store()
+        neo4j_client = get_neo4j_client()
 
         documents_processed = 0
         chunks_created = 0
@@ -80,14 +79,30 @@ class IngestView(APIView):
                     metadata=result.metadata,
                     chunks=chunks,
                 )
-                vector_store.add_document(document)
+
+                # Store document and chunks immediately in Neo4j for visibility
+                # Full GraphRAG indexing will be triggered separately via "Index DB" button
                 try:
-                    index_document_in_neo4j_task.delay(doc_id)
-                except Exception as enqueue_error:
-                    vector_store.delete_document(doc_id)
+                    chunk_data = [
+                        {
+                            "id": chunk.id,
+                            "content": chunk.content,
+                            "chunk_index": chunk.chunk_index,
+                        }
+                        for chunk in chunks
+                    ]
+                    neo4j_client.create_document_with_chunks(
+                        doc_id=doc_id,
+                        filename=filename,
+                        file_type=result.metadata.file_type,
+                        content=result.content,
+                        chunks=chunk_data,
+                        date_extracted=date_extracted,
+                    )
+                except Exception as neo4j_error:
                     original_file_path.unlink(missing_ok=True)
                     errors.append(
-                        f"{filename}: Failed to enqueue Neo4j indexing job: {enqueue_error}"
+                        f"{filename}: Failed to store in Neo4j: {neo4j_error}"
                     )
                     continue
 

@@ -120,6 +120,49 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     };
   }, [data, projectId, localStorageVersion]);
 
+  // Sync localStorage document IDs with actual documents from API
+  // This removes stale IDs that no longer exist in the database
+  // Skip sync during indexing to avoid race conditions
+  useEffect(() => {
+    if (!data || !projectId) return;
+    
+    // Don't sync while documents are being indexed (they may be temporarily deleted/recreated)
+    const pendingIndexing = graphIndexingStatus?.pending_documents || 0;
+    if (queuedNeoDocIds.size > 0 || pendingIndexing > 0) {
+      console.log(`Skipping localStorage sync: ${queuedNeoDocIds.size} queued locally, ${pendingIndexing} pending on backend`);
+      return;
+    }
+    
+    try {
+      const stored = localStorage.getItem("uu-projects");
+      if (!stored) return;
+      
+      const projects = JSON.parse(stored);
+      const projectIndex = projects.findIndex((p: { id: string }) => p.id === projectId);
+      if (projectIndex < 0) return;
+      
+      const storedDocIds: string[] = projects[projectIndex].documentIds || [];
+      if (storedDocIds.length === 0) return;
+      
+      // Get all document IDs that actually exist in the API
+      const existingDocIds = new Set(data.documents.map(doc => doc.id));
+      
+      // Filter to only IDs that exist in the API
+      const validDocIds = storedDocIds.filter(id => existingDocIds.has(id));
+      
+      // Only update if there are stale IDs to remove
+      if (validDocIds.length < storedDocIds.length) {
+        console.log(`Syncing localStorage: removed ${storedDocIds.length - validDocIds.length} stale document IDs`);
+        projects[projectIndex].documentIds = validDocIds;
+        projects[projectIndex].docCount = validDocIds.length;
+        localStorage.setItem("uu-projects", JSON.stringify(projects));
+        setLocalStorageVersion(v => v + 1); // Trigger re-render
+      }
+    } catch (err) {
+      console.error("Failed to sync localStorage document IDs:", err);
+    }
+  }, [data, projectId, queuedNeoDocIds, graphIndexingStatus]);
+
   // Helper to save document IDs to project in localStorage
   const saveDocumentIdsToProject = (docIds: string[]) => {
     if (!projectId || docIds.length === 0) return;

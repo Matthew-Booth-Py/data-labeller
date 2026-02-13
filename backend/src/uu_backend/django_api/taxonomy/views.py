@@ -407,17 +407,22 @@ class AutoClassifyDocumentView(APIView):
     permission_classes: list = []
 
     def post(self, request, document_id: str):
+        import traceback
         save = _bool_query_param(request.query_params.get("save"), default=True)
         service = get_classification_service()
         try:
-            result = async_to_sync(service.classify_document)(document_id, auto_save=True) if save else async_to_sync(
-                service.suggest_classification
-            )(document_id)
+            if save:
+                result = async_to_sync(service.classify_document)(document_id, auto_save=True)
+            else:
+                result = async_to_sync(service.suggest_classification)(document_id)
             return Response(result)
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=400)
         except Exception as exc:
-            return Response({"detail": f"Auto-classification failed: {exc}"}, status=500)
+            # Log full traceback for debugging
+            tb = traceback.format_exc()
+            print(f"Auto-classification error for {document_id}:\n{tb}")
+            return Response({"detail": f"Auto-classification failed: {exc}", "traceback": tb}, status=500)
 
 
 class DocumentClassificationView(APIView):

@@ -50,7 +50,7 @@ class VectorStore:
         # This is a no-op for backward compatibility
         pass
 
-    def update_document_content(self, document_id: str, new_content: str) -> bool:
+    def update_document_content(self, document_id: str, new_content: str, file_path: str | None = None) -> bool:
         """
         Update document content after reprocessing.
         
@@ -59,6 +59,7 @@ class VectorStore:
         Args:
             document_id: Document ID
             new_content: New content from reprocessing
+            file_path: Optional path to original file (used for PDF pipeline)
             
         Returns:
             True if successful
@@ -70,6 +71,18 @@ class VectorStore:
         if not document:
             return False
         
+        # Resolve file path if not provided
+        resolved_file_path = file_path
+        if not resolved_file_path:
+            settings = get_settings()
+            storage_path = settings.file_storage_path
+            # Try to find the original file
+            from pathlib import Path
+            for match in Path(storage_path).glob(f"{document_id}.*"):
+                if match.is_file():
+                    resolved_file_path = str(match)
+                    break
+        
         # Re-index through GraphIngestionService
         graph_service = get_graph_ingestion_service()
         graph_service.extract_and_store_entities(
@@ -78,6 +91,7 @@ class VectorStore:
             document_date=document.date_extracted,
             filename=document.filename,
             file_type=document.file_type,
+            file_path=resolved_file_path,
             created_at=document.created_at,
         )
         

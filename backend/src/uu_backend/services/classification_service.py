@@ -3,6 +3,7 @@
 import json
 from typing import Optional
 
+from asgiref.sync import sync_to_async
 from openai import AsyncOpenAI
 
 from uu_backend.llm.options import reasoning_options_for_model
@@ -40,13 +41,16 @@ class ClassificationService:
         repository = get_repository()
         vector_store = get_vector_store()
         
-        # Get document
-        document = vector_store.get_document(document_id)
+        # Get document (wrap sync call for async context)
+        document = await sync_to_async(vector_store.get_document)(document_id)
         if not document:
             raise ValueError(f"Document {document_id} not found")
         
-        # Get all document types
-        doc_types = repository.list_document_types()
+        if not document.content or not document.content.strip():
+            raise ValueError(f"Document {document_id} has no content. Try re-uploading the document.")
+        
+        # Get all document types (wrap sync call for async context)
+        doc_types = await sync_to_async(repository.list_document_types)()
         if not doc_types:
             raise ValueError("No document types defined. Create document types first.")
         
@@ -147,7 +151,7 @@ Classify this document into one of the available types. Return your response as 
             
             # Save classification if auto_save is enabled
             if auto_save:
-                classification = repository.classify_document(
+                classification = await sync_to_async(repository.classify_document)(
                     document_id=document_id,
                     document_type_id=matched_type.id,
                     confidence=result.get("confidence", 0.7),

@@ -18,10 +18,11 @@ def _compute_indexing_status() -> tuple[int, int, list[str]]:
 
     vector_docs = vector_store.get_all_documents()
     vector_doc_ids = {doc.id for doc in vector_docs}
-    neo4j_doc_ids_with_chunks = neo4j_client.get_document_ids_with_chunks()
+    # Use fully indexed check (based on indexed=True property) instead of just having chunks
+    fully_indexed_ids = neo4j_client.get_fully_indexed_document_ids()
 
-    indexed_ids = vector_doc_ids.intersection(neo4j_doc_ids_with_chunks)
-    pending_ids = sorted(vector_doc_ids - neo4j_doc_ids_with_chunks)
+    indexed_ids = vector_doc_ids.intersection(fully_indexed_ids)
+    pending_ids = sorted(vector_doc_ids - fully_indexed_ids)
     return len(vector_doc_ids), len(indexed_ids), pending_ids
 
 
@@ -260,16 +261,18 @@ class GraphIndexDocumentsView(APIView):
 
         try:
             vector_store = get_vector_store()
+            neo4j_client = get_neo4j_client()
             vector_doc_ids = {doc.id for doc in vector_store.get_all_documents()}
-            neo4j_doc_ids_with_chunks = get_neo4j_client().get_document_ids_with_chunks()
+            # Use fully indexed check (based on indexed=True property) instead of just having chunks
+            fully_indexed_ids = neo4j_client.get_fully_indexed_document_ids()
 
             missing_ids = [doc_id for doc_id in requested_ids if doc_id not in vector_doc_ids]
             eligible_ids = [doc_id for doc_id in requested_ids if doc_id in vector_doc_ids]
             already_indexed_ids = [
-                doc_id for doc_id in eligible_ids if doc_id in neo4j_doc_ids_with_chunks
+                doc_id for doc_id in eligible_ids if doc_id in fully_indexed_ids
             ]
             enqueue_ids = [
-                doc_id for doc_id in eligible_ids if doc_id not in neo4j_doc_ids_with_chunks
+                doc_id for doc_id in eligible_ids if doc_id not in fully_indexed_ids
             ]
 
             task_ids: list[str] = []

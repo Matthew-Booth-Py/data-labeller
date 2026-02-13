@@ -254,8 +254,8 @@ async def reprocess_document(document_id: str):
         if not result.success:
             raise HTTPException(status_code=500, detail=f"Conversion failed: {result.error}")
 
-        # Update document content in vector store
-        store.update_document_content(document_id, result.content)
+        # Update document content in vector store (pass file_path for PDF pipeline)
+        store.update_document_content(document_id, result.content, file_path=str(file_path))
 
         return {
             "status": "reprocessed",
