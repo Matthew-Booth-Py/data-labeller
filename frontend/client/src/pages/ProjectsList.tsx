@@ -184,16 +184,17 @@ export default function ProjectsList() {
     setDeletingId(id);
 
     try {
-      // Delete all associated documents from backend
-      if (project.documentIds && project.documentIds.length > 0) {
-        const deletePromises = project.documentIds.map(docId => 
-          api.deleteDocument(docId).catch(err => {
-            console.warn(`Failed to delete document ${docId}:`, err);
-            return null; // Continue even if one fails
-          })
-        );
-        await Promise.all(deletePromises);
-      }
+      // Note: Individual document deletion disabled - documents remain in system
+      // Use database clear operation to remove all documents
+      // if (project.documentIds && project.documentIds.length > 0) {
+      //   const deletePromises = project.documentIds.map(docId => 
+      //     api.deleteDocument(docId).catch(err => {
+      //       console.warn(`Failed to delete document ${docId}:`, err);
+      //       return null; // Continue even if one fails
+      //     })
+      //   );
+      //   await Promise.all(deletePromises);
+      // }
 
       // Remove project from localStorage
       const updated = projects.filter(p => p.id !== id);

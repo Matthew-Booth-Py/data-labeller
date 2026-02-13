@@ -29,18 +29,8 @@ class Settings(BaseModel):
     # File Storage Settings
     file_storage_directory: str = "./data/files"
 
-    # Document Processing Settings
-    chunk_size: int = 1000
-    chunk_overlap: int = 200
-
     # CORS Settings
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
-
-    # Neo4j Settings
-    neo4j_uri: str = "bolt://localhost:7687"
-    neo4j_user: str = "neo4j"
-    neo4j_password: str = "password"
-    neo4j_database: str | None = None
 
     # Celery Settings
     celery_broker_url: str = "redis://localhost:6379/0"
@@ -51,12 +41,6 @@ class Settings(BaseModel):
     openai_model: str = "gpt-5-mini"
     openai_tagging_model: str = "gpt-5-mini"
     openai_reasoning_effort: str = "low"
-
-    # GraphRAG Settings
-    graphrag_embedding_model: str = "text-embedding-3-small"
-    graphrag_embedding_dimensions: int = 1536
-    graphrag_vector_index_name: str = "chunk_embeddings"
-    graphrag_similarity_fn: str = "cosine"
 
     @property
     def file_storage_path(self) -> Path:
@@ -71,23 +55,13 @@ _ENV_TO_FIELD = {
     "API_PREFIX": "api_prefix",
     "DEBUG": "debug",
     "FILE_STORAGE_DIRECTORY": "file_storage_directory",
-    "CHUNK_SIZE": "chunk_size",
-    "CHUNK_OVERLAP": "chunk_overlap",
     "CORS_ORIGINS": "cors_origins",
-    "NEO4J_URI": "neo4j_uri",
-    "NEO4J_USER": "neo4j_user",
-    "NEO4J_PASSWORD": "neo4j_password",
-    "NEO4J_DATABASE": "neo4j_database",
     "CELERY_BROKER_URL": "celery_broker_url",
     "CELERY_RESULT_BACKEND": "celery_result_backend",
     "OPENAI_API_KEY": "openai_api_key",
     "OPENAI_MODEL": "openai_model",
     "OPENAI_TAGGING_MODEL": "openai_tagging_model",
     "OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
-    "GRAPHRAG_EMBEDDING_MODEL": "graphrag_embedding_model",
-    "GRAPHRAG_EMBEDDING_DIMENSIONS": "graphrag_embedding_dimensions",
-    "GRAPHRAG_VECTOR_INDEX_NAME": "graphrag_vector_index_name",
-    "GRAPHRAG_SIMILARITY_FN": "graphrag_similarity_fn",
 }
 
 
@@ -95,9 +69,6 @@ def _coerce_value(field_name: str, raw: str) -> Any:
     """Coerce env/.env string values into typed settings values."""
     if field_name in {
         "api_port",
-        "chunk_size",
-        "chunk_overlap",
-        "graphrag_embedding_dimensions",
     }:
         return int(raw)
     if field_name == "debug":

@@ -8,8 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
-from uu_backend.database.neo4j_client import get_neo4j_client
-from uu_backend.database.vector_store import get_vector_store
+from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.ingestion.converter import get_converter
 from uu_backend.models.document import DocumentListResponse, DocumentResponse
 from uu_backend.repositories import get_repository
@@ -63,9 +62,9 @@ class DocumentsListView(APIView):
     permission_classes: list = []
 
     def get(self, request):
-        store = get_vector_store()
+        document_repo = get_document_repository()
         repository = get_repository()
-        documents = store.get_all_documents()
+        documents = document_repo.get_all_documents()
 
         for doc in documents:
             classification = repository.get_classification(doc.id)
@@ -83,44 +82,45 @@ class DocumentDetailView(APIView):
     permission_classes: list = []
 
     def get(self, request, document_id: str):
-        store = get_vector_store()
-        document = store.get_document(document_id)
+        store = get_document_repository()
+        document = document_repo.get_document(document_id)
         if not document:
             return Response({"detail": f"Document not found: {document_id}"}, status=404)
 
         payload = DocumentResponse(document=document)
         return Response(payload.model_dump(mode="json"))
 
-    def delete(self, request, document_id: str):
-        store = get_vector_store()
-        neo4j_client = get_neo4j_client()
-        document = store.get_document(document_id)
-
-        if document:
-            file_path = get_original_file_path(document_id, document.file_type)
-            if file_path:
-                file_path.unlink(missing_ok=True)
-
-        deleted = store.delete_document(document_id)
-        if not deleted:
-            return Response({"detail": f"Document not found: {document_id}"}, status=404)
-
-        graph_cleanup: dict[str, object]
-        try:
-            graph_cleanup = neo4j_client.delete_document_graph_data(document_id)
-            valid_doc_ids = [doc.id for doc in store.get_all_documents()]
-            graph_cleanup["reconcile"] = neo4j_client.reconcile_documents(valid_doc_ids)
-        except Exception as exc:
-            logger.exception("graph_document_delete_failed", extra={"document_id": document_id})
-            graph_cleanup = {"error": str(exc)}
-
-        return Response(
-            {
-                "status": "deleted",
-                "document_id": document_id,
-                "graph_cleanup": graph_cleanup,
-            }
-        )
+    # Individual document deletion disabled - use bulk operations instead
+    # def delete(self, request, document_id: str):
+    #     store = get_document_repository()
+    #     neo4j_client = get_neo4j_client()
+    #     document = document_repo.get_document(document_id)
+    #
+    #     if document:
+    #         file_path = get_original_file_path(document_id, document.file_type)
+    #         if file_path:
+    #             file_path.unlink(missing_ok=True)
+    #
+    #     deleted = document_repo.delete_document(document_id)
+    #     if not deleted:
+    #         return Response({"detail": f"Document not found: {document_id}"}, status=404)
+    #
+    #     graph_cleanup: dict[str, object]
+    #     try:
+    #         graph_cleanup = neo4j_client.delete_document_graph_data(document_id)
+    #         valid_doc_ids = [doc.id for doc in document_repo.get_all_documents()]
+    #         graph_cleanup["reconcile"] = neo4j_client.reconcile_documents(valid_doc_ids)
+    #     except Exception as exc:
+    #         logger.exception("graph_document_delete_failed", extra={"document_id": document_id})
+    #         graph_cleanup = {"error": str(exc)}
+    #
+    #     return Response(
+    #         {
+    #             "status": "deleted",
+    #             "document_id": document_id,
+    #             "graph_cleanup": graph_cleanup,
+    #         }
+    #     )
 
 
 class DocumentFileView(APIView):
@@ -128,8 +128,8 @@ class DocumentFileView(APIView):
     permission_classes: list = []
 
     def get(self, request, document_id: str):
-        store = get_vector_store()
-        document = store.get_document(document_id)
+        store = get_document_repository()
+        document = document_repo.get_document(document_id)
         if not document:
             return Response({"detail": f"Document not found: {document_id}"}, status=404)
 
@@ -187,8 +187,8 @@ class DocumentReprocessView(APIView):
     permission_classes: list = []
 
     def post(self, request, document_id: str):
-        store = get_vector_store()
-        document = store.get_document(document_id)
+        store = get_document_repository()
+        document = document_repo.get_document(document_id)
 
         if not document:
             return Response({"detail": "Document not found"}, status=404)
@@ -205,7 +205,7 @@ class DocumentReprocessView(APIView):
             if not result.success:
                 return Response({"detail": f"Conversion failed: {result.error}"}, status=500)
 
-            store.update_document_content(document_id, result.content)
+            document_repo.update_document_content(document_id, result.content)
             return Response(
                 {
                     "status": "reprocessed",

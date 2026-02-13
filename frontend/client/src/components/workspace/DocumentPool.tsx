@@ -70,15 +70,17 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     staleTime: 0, // Always refetch when invalidated to show latest classification
   });
 
-  const {
-    data: graphIndexingStatus,
-    refetch: refetchGraphIndexingStatus,
-  } = useQuery({
-    queryKey: ["graph-indexing-status"],
-    queryFn: () => api.getGraphIndexingStatus(),
-    staleTime: 10000,
-    refetchInterval: queuedNeoDocIds.size > 0 ? 3000 : false,
-  });
+  // Graph indexing removed - Neo4j integration disabled
+  // const {
+  //   data: graphIndexingStatus,
+  //   refetch: refetchGraphIndexingStatus,
+  // } = useQuery({
+  //   queryKey: ["graph-indexing-status"],
+  //   queryFn: () => api.getGraphIndexingStatus(),
+  //   staleTime: 10000,
+  //   refetchInterval: queuedNeoDocIds.size > 0 ? 3000 : false,
+  // });
+  const graphIndexingStatus = null;
 
   // Fetch document types for manual classification
   const { data: documentTypesData } = useQuery({
@@ -236,30 +238,30 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     }
   };
 
-  // Delete mutation
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.deleteDocument(id),
-    onSuccess: (_, deletedId) => {
-      toast({
-        title: "Document deleted",
-        description: "The document has been removed.",
-      });
-      removeDocumentIdFromProject(deletedId);
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-      queryClient.invalidateQueries({ queryKey: ["timeline-uploaded"] });
-      queryClient.invalidateQueries({ queryKey: ["graph"] });
-      queryClient.invalidateQueries({ queryKey: ["ingest-status"] });
-      queryClient.invalidateQueries({ queryKey: ["health"] });
-      queryClient.invalidateQueries({ queryKey: ["graph-indexing-status"] });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Delete failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
+  // Individual document deletion removed - use bulk operations instead
+  // const deleteMutation = useMutation({
+  //   mutationFn: (id: string) => api.deleteDocument(id),
+  //   onSuccess: (_, deletedId) => {
+  //     toast({
+  //       title: "Document deleted",
+  //       description: "The document has been removed.",
+  //     });
+  //     removeDocumentIdFromProject(deletedId);
+  //     queryClient.invalidateQueries({ queryKey: ["documents"] });
+  //     queryClient.invalidateQueries({ queryKey: ["timeline-uploaded"] });
+  //     queryClient.invalidateQueries({ queryKey: ["graph"] });
+  //     queryClient.invalidateQueries({ queryKey: ["ingest-status"] });
+  //     queryClient.invalidateQueries({ queryKey: ["health"] });
+  //     queryClient.invalidateQueries({ queryKey: ["graph-indexing-status"] });
+  //   },
+  //   onError: (error: Error) => {
+  //     toast({
+  //       title: "Delete failed",
+  //       description: error.message,
+  //       variant: "destructive",
+  //     });
+  //   },
+  // });
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -561,29 +563,30 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     },
   });
 
-  const deleteGraphDbMutation = useMutation({
-    mutationFn: () => api.deleteGraphDatabase(),
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: ["graph-indexing-status"] });
-      await queryClient.invalidateQueries({ queryKey: ["graph"] });
-      const deletedEntities =
-        result.stats_before.persons +
-        result.stats_before.organizations +
-        result.stats_before.locations +
-        result.stats_before.events;
-      toast({
-        title: "DB deleted",
-        description: `Removed ${result.stats_before.documents} docs, ${deletedEntities} entities, ${result.stats_before.relationships} relationships from Neo4j`,
-      });
-    },
-    onError: (err: Error) => {
-      toast({
-        title: "Delete DB failed",
-        description: err.message,
-        variant: "destructive",
-      });
-    },
-  });
+  // Graph database deletion removed - Neo4j integration disabled
+  // const deleteGraphDbMutation = useMutation({
+  //   mutationFn: () => api.deleteGraphDatabase(),
+  //   onSuccess: async (result) => {
+  //     await queryClient.invalidateQueries({ queryKey: ["graph-indexing-status"] });
+  //     await queryClient.invalidateQueries({ queryKey: ["graph"] });
+  //     const deletedEntities =
+  //       result.stats_before.persons +
+  //       result.stats_before.organizations +
+  //       result.stats_before.locations +
+  //       result.stats_before.events;
+  //     toast({
+  //       title: "DB deleted",
+  //       description: `Removed ${result.stats_before.documents} docs, ${deletedEntities} entities, ${result.stats_before.relationships} relationships from Neo4j`,
+  //     });
+  //   },
+  //   onError: (err: Error) => {
+  //     toast({
+  //       title: "Delete DB failed",
+  //       description: err.message,
+  //       variant: "destructive",
+  //     });
+  //   },
+  // });
 
   const projectDocumentIds = useMemo(
     () => (filteredData?.documents || []).map((doc) => doc.id),
@@ -615,34 +618,35 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
   );
   const projectIndexedDocuments = projectDocumentIds.length - projectPendingDocuments;
 
-  const removeGraphDocMutation = useMutation({
-    mutationFn: (documentOrChunkId: string) => api.removeGraphDocument(documentOrChunkId),
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: ["graph-indexing-status"] });
-      await queryClient.invalidateQueries({ queryKey: ["graph"] });
-      if (result.removed) {
-        toast({
-          title: "Removed from Knowledge Graph",
-          description:
-            result.removed_documents > 1
-              ? `Removed ${result.removed_documents} matching documents from Neo4j`
-              : `Removed ${result.resolved_document_id} from Neo4j`,
-        });
-      } else {
-        toast({
-          title: "Not found in Knowledge Graph",
-          description: `No Neo4j documents found for ${result.requested_id}`,
-        });
-      }
-    },
-    onError: (err: Error) => {
-      toast({
-        title: "Knowledge Graph removal failed",
-        description: err.message,
-        variant: "destructive",
-      });
-    },
-  });
+  // Individual graph document removal removed - use bulk operations instead
+  // const removeGraphDocMutation = useMutation({
+  //   mutationFn: (documentOrChunkId: string) => api.removeGraphDocument(documentOrChunkId),
+  //   onSuccess: async (result) => {
+  //     await queryClient.invalidateQueries({ queryKey: ["graph-indexing-status"] });
+  //     await queryClient.invalidateQueries({ queryKey: ["graph"] });
+  //     if (result.removed) {
+  //       toast({
+  //         title: "Removed from Knowledge Graph",
+  //         description:
+  //           result.removed_documents > 1
+  //             ? `Removed ${result.removed_documents} matching documents from Neo4j`
+  //             : `Removed ${result.resolved_document_id} from Neo4j`,
+  //       });
+  //     } else {
+  //       toast({
+  //         title: "Not found in Knowledge Graph",
+  //         description: `No Neo4j documents found for ${result.requested_id}`,
+  //       });
+  //     }
+  //   },
+  //   onError: (err: Error) => {
+  //     toast({
+  //       title: "Knowledge Graph removal failed",
+  //       description: err.message,
+  //       variant: "destructive",
+  //     });
+  //   },
+  // });
 
   const pendingGraphDocuments = projectPendingDocuments;
   const graphEntityCount = graphIndexingStatus?.graph_entities_total || 0;
@@ -741,23 +745,7 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
             )}
             Index DB
           </Button>
-          <Button
-            variant="outline"
-            className="gap-2 text-destructive hover:text-destructive"
-            onClick={() => {
-              if (window.confirm("Delete the Neo4j graph database now?")) {
-                deleteGraphDbMutation.mutate();
-              }
-            }}
-            disabled={deleteGraphDbMutation.isPending}
-          >
-            {deleteGraphDbMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Trash2 className="h-4 w-4" />
-            )}
-            Delete DB
-          </Button>
+          {/* Graph deletion button removed - Neo4j integration disabled */}
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -765,7 +753,6 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
             size="icon"
             onClick={() => {
               refetch();
-              refetchGraphIndexingStatus();
             }}
           >
             <RefreshCw className="h-4 w-4" />
@@ -899,7 +886,8 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
                           <span className="text-[10px] text-muted-foreground font-mono">
                             {doc.id.slice(0, 8)}...
                           </span>
-                          <Button
+                          {/* Individual document removal disabled - use bulk operations */}
+                          {/* <Button
                             variant="outline"
                             size="sm"
                             className="h-6 px-2 text-[11px] text-amber-700 border-amber-300 hover:bg-amber-50"
@@ -910,7 +898,7 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
                             disabled={removeGraphDocMutation.isPending}
                           >
                             Remove from KG
-                          </Button>
+                          </Button> */}
                         </div>
                       </div>
                     </div>
@@ -1096,7 +1084,8 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
                       </Badge>
                     )}
                   </TableCell>
-                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                  {/* Individual document deletion disabled - use bulk operations */}
+                  {/* <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <Button 
                       variant="ghost" 
                       size="icon" 
@@ -1108,7 +1097,7 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
-                  </TableCell>
+                  </TableCell> */}
                 </TableRow>
               ))}
             </TableBody>

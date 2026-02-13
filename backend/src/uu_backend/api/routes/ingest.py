@@ -9,9 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from uu_backend.config import get_settings
-from uu_backend.database.neo4j_client import get_neo4j_client
-from uu_backend.database.vector_store import get_vector_store
-from uu_backend.ingestion.chunker import get_chunker
+from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.ingestion.converter import get_converter
 from uu_backend.ingestion.dates import extract_date
 from uu_backend.models.document import Document, IngestResponse
@@ -30,16 +28,13 @@ async def ingest_documents(
     Accepts multiple files, converts them to markdown, extracts dates,
     chunks the content, and stores in the vector database.
 
-    Entity extraction and graph indexing run during ingestion.
-
     Supported formats: PDF, DOCX, XLSX, PPTX, HTML, TXT, MD, images, and more.
     """
     start_time = time.time()
 
     settings = get_settings()
     converter = get_converter()
-    chunker = get_chunker()
-    vector_store = get_vector_store()
+    document_repo = get_document_repository()
 
     documents_processed = 0
     chunks_created = 0
@@ -83,16 +78,6 @@ async def ingest_documents(
             # Update metadata with extracted date
             result.metadata.date_extracted = date_extracted
 
-            # Chunk the content
-            chunks = chunker.chunk(
-                content=result.content,
-                document_id=doc_id,
-                metadata={
-                    "filename": filename,
-                    "file_type": result.metadata.file_type,
-                },
-            )
-
             # Create document
             document = Document(
                 id=doc_id,
@@ -101,39 +86,21 @@ async def ingest_documents(
                 content=result.content,
                 date_extracted=date_extracted,
                 metadata=result.metadata,
-                chunks=chunks,
+                chunks=[],
             )
 
-            # Store document and chunks immediately in Neo4j for visibility
-            # Full GraphRAG indexing will be triggered separately via "Index DB" button
+            # Store document in database
             try:
-                neo4j_client = get_neo4j_client()
-                chunk_data = [
-                    {
-                        "id": chunk.id,
-                        "content": chunk.content,
-                        "chunk_index": chunk.chunk_index,
-                    }
-                    for chunk in chunks
-                ]
-                neo4j_client.create_document_with_chunks(
-                    doc_id=doc_id,
-                    filename=filename,
-                    file_type=result.metadata.file_type,
-                    content=result.content,
-                    chunks=chunk_data,
-                    date_extracted=date_extracted,
-                )
-                logger.info("Document %s stored in Neo4j (pending full indexing)", doc_id)
-            except Exception as neo4j_error:
+                document_repo.add_document(document)
+                logger.info("Document %s stored successfully", doc_id)
+            except Exception as store_error:
                 # Clean up on failure
                 original_file_path.unlink(missing_ok=True)
-                errors.append(f"{filename}: Failed to store in Neo4j: {neo4j_error}")
-                logger.exception("Failed to store document %s in Neo4j", filename)
+                errors.append(f"{filename}: Failed to store: {store_error}")
+                logger.exception("Failed to store document %s", filename)
                 continue
 
             documents_processed += 1
-            chunks_created += len(chunks)
             document_ids.append(doc_id)
 
         except Exception as e:
@@ -155,7 +122,7 @@ async def ingest_documents(
     return IngestResponse(
         status="success" if not errors else "partial",
         documents_processed=documents_processed,
-        chunks_created=chunks_created,
+        chunks_created=0,
         processing_time_seconds=round(processing_time, 2),
         document_ids=document_ids,
         errors=errors,
@@ -167,19 +134,11 @@ async def get_ingest_status():
     """
     Get current ingestion statistics.
 
-    Returns counts of documents, chunks, and graph entities.
+    Returns counts of documents.
     """
-    vector_store = get_vector_store()
-    neo4j_client = get_neo4j_client()
-
-    # Get Neo4j stats
-    try:
-        graph_stats = neo4j_client.get_stats()
-    except Exception:
-        graph_stats = {}
+    document_repo = get_document_repository()
 
     return {
-        "documents": vector_store.count(),
-        "chunks": vector_store.chunk_count(),
-        "graph": graph_stats,
+        "documents": document_repo.count(),
+        "chunks": 0,
     }

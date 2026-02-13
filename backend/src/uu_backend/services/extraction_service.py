@@ -10,7 +10,7 @@ from uuid import uuid4
 from openai import OpenAI
 
 from uu_backend.config import get_settings
-from uu_backend.database.vector_store import get_vector_store
+from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.taxonomy import ExtractedField, ExtractionResult, SchemaField
 from uu_backend.repositories import get_repository
@@ -54,10 +54,10 @@ class ExtractionService:
             ExtractionResult with extracted field values
         """
         repository = get_repository()
-        vector_store = get_vector_store()
+        document_repo = get_document_repository()
         
         # Get document
-        document = vector_store.get_document(document_id)
+        document = document_repo.get_document(document_id)
         if not document:
             raise ValueError(f"Document {document_id} not found")
         
@@ -258,10 +258,10 @@ Extract all fields according to the schema. Return null for fields that cannot b
             ExtractionResult with extracted field values
         """
         repository = get_repository()
-        vector_store = get_vector_store()
+        document_repo = get_document_repository()
         
         # Get document
-        document = vector_store.get_document(document_id)
+        document = document_repo.get_document(document_id)
         if not document:
             raise ValueError(f"Document {document_id} not found")
         

@@ -8,9 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
-from uu_backend.database.neo4j_client import get_neo4j_client
-from uu_backend.database.vector_store import get_vector_store
-from uu_backend.ingestion.chunker import get_chunker
+from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.ingestion.converter import get_converter
 from uu_backend.ingestion.dates import extract_date
 from uu_backend.models.document import Document, IngestResponse
@@ -29,8 +27,7 @@ class IngestView(APIView):
         settings = get_settings()
 
         converter = get_converter()
-        chunker = get_chunker()
-        neo4j_client = get_neo4j_client()
+        document_repo = get_document_repository()
 
         documents_processed = 0
         chunks_created = 0
@@ -61,15 +58,6 @@ class IngestView(APIView):
                 date_extracted = extract_date(result.content)
                 result.metadata.date_extracted = date_extracted
 
-                chunks = chunker.chunk(
-                    content=result.content,
-                    document_id=doc_id,
-                    metadata={
-                        "filename": filename,
-                        "file_type": result.metadata.file_type,
-                    },
-                )
-
                 document = Document(
                     id=doc_id,
                     filename=filename,
@@ -77,37 +65,20 @@ class IngestView(APIView):
                     content=result.content,
                     date_extracted=date_extracted,
                     metadata=result.metadata,
-                    chunks=chunks,
+                    chunks=[],
                 )
 
-                # Store document and chunks immediately in Neo4j for visibility
-                # Full GraphRAG indexing will be triggered separately via "Index DB" button
+                # Store document in database
                 try:
-                    chunk_data = [
-                        {
-                            "id": chunk.id,
-                            "content": chunk.content,
-                            "chunk_index": chunk.chunk_index,
-                        }
-                        for chunk in chunks
-                    ]
-                    neo4j_client.create_document_with_chunks(
-                        doc_id=doc_id,
-                        filename=filename,
-                        file_type=result.metadata.file_type,
-                        content=result.content,
-                        chunks=chunk_data,
-                        date_extracted=date_extracted,
-                    )
-                except Exception as neo4j_error:
+                    document_repo.add_document(document)
+                except Exception as store_error:
                     original_file_path.unlink(missing_ok=True)
                     errors.append(
-                        f"{filename}: Failed to store in Neo4j: {neo4j_error}"
+                        f"{filename}: Failed to store: {store_error}"
                     )
                     continue
 
                 documents_processed += 1
-                chunks_created += len(chunks)
                 document_ids.append(doc_id)
             except Exception as exc:
                 errors.append(f"{filename}: {exc}")
@@ -127,7 +98,7 @@ class IngestView(APIView):
         payload = IngestResponse(
             status="success" if not errors else "partial",
             documents_processed=documents_processed,
-            chunks_created=chunks_created,
+            chunks_created=0,
             processing_time_seconds=round(processing_time, 2),
             document_ids=document_ids,
             errors=errors,
@@ -140,17 +111,11 @@ class IngestStatusView(APIView):
     permission_classes: list = []
 
     def get(self, request):
-        vector_store = get_vector_store()
-        neo4j_client = get_neo4j_client()
-        try:
-            graph_stats = neo4j_client.get_stats()
-        except Exception:
-            graph_stats = {}
+        document_repo = get_document_repository()
 
         return Response(
             {
-                "documents": vector_store.count(),
-                "chunks": vector_store.chunk_count(),
-                "graph": graph_stats,
+                "documents": document_repo.count(),
+                "chunks": 0,
             }
         )

@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
-from uu_backend.database.vector_store import get_vector_store
+from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.ingestion.chunker import get_chunker
 from uu_backend.ingestion.converter import get_converter
 from uu_backend.models.annotation import LabelCreate
@@ -121,7 +121,7 @@ class TutorialSetupView(APIView):
 
     def post(self, request):
         repository = get_repository()
-        vector_store = get_vector_store()
+        document_repo = get_document_repository()
         settings = get_settings()
 
         document_ids: list[str] = []
@@ -183,7 +183,7 @@ class TutorialSetupView(APIView):
             if not src_path.exists():
                 continue
 
-            existing_docs = vector_store.get_all_documents()
+            existing_docs = document_repo.get_all_documents()
             existing_doc = next((doc for doc in existing_docs if doc.filename == filename), None)
             if existing_doc:
                 document_ids.append(existing_doc.id)
@@ -219,7 +219,7 @@ class TutorialSetupView(APIView):
                     ),
                     created_at=datetime.utcnow(),
                 )
-                vector_store.add_document(doc)
+                document_repo.add_document(doc)
                 document_ids.append(doc.id)
             except Exception:
                 continue
@@ -243,9 +243,9 @@ class TutorialStatusView(APIView):
 
     def get(self, request):
         repository = get_repository()
-        vector_store = get_vector_store()
+        document_repo = get_document_repository()
 
-        all_docs = vector_store.get_all_documents()
+        all_docs = document_repo.get_all_documents()
         sample_doc_ids = [doc.id for doc in all_docs if doc.filename in SAMPLE_DOCUMENTS]
 
         doc_types = repository.list_document_types()
@@ -269,14 +269,14 @@ class TutorialResetView(APIView):
     permission_classes: list = []
 
     def post(self, request):
-        vector_store = get_vector_store()
+        document_repo = get_document_repository()
         settings = get_settings()
         deleted_count = 0
 
-        all_docs = vector_store.get_all_documents()
+        all_docs = document_repo.get_all_documents()
         for doc in all_docs:
             if doc.filename in SAMPLE_DOCUMENTS:
-                vector_store.delete_document(doc.id)
+                document_repo.delete_document(doc.id)
                 file_path = Path(settings.file_storage_path) / doc.filename
                 if file_path.exists():
                     file_path.unlink()
@@ -296,8 +296,8 @@ class TutorialSampleDocumentsView(APIView):
     permission_classes: list = []
 
     def get(self, request):
-        vector_store = get_vector_store()
-        all_docs = vector_store.get_all_documents()
+        document_repo = get_document_repository()
+        all_docs = document_repo.get_all_documents()
         sample_docs = []
 
         for doc in all_docs:

@@ -8,7 +8,7 @@ from typing import Optional
 from openai import OpenAI
 
 from uu_backend.config import get_settings
-from uu_backend.database.vector_store import get_vector_store
+from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.label_suggestion import (
     LabelSuggestion,
@@ -85,8 +85,8 @@ class LabelSuggestionService:
         """Analyze documents and suggest relevant label types."""
         
         # Get sample documents
-        vector_store = get_vector_store()
-        all_doc_summaries = vector_store.get_all_documents()
+        document_repo = get_document_repository()
+        all_doc_summaries = document_repo.get_all_documents()
         
         print(f"\n{'='*60}")
         print("LABEL SUGGESTION REQUEST")
@@ -126,7 +126,7 @@ class LabelSuggestionService:
         # Build document content for analysis by fetching full documents
         doc_contents = []
         for summary in sample_summaries:
-            full_doc = vector_store.get_document(summary.id)
+            full_doc = document_repo.get_document(summary.id)
             if full_doc:
                 content = full_doc.content or ""
                 # Truncate to avoid token limits

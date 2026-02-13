@@ -9,11 +9,10 @@ from openai import OpenAI
 from pydantic import BaseModel, Field, create_model
 
 from uu_backend.config import get_settings
-from uu_backend.database.vector_store import get_vector_store
+from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.suggestion import SuggestedAnnotation, SuggestionResponse
 from uu_backend.repositories import get_repository
-from uu_backend.services.ml_service import get_ml_service
 from uu_backend.services.label_suggestion_service import GLOBAL_FIELD_LIBRARY
 
 logger = logging.getLogger(__name__)
@@ -27,14 +26,6 @@ class SuggestionService:
         self.client = OpenAI(api_key=self.settings.openai_api_key)
         self.model = self.settings.openai_model
         self.repository = get_repository()
-        self._ml_service = None
-
-    @property
-    def ml_service(self):
-        """Lazy load ML service."""
-        if self._ml_service is None:
-            self._ml_service = get_ml_service()
-        return self._ml_service
     
     def get_few_shot_examples(
         self, 
@@ -56,8 +47,8 @@ class SuggestionService:
             # This is a simplified approach - in production you might want pagination
             try:
                 # Get documents from vector store
-                vector_store = get_vector_store()
-                docs = vector_store.get_all_documents()
+                document_repo = get_document_repository()
+                docs = document_repo.get_all_documents()
                 
                 for doc in docs:
                     doc_annotations = self.repository.list_annotations(
@@ -167,73 +158,6 @@ class SuggestionService:
 
         return unique_spans[:max_spans]
 
-    def generate_suggestions_ml(
-        self,
-        document_id: str,
-        document_content: str,
-        label_ids: Optional[list[str]] = None,
-        max_suggestions: int = 20,
-        min_confidence: float = 0.5,
-    ) -> SuggestionResponse:
-        """Generate suggestions using local ML model."""
-        labels = self._resolve_allowed_labels(document_id, label_ids)
-        label_map = {l.id: l for l in labels}
-        allowed_ids = set(label_map.keys())
-
-        # Extract candidate spans
-        candidate_spans = self._extract_candidate_spans(document_content)
-
-        if not candidate_spans:
-            return SuggestionResponse(
-                document_id=document_id,
-                suggestions=[],
-                examples_used=0,
-                model="lightgbm-local",
-            )
-
-        # Get predictions for each span
-        texts = [span["text"] for span in candidate_spans]
-        predictions = self.ml_service.predict(texts, min_confidence=min_confidence)
-
-        suggestions = []
-        for pred in predictions:
-            # Find the matching span
-            span = next(
-                (s for s in candidate_spans if s["text"] == pred["text"]),
-                None
-            )
-            if not span:
-                continue
-
-            label = label_map.get(pred["label_id"])
-            if not label:
-                continue
-
-            # Filter by label_ids if specified
-            if pred["label_id"] not in allowed_ids:
-                continue
-
-            # ML model doesn't provide key metadata yet
-            suggestions.append(SuggestedAnnotation(
-                label_id=pred["label_id"],
-                label_name=label.name,
-                text=pred["text"],
-                start_offset=span["start_offset"],
-                end_offset=span["end_offset"],
-                confidence=pred["confidence"],
-                reasoning="Predicted by local ML model",
-                metadata=None,
-            ))
-
-        # Sort by confidence
-        suggestions.sort(key=lambda x: x.confidence, reverse=True)
-
-        return SuggestionResponse(
-            document_id=document_id,
-            suggestions=suggestions[:max_suggestions],
-            examples_used=0,
-            model="lightgbm-local",
-        )
 
     def _overlaps_with_annotation(
         self,
@@ -317,29 +241,15 @@ class SuggestionService:
         min_confidence: float = 0.5,
         force_llm: bool = False,
     ) -> SuggestionResponse:
-        """Generate annotation suggestions using hybrid approach.
-
-        Uses local ML model when trained, falls back to LLM otherwise.
-        """
-        # Check if we can use local model
-        if not force_llm and self.ml_service.should_use_local_model():
-            logger.info("Using local ML model for suggestions")
-            response = self.generate_suggestions_ml(
-                document_id=document_id,
-                document_content=document_content,
-                label_ids=label_ids,
-                max_suggestions=max_suggestions,
-                min_confidence=min_confidence,
-            )
-        else:
-            logger.info("Using LLM for suggestions (local model not ready)")
-            response = self.generate_suggestions_llm(
-                document_id=document_id,
-                document_content=document_content,
-                label_ids=label_ids,
-                max_suggestions=max_suggestions,
-                min_confidence=min_confidence,
-            )
+        """Generate annotation suggestions using LLM."""
+        logger.info("Using LLM for suggestions")
+        response = self.generate_suggestions_llm(
+            document_id=document_id,
+            document_content=document_content,
+            label_ids=label_ids,
+            max_suggestions=max_suggestions,
+            min_confidence=min_confidence,
+        )
         
         # Filter out suggestions that already exist as annotations
         return self._filter_existing_annotations(response, document_id)

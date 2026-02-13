@@ -825,7 +825,7 @@ class ApiClient {
   async getIngestStatus(): Promise<{
     documents: number;
     chunks: number;
-    graph: GraphStats;
+    // graph: GraphStats;  // Graph integration removed
   }> {
     return this.request(`${API_PREFIX}/ingest/status`);
   }
@@ -843,82 +843,82 @@ class ApiClient {
     return this.request(`${API_PREFIX}/timeline${query}`);
   }
 
-  // Graph
-  async getGraph(
-    entityTypes?: EntityType[],
-    maxNodes: number = 100
-  ): Promise<GraphData> {
-    const params = new URLSearchParams();
-    if (entityTypes) {
-      entityTypes.forEach((t) => params.append('entity_types', t));
-    }
-    params.append('max_nodes', maxNodes.toString());
-    
-    return this.request(`${API_PREFIX}/graph?${params.toString()}`);
-  }
+  // Graph integration removed - Neo4j disabled
+  // async getGraph(
+  //   entityTypes?: EntityType[],
+  //   maxNodes: number = 100
+  // ): Promise<GraphData> {
+  //   const params = new URLSearchParams();
+  //   if (entityTypes) {
+  //     entityTypes.forEach((t) => params.append('entity_types', t));
+  //   }
+  //   params.append('max_nodes', maxNodes.toString());
+  //   
+  //   return this.request(`${API_PREFIX}/graph?${params.toString()}`);
+  // }
 
-  async listEntities(
-    entityType?: EntityType,
-    limit: number = 100
-  ): Promise<{ entities: Entity[]; total: number }> {
-    const params = new URLSearchParams();
-    if (entityType) params.append('entity_type', entityType);
-    params.append('limit', limit.toString());
-    
-    return this.request(`${API_PREFIX}/graph/entities?${params.toString()}`);
-  }
+  // async listEntities(
+  //   entityType?: EntityType,
+  //   limit: number = 100
+  // ): Promise<{ entities: Entity[]; total: number }> {
+  //   const params = new URLSearchParams();
+  //   if (entityType) params.append('entity_type', entityType);
+  //   params.append('limit', limit.toString());
+  //   
+  //   return this.request(`${API_PREFIX}/graph/entities?${params.toString()}`);
+  // }
 
-  async getEntity(id: string): Promise<EntityDetailResponse> {
-    return this.request(`${API_PREFIX}/graph/entities/${id}`);
-  }
+  // async getEntity(id: string): Promise<EntityDetailResponse> {
+  //   return this.request(`${API_PREFIX}/graph/entities/${id}`);
+  // }
 
-  async getGraphTimeline(
-    startDate?: string,
-    endDate?: string
-  ): Promise<TimelineResponse> {
-    const params = new URLSearchParams();
-    if (startDate) params.append('start_date', startDate);
-    if (endDate) params.append('end_date', endDate);
-    
-    const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request(`${API_PREFIX}/graph/timeline${query}`);
-  }
+  // async getGraphTimeline(
+  //   startDate?: string,
+  //   endDate?: string
+  // ): Promise<TimelineResponse> {
+  //   const params = new URLSearchParams();
+  //   if (startDate) params.append('start_date', startDate);
+  //   if (endDate) params.append('end_date', endDate);
+  //   
+  //   const query = params.toString() ? `?${params.toString()}` : '';
+  //   return this.request(`${API_PREFIX}/graph/timeline${query}`);
+  // }
 
-  async getGraphStats(): Promise<GraphStats> {
-    return this.request(`${API_PREFIX}/graph/stats`);
-  }
+  // async getGraphStats(): Promise<GraphStats> {
+  //   return this.request(`${API_PREFIX}/graph/stats`);
+  // }
 
-  async getGraphIndexingStatus(): Promise<GraphIndexingStatus> {
-    return this.request(`${API_PREFIX}/graph/indexing/status`);
-  }
+  // async getGraphIndexingStatus(): Promise<GraphIndexingStatus> {
+  //   return this.request(`${API_PREFIX}/graph/indexing/status`);
+  // }
 
-  async indexMissingGraphDocuments(): Promise<GraphIndexingEnqueueResult> {
-    return this.request(`${API_PREFIX}/graph/indexing/index-missing`, {
-      method: 'POST',
-    });
-  }
+  // async indexMissingGraphDocuments(): Promise<GraphIndexingEnqueueResult> {
+  //   return this.request(`${API_PREFIX}/graph/indexing/index-missing`, {
+  //     method: 'POST',
+  //   });
+  // }
 
-  async indexGraphDocuments(documentIds: string[]): Promise<GraphIndexDocumentsResult> {
-    return this.request(`${API_PREFIX}/graph/indexing/index-documents`, {
-      method: 'POST',
-      body: JSON.stringify({ document_ids: documentIds }),
-    });
-  }
+  // async indexGraphDocuments(documentIds: string[]): Promise<GraphIndexDocumentsResult> {
+  //   return this.request(`${API_PREFIX}/graph/indexing/index-documents`, {
+  //     method: 'POST',
+  //     body: JSON.stringify({ document_ids: documentIds }),
+  //   });
+  // }
 
-  async deleteGraphDatabase(): Promise<GraphDeleteDbResult> {
-    return this.request(`${API_PREFIX}/graph/indexing/delete-db`, {
-      method: 'DELETE',
-    });
-  }
+  // async deleteGraphDatabase(): Promise<GraphDeleteDbResult> {
+  //   return this.request(`${API_PREFIX}/graph/indexing/delete-db`, {
+  //     method: 'DELETE',
+  //   });
+  // }
 
-  async removeGraphDocument(documentOrChunkId: string): Promise<GraphRemoveResult> {
-    const params = new URLSearchParams({
-      document_or_chunk_id: documentOrChunkId,
-    });
-    return this.request(`${API_PREFIX}/graph/indexing/remove?${params.toString()}`, {
-      method: 'DELETE',
-    });
-  }
+  // async removeGraphDocument(documentOrChunkId: string): Promise<GraphRemoveResult> {
+  //   const params = new URLSearchParams({
+  //     document_or_chunk_id: documentOrChunkId,
+  //   });
+  //   return this.request(`${API_PREFIX}/graph/indexing/remove?${params.toString()}`, {
+  //     method: 'DELETE',
+  //   });
+  // }
 
   // Taxonomy - Document Types
   async listDocumentTypes(): Promise<{ types: DocumentType[]; total: number }> {

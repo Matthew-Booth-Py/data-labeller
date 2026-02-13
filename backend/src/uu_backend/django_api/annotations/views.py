@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from uu_backend.database.vector_store import get_vector_store
+from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.models.annotation import (
     AnnotationCreate,
     AnnotationStats,
@@ -201,13 +201,13 @@ class AnnotationsPrefixView(APIView):
 
     def get(self, request, subpath: str):
         repository = get_repository()
-        vector_store = get_vector_store()
+        document_repo = get_document_repository()
         parts = [part for part in subpath.strip("/").split("/") if part]
 
         if parts == ["export"]:
             fmt = request.query_params.get("format", "json")
             label_id = request.query_params.get("label_id")
-            all_docs = vector_store.get_all_documents()
+            all_docs = document_repo.get_all_documents()
             all_annotations: list[dict] = []
             for doc in all_docs:
                 annotations = repository.list_annotations(document_id=doc.id, label_id=label_id)
@@ -389,12 +389,12 @@ class DocumentExportView(APIView):
 
     def get(self, request, document_id: str):
         repository = get_repository()
-        vector_store = get_vector_store()
+        document_repo = get_document_repository()
 
         fmt = request.query_params.get("format", "json")
         include_content = _bool_query_param(request.query_params.get("include_content"), default=False)
 
-        document = vector_store.get_document(document_id)
+        document = document_repo.get_document(document_id)
         if not document:
             return Response({"detail": f"Document {document_id} not found"}, status=404)
 

@@ -6,7 +6,6 @@ import re
 from dataclasses import dataclass
 from uuid import NAMESPACE_URL, uuid5
 
-from uu_backend.database.neo4j_client import Neo4jClient, get_neo4j_client
 from uu_backend.models.entity import Entity, EntityType, Relationship, RelationshipType
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
@@ -65,72 +64,15 @@ def store_entities_and_relationships(
     relationships: list[Relationship],
     document_id: str,
     document_date=None,
-    neo4j_client: Neo4jClient | None = None,
+    neo4j_client=None,
 ) -> GraphWriteSummary:
-    """Store extracted entities/relationships in Neo4j using canonical identity."""
-    client = neo4j_client or get_neo4j_client()
-    summary = GraphWriteSummary(
+    """Store extracted entities/relationships - disabled (Neo4j removed)."""
+    return GraphWriteSummary(
         entities_seen=len(entities),
         relationships_seen=len(relationships),
+        entities_written=0,
+        relationships_written=0,
     )
-
-    id_mapping: dict[str, str] = {}
-    created_entity_ids: set[str] = set()
-
-    for entity in entities:
-        normalized_name = normalize_entity_name(entity.name)
-        if not normalized_name:
-            continue
-
-        aliases, alias_norms = normalize_aliases(entity.aliases)
-        if normalized_name not in alias_norms:
-            alias_norms.append(normalized_name)
-
-        entity_key = build_entity_key(entity.type, entity.name)
-        merged_entity_id = client.create_entity(
-            entity_id=canonical_entity_id(entity.type, entity.name),
-            name=entity.name.strip(),
-            entity_type=entity.type,
-            entity_key=entity_key,
-            normalized_name=normalized_name,
-            aliases=aliases,
-            alias_norms=alias_norms,
-            properties={
-                **(entity.properties or {}),
-                "aliases": aliases,
-            },
-        )
-
-        id_mapping[entity.id] = merged_entity_id
-        created_entity_ids.add(merged_entity_id)
-
-        client.link_document_to_entity(
-            doc_id=document_id,
-            entity_id=merged_entity_id,
-            document_date=document_date,
-        )
-
-    summary.entities_written = len(created_entity_ids)
-
-    for rel in update_relationship_ids(relationships, id_mapping):
-        if rel.type == RelationshipType.MENTIONS:
-            continue
-
-        if rel.source_id == rel.target_id:
-            continue
-
-        properties = dict(rel.properties or {})
-        properties.setdefault("document_id", document_id)
-
-        client.create_relationship(
-            source_id=rel.source_id,
-            target_id=rel.target_id,
-            rel_type=rel.type,
-            properties=properties,
-        )
-        summary.relationships_written += 1
-
-    return summary
 
 
 def merge_duplicate_entities(

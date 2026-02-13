@@ -4,15 +4,15 @@ from pydantic import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from uu_backend.database.vector_store import get_vector_store
+from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.models.feedback import (
     FeedbackCreate,
     FeedbackResponse,
     TrainingResult,
+    TrainingStatus,
 )
 from uu_backend.models.suggestion import SuggestionRequest
 from uu_backend.repositories import get_repository
-from uu_backend.services.ml_service import get_ml_service
 from uu_backend.services.suggestion_service import get_suggestion_service
 
 
@@ -38,8 +38,8 @@ class DocumentSuggestView(APIView):
             "on",
         }
 
-        vector_store = get_vector_store()
-        document = vector_store.get_document(document_id)
+        document_repo = get_document_repository()
+        document = document_repo.get_document(document_id)
         if not document:
             return Response({"detail": f"Document not found: {document_id}"}, status=404)
         if not document.content:
@@ -72,17 +72,14 @@ class FeedbackView(APIView):
             return _validation_error_response(exc)
 
         repository = get_repository()
-        ml_service = get_ml_service()
 
         try:
-            embedding = ml_service.embed_text(parsed.text)
-            feedback = repository.create_feedback(parsed, embedding=embedding)
+            feedback = repository.create_feedback(parsed, embedding=None)
             feedback_count = repository.get_feedback_count()
-            should_retrain = ml_service.should_retrain()
 
             payload = FeedbackResponse(
                 feedback=feedback,
-                should_retrain=should_retrain,
+                should_retrain=False,
                 feedback_count=feedback_count,
             )
             return Response(payload.model_dump(mode="json"), status=201)
@@ -109,7 +106,12 @@ class ModelStatusView(APIView):
     permission_classes: list = []
 
     def get(self, request):
-        status = get_ml_service().get_training_status()
+        status = TrainingStatus(
+            is_trained=False,
+            sample_count=0,
+            min_samples_required=20,
+            ready_to_train=False,
+        )
         return Response(status.model_dump(mode="json"))
 
 
@@ -118,19 +120,9 @@ class ModelTrainView(APIView):
     permission_classes: list = []
 
     def post(self, request):
-        ml_service = get_ml_service()
-        status = ml_service.get_training_status()
-
-        if not status.ready_to_train:
-            payload = TrainingResult(
-                success=False,
-                message=(
-                    f"Not ready to train. Need {status.min_samples_required} positive samples "
-                    f"(have {status.positive_samples}) and at least 2 labels (have {status.labels_count})"
-                ),
-                sample_count=status.sample_count,
-            )
-            return Response(payload.model_dump(mode="json"))
-
-        result = ml_service.train_model()
-        return Response(result.model_dump(mode="json"))
+        payload = TrainingResult(
+            success=False,
+            message="ML training is disabled (embeddings removed)",
+            sample_count=0,
+        )
+        return Response(payload.model_dump(mode="json"))

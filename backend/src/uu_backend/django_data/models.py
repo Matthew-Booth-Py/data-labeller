@@ -3,6 +3,31 @@
 from django.db import models
 
 
+class DocumentModel(models.Model):
+    """Document storage model - replaces vector store."""
+    id = models.CharField(primary_key=True, max_length=64)
+    filename = models.CharField(max_length=255, db_index=True)
+    file_type = models.CharField(max_length=50)
+    content = models.TextField()
+    date_extracted = models.DateField(blank=True, null=True, db_index=True)
+    created_at = models.DateTimeField(db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    # Metadata fields
+    page_count = models.IntegerField(blank=True, null=True)
+    word_count = models.IntegerField(blank=True, null=True)
+    
+    class Meta:
+        db_table = "documents"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["-created_at"]),
+            models.Index(fields=["filename"]),
+            models.Index(fields=["file_type"]),
+            models.Index(fields=["date_extracted"]),
+        ]
+
+
 class DocumentTypeModel(models.Model):
     id = models.CharField(primary_key=True, max_length=64)
     name = models.CharField(max_length=100, unique=True)

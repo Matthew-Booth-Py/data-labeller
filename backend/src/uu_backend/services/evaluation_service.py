@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import uuid4
 
-from uu_backend.database.vector_store import get_vector_store
+from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.models.evaluation import (
     BenchmarkGateResult,
     BenchmarkRunResult,
@@ -26,7 +26,7 @@ class EvaluationService:
     def __init__(self):
         self.extraction_service = get_extraction_service()
         self.repository = get_repository()
-        self.vector_store = get_vector_store()
+        self.document_repo = get_document_repository()
 
     def evaluate_extraction(
         self,
@@ -54,7 +54,7 @@ class EvaluationService:
             ExtractionEvaluation with metrics
         """
         # Get document
-        document = self.vector_store.get_document(document_id)
+        document = self.document_repo.get_document(document_id)
         if not document:
             raise ValueError(f"Document {document_id} not found")
 

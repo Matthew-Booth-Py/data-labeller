@@ -6,7 +6,7 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from uu_backend.config import get_settings
-from uu_backend.database.vector_store import get_vector_store
+from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.annotation import AnnotationCreate, AnnotationType
 from uu_backend.repositories import get_repository
@@ -46,7 +46,7 @@ class SchemaBasedSuggestionService:
         self.client = OpenAI(api_key=settings.openai_api_key)
         self.model = settings.openai_tagging_model or settings.openai_model
         self.repository = get_repository()
-        self.vector_store = get_vector_store()
+        self.document_repo = get_document_repository()
 
     def _find_text_spans(
         self,
@@ -108,7 +108,7 @@ class SchemaBasedSuggestionService:
             SchemaBasedSuggestionResponse with suggestions
         """
         # Get document
-        document = self.vector_store.get_document(document_id)
+        document = self.document_repo.get_document(document_id)
         if not document:
             raise ValueError(f"Document {document_id} not found")
         

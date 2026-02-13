@@ -7,9 +7,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from uu_backend.config import get_settings
-from uu_backend.database.neo4j_client import get_neo4j_client
 from uu_backend.database.sqlite_client import get_sqlite_client
-from uu_backend.database.vector_store import get_vector_store
+from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.models.document import DocumentListResponse, DocumentResponse
 
 router = APIRouter()
@@ -62,13 +61,13 @@ def get_original_file_path(document_id: str, file_type: str) -> Path | None:
 @router.get("/documents", response_model=DocumentListResponse)
 async def list_documents():
     """
-    List all documents in the store.
+    List all documents in the document_repo.
 
     Returns summaries of all documents including metadata and chunk counts.
     """
-    store = get_vector_store()
+    document_repo = get_document_repository()
     sqlite_client = get_sqlite_client()
-    documents = store.get_all_documents()
+    documents = document_repo.get_all_documents()
     
     # Enrich with classification data from SQLite
     for doc in documents:
@@ -93,8 +92,8 @@ async def get_document(document_id: str):
 
     Raises 404 if document not found.
     """
-    store = get_vector_store()
-    document = store.get_document(document_id)
+    document_repo = get_document_repository()
+    document = document_repo.get_document(document_id)
 
     if not document:
         raise HTTPException(
@@ -118,8 +117,8 @@ async def get_document_file(document_id: str, download: bool = False):
 
     Raises 404 if document or file not found.
     """
-    store = get_vector_store()
-    document = store.get_document(document_id)
+    document_repo = get_document_repository()
+    document = document_repo.get_document(document_id)
 
     if not document:
         raise HTTPException(
@@ -174,55 +173,56 @@ async def get_document_file(document_id: str, download: bool = False):
     )
 
 
-@router.delete("/documents/{document_id}")
-async def delete_document(document_id: str):
-    """
-    Delete a document by ID.
-
-    Removes the document and all its chunks from the store.
-
-    Raises 404 if document not found.
-    """
-    store = get_vector_store()
-    neo4j_client = get_neo4j_client()
-    document = store.get_document(document_id)
-
-    if document:
-        # Also delete the original file
-        file_path = get_original_file_path(document_id, document.file_type)
-        if file_path:
-            file_path.unlink(missing_ok=True)
-
-    # Keep graph data consistent with document deletes.
-    neo4j_client.delete_document(document_id)
-
-    deleted = store.delete_document(document_id)
-
-    if not deleted:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Document not found: {document_id}",
-        )
-
-    graph_cleanup: dict[str, object]
-    try:
-        neo4j_client = get_neo4j_client()
-        graph_cleanup = neo4j_client.delete_document_graph_data(document_id)
-        valid_doc_ids = [doc.id for doc in store.get_all_documents()]
-        reconcile_summary = neo4j_client.reconcile_documents(valid_doc_ids)
-        graph_cleanup["reconcile"] = reconcile_summary
-    except Exception as exc:
-        logger.exception(
-            "graph_document_delete_failed",
-            extra={"document_id": document_id},
-        )
-        graph_cleanup = {"error": str(exc)}
-
-    return {
-        "status": "deleted",
-        "document_id": document_id,
-        "graph_cleanup": graph_cleanup,
-    }
+# Individual document deletion disabled - use bulk operations instead
+# @router.delete("/documents/{document_id}")
+# async def delete_document(document_id: str):
+#     """
+#     Delete a document by ID.
+#
+#     Removes the document and all its chunks from the document_repo.
+#
+#     Raises 404 if document not found.
+#     """
+#     document_repo = get_document_repository()
+#     neo4j_client = get_neo4j_client()
+#     document = document_repo.get_document(document_id)
+#
+#     if document:
+#         # Also delete the original file
+#         file_path = get_original_file_path(document_id, document.file_type)
+#         if file_path:
+#             file_path.unlink(missing_ok=True)
+#
+#     # Keep graph data consistent with document deletes.
+#     neo4j_client.delete_document(document_id)
+#
+#     deleted = document_repo.delete_document(document_id)
+#
+#     if not deleted:
+#         raise HTTPException(
+#             status_code=404,
+#             detail=f"Document not found: {document_id}",
+#         )
+#
+#     graph_cleanup: dict[str, object]
+#     try:
+#         neo4j_client = get_neo4j_client()
+#         graph_cleanup = neo4j_client.delete_document_graph_data(document_id)
+#         valid_doc_ids = [doc.id for doc in document_repo.get_all_documents()]
+#         reconcile_summary = neo4j_client.reconcile_documents(valid_doc_ids)
+#         graph_cleanup["reconcile"] = reconcile_summary
+#     except Exception as exc:
+#         logger.exception(
+#             "graph_document_delete_failed",
+#             extra={"document_id": document_id},
+#         )
+#         graph_cleanup = {"error": str(exc)}
+#
+#     return {
+#         "status": "deleted",
+#         "document_id": document_id,
+#         "graph_cleanup": graph_cleanup,
+#     }
 
 
 @router.post("/documents/{document_id}/reprocess")
@@ -234,8 +234,8 @@ async def reprocess_document(document_id: str):
     """
     from uu_backend.ingestion.converter import get_converter
 
-    store = get_vector_store()
-    document = store.get_document(document_id)
+    document_repo = get_document_repository()
+    document = document_repo.get_document(document_id)
 
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -255,7 +255,7 @@ async def reprocess_document(document_id: str):
             raise HTTPException(status_code=500, detail=f"Conversion failed: {result.error}")
 
         # Update document content in vector store (pass file_path for PDF pipeline)
-        store.update_document_content(document_id, result.content, file_path=str(file_path))
+        document_repo.update_document_content(document_id, result.content, file_path=str(file_path))
 
         return {
             "status": "reprocessed",
