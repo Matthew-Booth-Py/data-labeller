@@ -5,7 +5,6 @@ from typing import List, Optional
 
 from uu_backend.django_data.models import DocumentModel
 from uu_backend.models.document import Document, DocumentMetadata, DocumentSummary
-from uu_backend.models.timeline import DateRange, TimelineDocument, TimelineEntry, TimelineResponse
 
 
 class DocumentRepository:
@@ -26,6 +25,7 @@ class DocumentRepository:
                 "content": document.content,
                 "date_extracted": document.date_extracted,
                 "created_at": document.created_at or datetime.utcnow(),
+                "file_path": document.file_path,
                 "page_count": (
                     document.metadata.page_count if document.metadata else None
                 ),
@@ -49,15 +49,15 @@ class DocumentRepository:
         except DocumentModel.DoesNotExist:
             return None
 
-    def get_all_documents(self) -> List[Document]:
+    def get_all_documents(self) -> List[DocumentSummary]:
         """
         Get all documents.
 
         Returns:
-            List of all documents
+            List of all document summaries
         """
         docs = DocumentModel.objects.all().order_by("-created_at")
-        return [self._model_to_document(doc) for doc in docs]
+        return [self._model_to_summary(doc) for doc in docs]
 
     def delete_document(self, document_id: str) -> bool:
         """
@@ -141,7 +141,7 @@ class DocumentRepository:
             date_extracted=doc.date_extracted,
             created_at=doc.created_at,
             metadata=metadata,
-            chunks=[],
+            file_path=doc.file_path,
         )
 
     def _model_to_summary(self, doc: DocumentModel) -> DocumentSummary:
@@ -152,65 +152,6 @@ class DocumentRepository:
             file_type=doc.file_type,
             date_extracted=doc.date_extracted,
             created_at=doc.created_at,
-            chunk_count=0,
-        )
-
-    def get_timeline(
-        self, start_date: Optional[date] = None, end_date: Optional[date] = None
-    ) -> TimelineResponse:
-        """
-        Get timeline of documents grouped by date.
-
-        Args:
-            start_date: Filter documents from this date onwards
-            end_date: Filter documents up to this date
-
-        Returns:
-            TimelineResponse with documents grouped by date
-        """
-        from collections import defaultdict
-        from django.db.models import Count, Min, Max
-
-        queryset = DocumentModel.objects.exclude(date_extracted__isnull=True)
-
-        if start_date:
-            queryset = queryset.filter(date_extracted__gte=start_date)
-        if end_date:
-            queryset = queryset.filter(date_extracted__lte=end_date)
-
-        # Get date range
-        date_agg = queryset.aggregate(
-            earliest=Min("date_extracted"),
-            latest=Max("date_extracted"),
-            total=Count("id"),
-        )
-
-        earliest = date_agg["earliest"]
-        latest = date_agg["latest"]
-        total = date_agg["total"] or 0
-
-        # Group documents by date
-        docs_by_date = defaultdict(list)
-        for doc in queryset.order_by("date_extracted"):
-            if doc.date_extracted:
-                docs_by_date[doc.date_extracted].append(
-                    TimelineDocument(
-                        id=doc.id,
-                        filename=doc.filename,
-                        file_type=doc.file_type,
-                    )
-                )
-
-        # Create timeline entries
-        entries = [
-            TimelineEntry(date=doc_date, documents=docs, count=len(docs))
-            for doc_date, docs in sorted(docs_by_date.items())
-        ]
-
-        return TimelineResponse(
-            entries=entries,
-            total_documents=total,
-            date_range=DateRange(earliest=earliest, latest=latest),
         )
 
 

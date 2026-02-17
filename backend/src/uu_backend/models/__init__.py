@@ -2,24 +2,8 @@
 
 from uu_backend.models.document import (
     Document,
-    DocumentChunk,
     DocumentMetadata,
     IngestResponse,
-)
-from uu_backend.models.timeline import (
-    DateRange,
-    TimelineDocument,
-    TimelineEntry,
-    TimelineResponse,
-)
-from uu_backend.models.entity import (
-    Entity,
-    EntityType,
-    GraphData,
-    GraphEdge,
-    GraphNode,
-    Relationship,
-    RelationshipType,
 )
 from uu_backend.models.taxonomy import (
     Classification,
@@ -35,55 +19,15 @@ from uu_backend.models.taxonomy import (
     FieldType,
     SchemaField,
 )
-from uu_backend.models.annotation import (
-    Annotation,
-    AnnotationCreate,
-    AnnotationListResponse,
-    AnnotationResponse,
-    AnnotationStats,
-    AnnotationType,
-    BoundingBoxAnnotation,
-    EntityAnnotation,
-    KeyValueAnnotation,
-    Label,
-    LabelCreate,
-    LabelListResponse,
-    LabelUpdate,
-    TextSpanAnnotation,
-)
-from uu_backend.models.feedback import (
-    Feedback,
-    FeedbackCreate,
-    FeedbackResponse,
-    FeedbackSource,
-    FeedbackType,
-    TrainingResult,
-    TrainingStatus,
-)
-from uu_backend.models.label_suggestion import (
-    AcceptSuggestionBody,
-    AcceptSuggestionRequest,
-    LabelSuggestion,
-    LabelSuggestionRequest,
-    LabelSuggestionResponse,
+from uu_backend.models.prompt import (
+    PromptVersion,
+    FieldPromptVersion,
 )
 
 __all__ = [
     "Document",
-    "DocumentChunk",
     "DocumentMetadata",
     "IngestResponse",
-    "DateRange",
-    "TimelineDocument",
-    "TimelineEntry",
-    "TimelineResponse",
-    "Entity",
-    "EntityType",
-    "GraphData",
-    "GraphEdge",
-    "GraphNode",
-    "Relationship",
-    "RelationshipType",
     # Taxonomy models
     "Classification",
     "ClassificationCreate",
@@ -97,33 +41,7 @@ __all__ = [
     "ExtractionResult",
     "FieldType",
     "SchemaField",
-    # Annotation models
-    "Annotation",
-    "AnnotationCreate",
-    "AnnotationListResponse",
-    "AnnotationResponse",
-    "AnnotationStats",
-    "AnnotationType",
-    "BoundingBoxAnnotation",
-    "EntityAnnotation",
-    "KeyValueAnnotation",
-    "Label",
-    "LabelCreate",
-    "LabelListResponse",
-    "LabelUpdate",
-    "TextSpanAnnotation",
-    # Feedback models
-    "Feedback",
-    "FeedbackCreate",
-    "FeedbackResponse",
-    "FeedbackSource",
-    "FeedbackType",
-    "TrainingResult",
-    "TrainingStatus",
-    # Label suggestion models
-    "AcceptSuggestionBody",
-    "AcceptSuggestionRequest",
-    "LabelSuggestion",
-    "LabelSuggestionRequest",
-    "LabelSuggestionResponse",
+    # Prompt models
+    "PromptVersion",
+    "FieldPromptVersion",
 ]

@@ -32,9 +32,6 @@ import {
   ExploreDocumentsStep,
   ClassifyDocumentStep,
   AutoClassifyStep,
-  CreateLabelsStep,
-  AnnotateDocumentStep,
-  GetSuggestionsStep,
   CompleteStep,
 } from "./steps";
 
@@ -54,65 +51,44 @@ const WIZARD_STEPS: WizardStep[] = [
   {
     id: "welcome",
     title: "Welcome",
-    description: "Get started with Unstructured Unlocked",
+    description: "Get started with the extraction platform",
     icon: BookOpen,
-    objective: "Learn what you'll accomplish in this tutorial",
+    objective: "Learn about the document extraction workflow",
   },
   {
     id: "create-types",
     title: "Schema Setup",
-    description: "Set document types and field schemas",
+    description: "Define document types and field schemas",
     icon: FolderOpen,
-    objective: "In Schema Configuration → Fields Definition, click Add Field and use AI Field Assistant",
+    objective: "Use the AI Field Assistant to define extraction fields for your documents",
   },
   {
     id: "explore-docs",
-    title: "Upload / Review Docs",
-    description: "Review uploaded documents",
+    title: "Upload Documents",
+    description: "Review uploaded sample documents",
     icon: FileText,
-    objective: "Confirm documents are ingested and ready for labeling",
+    objective: "Confirm sample documents are ingested and ready for processing",
   },
   {
     id: "classify",
     title: "Manual Classification",
-    description: "Classify one document manually",
+    description: "Classify a document by type",
     icon: Target,
-    objective: "Set the baseline document type by hand",
+    objective: "Assign a document type manually",
   },
   {
     id: "auto-classify",
-    title: "LLM Classification",
-    description: "Classify with AI",
+    title: "AI Classification",
+    description: "Auto-classify with AI",
     icon: Wand2,
-    objective: "Use the LLM to classify additional documents by type",
-  },
-  {
-    id: "create-labels",
-    title: "Schema Labels",
-    description: "Review schema-derived labels",
-    icon: Tag,
-    objective: "Verify labels are generated directly from your field definitions",
-  },
-  {
-    id: "annotate",
-    title: "Annotate",
-    description: "Create ground truth",
-    icon: Sparkles,
-    objective: "Label key spans and values in the selected document",
-  },
-  {
-    id: "suggestions",
-    title: "AI Suggestions",
-    description: "Assist annotation with AI",
-    icon: Brain,
-    objective: "Apply and edit AI suggestions to speed up labeling",
+    objective: "Use AI to automatically classify remaining documents",
   },
   {
     id: "complete",
-    title: "Done",
+    title: "Extract Data",
     description: "Run extraction and finish",
     icon: GraduationCap,
-    objective: "Run extraction, inspect raw output, then finish the pipeline",
+    objective: "Extract structured data from your documents using the defined schema",
   },
 ];
 
@@ -125,7 +101,6 @@ interface TutorialProgress {
   completedSteps: string[];
   documentIds: string[];
   typeIds: string[];
-  labelIds: string[];
   selectedDocumentId: string | null;
 }
 
@@ -144,7 +119,6 @@ function loadProgress(): TutorialProgress {
     completedSteps: [],
     documentIds: [],
     typeIds: [],
-    labelIds: [],
     selectedDocumentId: null,
   };
 }
@@ -257,19 +231,17 @@ export function GettingStartedWizard({ onComplete }: GettingStartedWizardProps) 
       }
       localStorage.setItem('uu-projects', JSON.stringify(projects));
       
-      const newProgress = {
-        ...progress,
-        started: true,
-        documentIds: result.document_ids,
-        typeIds: result.document_type_ids,
-        labelIds: result.label_ids,
-      };
+          const newProgress = {
+            ...progress,
+            started: true,
+            documentIds: result.document_ids,
+            typeIds: result.document_type_ids,
+          };
       setProgress(newProgress);
       saveProgress(newProgress);
       refetchStatus();
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["document-types"] });
-      queryClient.invalidateQueries({ queryKey: ["labels"] });
       toast({
         title: "Tutorial Ready",
         description: result.message,
@@ -400,22 +372,6 @@ export function GettingStartedWizard({ onComplete }: GettingStartedWizardProps) 
             onComplete={() => completeStep("auto-classify")}
           />
         );
-      case "create-labels":
-        return <CreateLabelsStep onComplete={() => completeStep("create-labels")} />;
-      case "annotate":
-        return (
-          <AnnotateDocumentStep
-            documentId={selectedDocumentId}
-            onComplete={() => completeStep("annotate")}
-          />
-        );
-      case "suggestions":
-        return (
-          <GetSuggestionsStep
-            documentId={selectedDocumentId}
-            onComplete={() => completeStep("suggestions")}
-          />
-        );
       case "complete":
         return <CompleteStep onComplete={handleComplete} />;
       default:
@@ -431,7 +387,7 @@ export function GettingStartedWizard({ onComplete }: GettingStartedWizardProps) 
           <div>
             <h1 className="text-2xl font-bold">Getting Started</h1>
             <p className="text-muted-foreground text-sm">
-              Workflow: upload docs, Add Field with AI Field Assistant, classify (manual + LLM), annotate, extract raw output
+              Workflow: define schema with AI Field Assistant, upload & classify documents, extract structured data
             </p>
           </div>
           <Button

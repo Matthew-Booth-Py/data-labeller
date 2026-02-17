@@ -11,9 +11,7 @@ from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
 from uu_backend.repositories.document_repository import get_document_repository
-from uu_backend.ingestion.chunker import get_chunker
 from uu_backend.ingestion.converter import get_converter
-from uu_backend.models.annotation import LabelCreate
 from uu_backend.models.document import Document, DocumentMetadata
 from uu_backend.models.taxonomy import DocumentTypeCreate, FieldType, SchemaField
 from uu_backend.repositories import get_repository
@@ -76,23 +74,12 @@ DOCUMENT_TYPES = [
     },
 ]
 
-DEFAULT_LABELS = [
-    {"name": "Claim Number", "color": "#ef4444", "description": "Unique identifier for insurance claims"},
-    {"name": "Policy Number", "color": "#f97316", "description": "Insurance policy identifier"},
-    {"name": "Person Name", "color": "#3b82f6", "description": "Names of individuals (claimants, insured, witnesses)"},
-    {"name": "Date", "color": "#10b981", "description": "Any significant date (incident, filing, effective)"},
-    {"name": "Amount", "color": "#8b5cf6", "description": "Monetary values (damages, premiums, totals)"},
-    {"name": "Address", "color": "#06b6d4", "description": "Physical addresses"},
-    {"name": "Phone Number", "color": "#84cc16", "description": "Contact phone numbers"},
-    {"name": "Description", "color": "#f59e0b", "description": "Descriptive text about incidents or damages"},
-]
 
 
 class TutorialSetupResponse(BaseModel):
     success: bool
     document_ids: list[str] = Field(default_factory=list)
     document_type_ids: list[str] = Field(default_factory=list)
-    label_ids: list[str] = Field(default_factory=list)
     message: str
 
 
@@ -100,7 +87,6 @@ class TutorialStatusResponse(BaseModel):
     is_setup: bool
     document_count: int
     document_type_count: int
-    label_count: int
     sample_document_ids: list[str] = Field(default_factory=list)
 
 
@@ -126,7 +112,6 @@ class TutorialSetupView(APIView):
 
         document_ids: list[str] = []
         document_type_ids: list[str] = []
-        label_ids: list[str] = []
 
         for type_def in DOCUMENT_TYPES:
             existing = repository.get_document_type_by_name(type_def["name"])
@@ -147,28 +132,12 @@ class TutorialSetupView(APIView):
             )
             document_type_ids.append(doc_type.id)
 
-        for label_def in DEFAULT_LABELS:
-            existing = repository.get_label_by_name(label_def["name"])
-            if existing:
-                label_ids.append(existing.id)
-                continue
-
-            label = repository.create_label(
-                LabelCreate(
-                    name=label_def["name"],
-                    color=label_def["color"],
-                    description=label_def["description"],
-                )
-            )
-            label_ids.append(label.id)
-
         sample_docs_path = get_sample_docs_path()
         if not sample_docs_path.exists():
             payload = TutorialSetupResponse(
                 success=False,
                 document_ids=document_ids,
                 document_type_ids=document_type_ids,
-                label_ids=label_ids,
                 message=f"Sample documents not found at {sample_docs_path}. Run generate_samples.py first.",
             )
             return Response(payload.model_dump(mode="json"))
@@ -176,7 +145,6 @@ class TutorialSetupView(APIView):
         files_dir = Path(settings.file_storage_path)
         files_dir.mkdir(parents=True, exist_ok=True)
         converter = get_converter()
-        chunker = get_chunker()
 
         for filename in SAMPLE_DOCUMENTS:
             src_path = sample_docs_path / filename
@@ -200,13 +168,11 @@ class TutorialSetupView(APIView):
                     continue
 
                 content = result.content
-                doc_chunks = chunker.chunk(content, doc_id)
                 doc = Document(
                     id=doc_id,
                     filename=filename,
                     file_type=dest_path.suffix.lstrip("."),
                     content=content,
-                    chunks=doc_chunks,
                     metadata=DocumentMetadata(
                         filename=filename,
                         file_type=dest_path.suffix.lstrip("."),
@@ -228,10 +194,10 @@ class TutorialSetupView(APIView):
             success=True,
             document_ids=document_ids,
             document_type_ids=document_type_ids,
-            label_ids=label_ids,
             message=(
-                f"Tutorial setup complete. Created {len(document_type_ids)} document types, "
-                f"{len(label_ids)} labels, and ingested {len(document_ids)} documents."
+                f"Tutorial setup complete. Created {len(document_type_ids)} document types "
+                f"and ingested {len(document_ids)} sample documents. This is an example to demonstrate "
+                f"the platform's extraction capabilities."
             ),
         )
         return Response(payload.model_dump(mode="json"))
@@ -251,14 +217,10 @@ class TutorialStatusView(APIView):
         doc_types = repository.list_document_types()
         tutorial_type_count = sum(1 for doc_type in doc_types if any(row["name"] == doc_type.name for row in DOCUMENT_TYPES))
 
-        labels = repository.list_labels()
-        tutorial_label_count = sum(1 for label in labels if any(row["name"] == label.name for row in DEFAULT_LABELS))
-
         payload = TutorialStatusResponse(
             is_setup=len(sample_doc_ids) > 0 and tutorial_type_count > 0,
             document_count=len(sample_doc_ids),
             document_type_count=tutorial_type_count,
-            label_count=tutorial_label_count,
             sample_document_ids=sample_doc_ids,
         )
         return Response(payload.model_dump(mode="json"))

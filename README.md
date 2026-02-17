@@ -1,36 +1,28 @@
-# Unstructured Unlocked
+# Document Extraction Platform
 
-Unstructured Unlocked is a document extraction workbench focused on two outcomes:
+A general-purpose document extraction platform that enables teams to define schemas and extract structured data from any document type using AI.
 
-1. Agentic schema-driven extraction: users define document types and field schemas, then run extraction that returns key-value outputs aligned to those fields.
-2. Human-in-the-loop evaluation: teams label ground truth (with AI assistance), run evaluations, and track extraction quality over time.
+## Core Capabilities
 
-## Core Product Goals
+### Schema-Driven Extraction
+- Define document types and field schemas for any use case (invoices, contracts, forms, etc.)
+- Use the AI Field Assistant to automatically suggest relevant fields based on sample documents
+- Attach extraction prompts at the field level for precise control
+- Run extraction with configurable prompts and models
+- Deploy extraction configurations as versioned API endpoints
 
-### 1) Agentic schema-driven extraction
-- Define document types and field schemas per use case.
-- Attach extraction prompts at the field level.
-- Keep labels schema-derived (labels are not managed independently).
-- Run extraction with prompt/model/field-version controls.
-- Deploy extraction configurations as versioned API endpoints.
+### Multi-Project Support
+- Organize extraction configurations by project
+- Each project can handle different document types and schemas
+- Scale to multiple extraction use cases simultaneously
 
-### 2) Evaluation with AI-assisted labeling
-- Create annotations manually with AI suggestions to speed up throughput.
-- Run evaluation across all labeled project documents.
-- Track per-field and combined metrics (accuracy, recall, F1, completeness).
-- Compare field prompt versions and measure impact by version.
-- Use run history to decide when to promote a deployment version.
+## Extraction Workflow
 
-## Current Workflow
-
-1. Upload documents.
-2. Create/select a document type schema.
-3. Add fields (manually or via AI field assistant).
-4. Classify document types (manual + LLM).
-5. Annotate documents with schema-derived labels.
-6. Run extraction and inspect raw output.
-7. Run evaluation across labeled docs.
-8. Save a new deployment version and promote active version.
+1. **Upload documents** - Ingest documents from any source
+2. **Define schema** - Create document types and field definitions (use AI Field Assistant for suggestions)
+3. **Classify documents** - Assign document types manually or with AI assistance
+4. **Extract data** - Run structured extraction using LLM with your defined schema
+5. **Deploy** - Save extraction configurations as versioned API endpoints for production use
 
 ## Architecture (Current)
 
@@ -40,48 +32,39 @@ flowchart LR
     ASGI --> DJ[Django + DRF APIs]
     DJ --> REPO[Django ORM Repository]
     REPO --> PG[(Postgres)]
-    DJ --> CHROMA[(Chroma Vector Store)]
-    DJ --> NEO4J[(Neo4j Graph DB)]
     DJ --> FILES[(File Storage)]
     DJ --> REDIS[(Redis Broker)]
     REDIS --> CELERY[Celery Workers]
     DJ --> LLM[LLM Provider API]
 ```
 
-- Frontend (`frontend/client`): schema builder, labeling UI, extraction runner, evaluation board, deployment manager.
+- Frontend (`frontend/client`): schema builder, document management, extraction runner, deployment manager.
 - Backend (`backend/src/uu_backend`): Django/DRF runtime via `uu_backend.asgi_dispatcher`.
 - Persistence:
-  - Postgres: schemas, labels, annotations, evaluations, versions, deployment snapshots.
-  - Chroma: chunk embeddings and semantic retrieval.
-  - Neo4j: entity/relationship graph features.
+  - Postgres: schemas, classifications, extractions, versions, deployment snapshots.
   - File storage: uploaded source documents.
 
 ### Runtime Routing (Wave Status)
 - All `/api/v1` route groups are served by Django/DRF.
 - No legacy routing split is active.
 
-## Data Flow (Current)
+## Data Flow
 
 ```mermaid
 flowchart TD
-    A[Upload Document] --> B[Convert + Chunk]
-    B --> C[Store File + Chunks]
+    A[Upload Document] --> B[Convert Document]
+    B --> C[Store File]
     C --> D[Classify Document Type]
-    D --> E[Schema-Derived Labels]
-    E --> F[Human Annotation + AI Suggestions]
-    D --> G[Extraction using Field Prompts]
-    F --> H[Ground Truth]
-    G --> I[Predictions]
-    H --> J[Evaluation Engine]
-    I --> J
-    J --> K[Run Metrics: per-field + combined]
-    K --> L[Save New Deployment Version]
-    L --> M[Active/Pinned Extraction API Endpoints]
+    D --> E[Define/Select Schema]
+    E --> F[Run Extraction with Field Prompts]
+    F --> G[Structured Output]
+    G --> H[Save Deployment Version]
+    H --> I[Active/Pinned Extraction API Endpoints]
 ```
 
-- Labels are generated from schema fields.
-- Evaluation compares extraction output vs. labeled ground truth.
-- Deployment versions freeze schema + prompts + field prompt versions.
+- Documents are classified by type (manual or AI-assisted)
+- Extraction uses schema fields and prompts to generate structured output
+- Deployment versions freeze schema + prompts for production use
 
 ## What “Save as New Version” Does
 
@@ -185,13 +168,13 @@ Use your `.env` file. Important keys include:
 
 ## Repo Layout
 
-- `backend/` dispatcher runtime, Django + DRF APIs, extraction, evaluation, persistence
-- `frontend/` React app (schema, labeling, eval, deployment UI)
+- `backend/` dispatcher runtime, Django + DRF APIs, extraction services, persistence
+- `frontend/` React app (schema builder, document management, extraction UI, deployment manager)
 - `docs/` implementation notes and guides
 - `data/` local runtime storage
 
 ## Notes
 
-- Tutorial sample PDFs in `backend/sample_docs/` are required by tutorial setup and should remain.
-- Labels are generated from schema fields by design.
-- Evaluations are intended to be run over all labeled docs in the selected project/document type.
+- Tutorial sample PDFs in `backend/sample_docs/` are example documents demonstrating the platform's capabilities
+- The platform is domain-agnostic and works with any document type
+- Use projects to organize different extraction use cases

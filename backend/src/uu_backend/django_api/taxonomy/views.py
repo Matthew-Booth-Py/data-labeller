@@ -11,7 +11,6 @@ from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
 from uu_backend.llm.options import reasoning_options_for_model
-from uu_backend.models.annotation import LabelCreate
 from uu_backend.models.taxonomy import (
     ClassificationCreate,
     DocumentType,
@@ -29,20 +28,6 @@ from uu_backend.models.taxonomy import (
 from uu_backend.repositories import get_repository
 from uu_backend.services.classification_service import get_classification_service
 from uu_backend.services.extraction_service import get_extraction_service
-
-
-LABEL_COLORS = [
-    "#3b82f6",
-    "#ef4444",
-    "#f97316",
-    "#eab308",
-    "#22c55e",
-    "#06b6d4",
-    "#8b5cf6",
-    "#ec4899",
-    "#14b8a6",
-    "#f59e0b",
-]
 
 
 def _jsonable(value):
@@ -65,28 +50,6 @@ def _bool_query_param(value: str | None, default: bool) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _sync_labels_for_schema(repository, doc_type: DocumentType):
-    """Synchronize labels to exactly match top-level schema fields for a document type."""
-    expected_by_name = {field.name: field for field in (doc_type.schema_fields or [])}
-
-    existing_labels = repository.list_labels(document_type_id=doc_type.id, include_global=False)
-    existing_by_name = {label.name: label for label in existing_labels}
-
-    color_idx = 0
-    for label_name, field in expected_by_name.items():
-        if label_name in existing_by_name:
-            continue
-        label_data = LabelCreate(
-            name=label_name,
-            color=LABEL_COLORS[color_idx % len(LABEL_COLORS)],
-            description=field.description or f"Schema-derived label for {label_name}",
-            document_type_id=doc_type.id,
-        )
-        try:
-            repository.create_label(label_data)
-        except Exception:
-            pass
-        color_idx += 1
 
     for existing_name, label in existing_by_name.items():
         if existing_name not in expected_by_name:
@@ -300,7 +263,6 @@ class TaxonomyPrefixView(APIView):
 
             try:
                 doc_type = repository.create_document_type(parsed)
-                _sync_labels_for_schema(repository, doc_type)
                 return Response(DocumentTypeResponse(type=doc_type).model_dump(mode="json"), status=201)
             except IntegrityError as exc:
                 return Response({"detail": str(exc)}, status=400)
@@ -345,7 +307,6 @@ class TaxonomyPrefixView(APIView):
             doc_type = repository.update_document_type(parts[1], parsed)
             if not doc_type:
                 return Response({"detail": f"Document type {parts[1]} not found"}, status=404)
-            _sync_labels_for_schema(repository, doc_type)
             return Response(DocumentTypeResponse(type=doc_type).model_dump(mode="json"))
 
         return Response({"detail": "Not Found"}, status=404)
@@ -411,17 +372,36 @@ class AutoClassifyDocumentView(APIView):
         save = _bool_query_param(request.query_params.get("save"), default=True)
         service = get_classification_service()
         try:
+            print(f"\n{'='*60}")
+            print(f"AUTO-CLASSIFY REQUEST for document: {document_id}")
+            print(f"Save: {save}")
+            print(f"{'='*60}\n")
+            
             if save:
                 result = async_to_sync(service.classify_document)(document_id, auto_save=True)
             else:
                 result = async_to_sync(service.suggest_classification)(document_id)
             return Response(result)
         except ValueError as exc:
+            tb = traceback.format_exc()
+            print(f"\n{'='*60}")
+            print(f"AUTO-CLASSIFY ValueError for {document_id}")
+            print(f"{'='*60}")
+            print(f"Error: {str(exc)}")
+            print(f"\nTraceback:")
+            print(tb)
+            print(f"{'='*60}\n")
             return Response({"detail": str(exc)}, status=400)
         except Exception as exc:
             # Log full traceback for debugging
             tb = traceback.format_exc()
-            print(f"Auto-classification error for {document_id}:\n{tb}")
+            print(f"\n{'='*60}")
+            print(f"AUTO-CLASSIFY Exception for {document_id}")
+            print(f"{'='*60}")
+            print(f"Error: {str(exc)}")
+            print(f"\nTraceback:")
+            print(tb)
+            print(f"{'='*60}\n")
             return Response({"detail": f"Auto-classification failed: {exc}", "traceback": tb}, status=500)
 
 

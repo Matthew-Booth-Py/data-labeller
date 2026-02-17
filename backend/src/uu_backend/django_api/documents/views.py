@@ -82,7 +82,7 @@ class DocumentDetailView(APIView):
     permission_classes: list = []
 
     def get(self, request, document_id: str):
-        store = get_document_repository()
+        document_repo = get_document_repository()
         document = document_repo.get_document(document_id)
         if not document:
             return Response({"detail": f"Document not found: {document_id}"}, status=404)
@@ -90,37 +90,27 @@ class DocumentDetailView(APIView):
         payload = DocumentResponse(document=document)
         return Response(payload.model_dump(mode="json"))
 
-    # Individual document deletion disabled - use bulk operations instead
-    # def delete(self, request, document_id: str):
-    #     store = get_document_repository()
-    #     neo4j_client = get_neo4j_client()
-    #     document = document_repo.get_document(document_id)
-    #
-    #     if document:
-    #         file_path = get_original_file_path(document_id, document.file_type)
-    #         if file_path:
-    #             file_path.unlink(missing_ok=True)
-    #
-    #     deleted = document_repo.delete_document(document_id)
-    #     if not deleted:
-    #         return Response({"detail": f"Document not found: {document_id}"}, status=404)
-    #
-    #     graph_cleanup: dict[str, object]
-    #     try:
-    #         graph_cleanup = neo4j_client.delete_document_graph_data(document_id)
-    #         valid_doc_ids = [doc.id for doc in document_repo.get_all_documents()]
-    #         graph_cleanup["reconcile"] = neo4j_client.reconcile_documents(valid_doc_ids)
-    #     except Exception as exc:
-    #         logger.exception("graph_document_delete_failed", extra={"document_id": document_id})
-    #         graph_cleanup = {"error": str(exc)}
-    #
-    #     return Response(
-    #         {
-    #             "status": "deleted",
-    #             "document_id": document_id,
-    #             "graph_cleanup": graph_cleanup,
-    #         }
-    #     )
+    def delete(self, request, document_id: str):
+        """Delete a document by ID."""
+        document_repo = get_document_repository()
+        document = document_repo.get_document(document_id)
+        
+        if document:
+            # Delete the file from storage if it exists
+            file_path = get_original_file_path(document_id, document.file_type)
+            if file_path:
+                file_path.unlink(missing_ok=True)
+        
+        deleted = document_repo.delete_document(document_id)
+        if not deleted:
+            return Response({"detail": f"Document not found: {document_id}"}, status=404)
+        
+        return Response(
+            {
+                "status": "deleted",
+                "document_id": document_id,
+            }
+        )
 
 
 class DocumentFileView(APIView):

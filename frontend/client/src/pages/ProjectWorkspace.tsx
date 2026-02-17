@@ -21,14 +21,8 @@ import {
 
 import { DocumentPool } from "@/components/workspace/DocumentPool";
 import { SchemaViewer } from "@/components/workspace/SchemaViewer";
-import { LabelStudio } from "@/components/workspace/LabelStudio";
-import { LabeledDataViewer } from "@/components/workspace/LabeledDataViewer";
-import { EvaluationBoard } from "@/components/workspace/EvaluationBoard";
 import { DeploymentView } from "@/components/workspace/DeploymentView";
-import { DriftMap } from "@/components/workspace/DriftMap";
 import { APIManagement } from "@/components/workspace/APIManagement";
-import { Timeline } from "@/components/workspace/Timeline";
-import { SearchPanel } from "@/components/workspace/SearchPanel";
 import { ExtractionRunner } from "@/components/workspace/ExtractionRunner";
 
 interface Project {
@@ -36,9 +30,6 @@ interface Project {
   name: string;
   description?: string;
   type?: string;
-  coverage?: number;
-  lastEval?: string;
-  driftRisk?: "Low" | "Medium" | "High" | "Unknown";
   docCount?: number;
   model?: string;
 }
@@ -49,13 +40,7 @@ export default function ProjectWorkspace() {
   const validTabs = new Set([
     "schema",
     "documents",
-    "label",
-    "labeled-data",
-    "evaluation",
     "extraction",
-    "timeline",
-    "search",
-    "drift",
     "api",
     "deployment",
   ]);
@@ -68,17 +53,7 @@ export default function ProjectWorkspace() {
   };
   
   const [activeTab, setActiveTab] = useState(getTabFromUrl());
-  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [savingDeploymentVersion, setSavingDeploymentVersion] = useState(false);
-  const [liveMetrics, setLiveMetrics] = useState<{
-    coverage: number;
-    lastEval: string;
-    driftRisk: "Low" | "Medium" | "High" | "Unknown";
-  }>({
-    coverage: 0,
-    lastEval: "Never",
-    driftRisk: "Unknown",
-  });
 
   // Update URL hash when tab changes
   const handleTabChange = (tab: string) => {
@@ -115,8 +90,6 @@ export default function ProjectWorkspace() {
         name: "Tutorial Project",
         description: "Sample insurance documents for the Getting Started tutorial",
         type: "Insurance",
-        coverage: 0,
-        driftRisk: "Low",
         docCount: 0,
         model: "GPT-5-mini",
         documentIds: [],
@@ -128,109 +101,11 @@ export default function ProjectWorkspace() {
       id: id || "unknown",
       name: id ? id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Project",
       description: "",
-      coverage: 0,
-      driftRisk: "Low",
       docCount: 0,
       model: "GPT-5-mini",
     };
   }, [id]);
 
-  const handleDocumentClick = useCallback((docId: string) => {
-    setSelectedDocumentId(docId);
-    setActiveTab("label");
-  }, []);
-
-  useEffect(() => {
-    const persistProjectMetrics = (coverage: number, lastEval: string, driftRisk: "Low" | "Medium" | "High" | "Unknown") => {
-      if (!id) return;
-      try {
-        const stored = localStorage.getItem("uu-projects");
-        if (!stored) return;
-        const projects = JSON.parse(stored);
-        const idx = projects.findIndex((p: any) => p.id === id);
-        if (idx < 0) return;
-        projects[idx] = {
-          ...projects[idx],
-          coverage,
-          lastEval,
-          driftRisk,
-        };
-        localStorage.setItem("uu-projects", JSON.stringify(projects));
-      } catch {
-        // ignore persistence errors
-      }
-    };
-
-    const loadLiveMetrics = async () => {
-      if (!id) return;
-      let documentIds: string[] = [];
-      try {
-        const stored = localStorage.getItem("uu-projects");
-        if (stored) {
-          const projects = JSON.parse(stored);
-          const found = projects.find((p: any) => p.id === id);
-          documentIds = found?.documentIds || [];
-        }
-      } catch {
-        documentIds = [];
-      }
-
-      const docCount = documentIds.length;
-      if (docCount === 0) {
-        const next = { coverage: 0, lastEval: "Never", driftRisk: "Unknown" as const };
-        setLiveMetrics(next);
-        persistProjectMetrics(next.coverage, next.lastEval, next.driftRisk);
-        return;
-      }
-
-      try {
-        const response = await api.listEvaluations({ limit: 1000 });
-        const docSet = new Set(documentIds);
-        const projectEvals = (response.evaluations || []).filter((e: any) => docSet.has(e.document_id));
-        const evaluatedDocs = new Set(projectEvals.map((e: any) => e.document_id));
-        const coverage = Math.round((evaluatedDocs.size / docCount) * 100);
-
-        const latestEval = projectEvals
-          .map((e: any) => e.evaluated_at)
-          .filter(Boolean)
-          .sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime())[0];
-
-        const sortedByDate = [...projectEvals].sort(
-          (a: any, b: any) => new Date(a.evaluated_at).getTime() - new Date(b.evaluated_at).getTime()
-        );
-        const f1Series = sortedByDate
-          .map((e: any) => Number(e.metrics?.f1_score ?? 0))
-          .filter((v: number) => Number.isFinite(v));
-
-        let driftRisk: "Low" | "Medium" | "High" | "Unknown" = "Unknown";
-        if (f1Series.length >= 2) {
-          const recent = f1Series.slice(-5);
-          const previous = f1Series.slice(-10, -5);
-          const avg = (arr: number[]) => (arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : 0);
-          const recentAvg = avg(recent);
-          const previousAvg = previous.length ? avg(previous) : recentAvg;
-          const delta = Math.abs(recentAvg - previousAvg);
-          if (recentAvg < 0.75 || delta > 0.15) driftRisk = "High";
-          else if (recentAvg < 0.9 || delta > 0.08) driftRisk = "Medium";
-          else driftRisk = "Low";
-        }
-
-        const next = {
-          coverage,
-          lastEval: latestEval ? new Date(latestEval).toLocaleString() : "Never",
-          driftRisk,
-        };
-        setLiveMetrics(next);
-        persistProjectMetrics(next.coverage, next.lastEval, next.driftRisk);
-      } catch {
-        const next = { coverage: 0, lastEval: "Never", driftRisk: "Unknown" as const };
-        setLiveMetrics(next);
-        persistProjectMetrics(next.coverage, next.lastEval, next.driftRisk);
-      }
-    };
-
-    loadLiveMetrics();
-  }, [id]);
 
   const handleCreateDeploymentVersion = async () => {
     if (!id) return;
@@ -283,20 +158,9 @@ export default function ProjectWorkspace() {
               <h1 className="text-xl font-semibold tracking-tight text-primary">{project.name}</h1>
               <Badge variant="outline" className="font-mono text-xs border-accent/20 text-accent">{project.id}</Badge>
             </div>
-            <div className="flex items-center gap-6 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                Coverage: <span className="text-foreground font-mono font-medium">{liveMetrics.coverage}%</span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <RotateCcw className="h-3.5 w-3.5" />
-                Last eval: <span className="text-foreground">{liveMetrics.lastEval}</span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                Drift Risk: <span className="text-foreground">{liveMetrics.driftRisk}</span>
-              </span>
-            </div>
+            <p className="text-sm text-muted-foreground">
+              {project.description || "Configure schemas and extract structured data from documents"}
+            </p>
           </div>
           
           <div className="flex items-center gap-2">
@@ -341,47 +205,11 @@ export default function ProjectWorkspace() {
               >
                 Documents
               </TabsTrigger>
-              <TabsTrigger 
-                value="label" 
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
-              >
-                Label Studio
-              </TabsTrigger>
-              <TabsTrigger 
-                value="labeled-data" 
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
-              >
-                Labeled Data
-              </TabsTrigger>
-              <TabsTrigger 
-                value="evaluation" 
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
-              >
-                Evaluation
-              </TabsTrigger>
               <TabsTrigger
                 value="extraction"
                 className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
               >
                 Extraction
-              </TabsTrigger>
-              <TabsTrigger 
-                value="timeline" 
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
-              >
-                Timeline
-              </TabsTrigger>
-              <TabsTrigger 
-                value="search" 
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
-              >
-                Search & Q&A
-              </TabsTrigger>
-              <TabsTrigger 
-                value="drift" 
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
-              >
-                Drift & Coverage
               </TabsTrigger>
               <TabsTrigger 
                 value="api" 
@@ -403,28 +231,10 @@ export default function ProjectWorkspace() {
               <SchemaViewer projectId={id} />
             </TabsContent>
             <TabsContent value="documents" className="h-full m-0 p-6 overflow-auto">
-              <DocumentPool onDocumentClick={handleDocumentClick} projectId={id} />
-            </TabsContent>
-            <TabsContent value="label" className="h-full m-0 p-0 overflow-hidden">
-              <LabelStudio documentId={selectedDocumentId} />
-            </TabsContent>
-            <TabsContent value="labeled-data" className="h-full m-0 p-6 overflow-auto">
-              <LabeledDataViewer projectId={id} />
-            </TabsContent>
-            <TabsContent value="evaluation" className="h-full m-0 p-6 overflow-auto">
-              <EvaluationBoard projectId={id} />
+              <DocumentPool projectId={id} />
             </TabsContent>
             <TabsContent value="extraction" className="h-full m-0 p-6 overflow-auto">
               <ExtractionRunner projectId={id} />
-            </TabsContent>
-            <TabsContent value="timeline" className="h-full m-0 p-6 overflow-auto">
-              <Timeline projectId={id} onDocumentClick={handleDocumentClick} />
-            </TabsContent>
-            <TabsContent value="search" className="h-full m-0 p-6 overflow-auto">
-              <SearchPanel projectId={id} onDocumentClick={handleDocumentClick} />
-            </TabsContent>
-            <TabsContent value="drift" className="h-full m-0 p-6 overflow-auto">
-              <DriftMap />
             </TabsContent>
             <TabsContent value="api" className="h-full m-0 p-6 overflow-auto">
               <APIManagement />

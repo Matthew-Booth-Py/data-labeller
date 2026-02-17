@@ -33,25 +33,27 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { api, DocumentSummary } from "@/lib/api";
 import { format, parseISO } from "date-fns";
 
 interface DocumentPoolProps {
-  onDocumentClick?: (id: string) => void;
   projectId?: string;  // Track documents per project
 }
 
-export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) {
+export function DocumentPool({ projectId }: DocumentPoolProps) {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [searchQuery, setSearchQuery] = useState("");
   const [localStorageVersion, setLocalStorageVersion] = useState(0);
   const [classifying, setClassifying] = useState(false);
   const [classifyingDocs, setClassifyingDocs] = useState<Set<string>>(new Set());
-  const [suggestingLabels, setSuggestingLabels] = useState(false);
-  const [suggestingLabelDocs, setSuggestingLabelDocs] = useState<Set<string>>(new Set());
-  const [queuedNeoDocIds, setQueuedNeoDocIds] = useState<Set<string>>(new Set());
   const [editingDoc, setEditingDoc] = useState<string | null>(null);
+  const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
+  const [extracting, setExtracting] = useState(false);
+  const [extractingDocs, setExtractingDocs] = useState<Set<string>>(new Set());
+  const [viewingExtraction, setViewingExtraction] = useState<string | null>(null);
+  const [extractionData, setExtractionData] = useState<any>(null);
   const [classifications, setClassifications] = useState<Map<string, {
     type: string;
     typeId: string;
@@ -70,17 +72,6 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     staleTime: 0, // Always refetch when invalidated to show latest classification
   });
 
-  // Graph indexing removed - Neo4j integration disabled
-  // const {
-  //   data: graphIndexingStatus,
-  //   refetch: refetchGraphIndexingStatus,
-  // } = useQuery({
-  //   queryKey: ["graph-indexing-status"],
-  //   queryFn: () => api.getGraphIndexingStatus(),
-  //   staleTime: 10000,
-  //   refetchInterval: queuedNeoDocIds.size > 0 ? 3000 : false,
-  // });
-  const graphIndexingStatus = null;
 
   // Fetch document types for manual classification
   const { data: documentTypesData } = useQuery({
@@ -128,13 +119,6 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
   useEffect(() => {
     if (!data || !projectId) return;
     
-    // Don't sync while documents are being indexed (they may be temporarily deleted/recreated)
-    const pendingIndexing = graphIndexingStatus?.pending_documents || 0;
-    if (queuedNeoDocIds.size > 0 || pendingIndexing > 0) {
-      console.log(`Skipping localStorage sync: ${queuedNeoDocIds.size} queued locally, ${pendingIndexing} pending on backend`);
-      return;
-    }
-    
     try {
       const stored = localStorage.getItem("uu-projects");
       if (!stored) return;
@@ -163,7 +147,7 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     } catch (err) {
       console.error("Failed to sync localStorage document IDs:", err);
     }
-  }, [data, projectId, queuedNeoDocIds, graphIndexingStatus]);
+  }, [data, projectId]);
 
   // Helper to save document IDs to project in localStorage
   const saveDocumentIdsToProject = (docIds: string[]) => {
@@ -217,6 +201,87 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     },
   });
 
+  // Extract all classified documents
+  const handleExtractAll = async () => {
+    const classifiedDocs = filteredDocs.filter(d => d.document_type);
+    
+    if (classifiedDocs.length === 0) {
+      toast({
+        title: "No documents to extract",
+        description: "Please classify documents first before extracting.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setExtracting(true);
+    const newExtractingDocs = new Set(classifiedDocs.map(d => d.id));
+    setExtractingDocs(newExtractingDocs);
+
+    const startTime = Date.now();
+    console.log(`🚀 Starting parallel extraction of ${classifiedDocs.length} documents`);
+    
+    const extractionPromises = classifiedDocs.map(async (doc, index) => {
+      const docStartTime = Date.now();
+      console.log(`📤 [${index + 1}/${classifiedDocs.length}] Extracting: ${doc.filename}`);
+      
+      try {
+        await api.extractDocument(doc.id, false, true); // use structured output
+        const elapsed = ((Date.now() - docStartTime) / 1000).toFixed(2);
+        console.log(`✅ [${index + 1}/${classifiedDocs.length}] Completed ${doc.filename} in ${elapsed}s`);
+        
+        setExtractingDocs(prev => {
+          const updated = new Set(prev);
+          updated.delete(doc.id);
+          return updated;
+        });
+        
+        return { success: true, doc };
+      } catch (error) {
+        const elapsed = ((Date.now() - docStartTime) / 1000).toFixed(2);
+        console.error(`❌ [${index + 1}/${classifiedDocs.length}] Failed ${doc.filename} after ${elapsed}s:`, error);
+        
+        setExtractingDocs(prev => {
+          const updated = new Set(prev);
+          updated.delete(doc.id);
+          return updated;
+        });
+        
+        return { success: false, doc, error };
+      }
+    });
+
+    const results = await Promise.all(extractionPromises);
+    const totalElapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    const successCount = results.filter(r => r.success).length;
+    
+    console.log(`🏁 Extraction complete: ${successCount}/${classifiedDocs.length} succeeded in ${totalElapsed}s`);
+    
+    toast({
+      title: "Extraction complete",
+      description: `Successfully extracted ${successCount} of ${classifiedDocs.length} documents in ${totalElapsed}s`,
+    });
+
+    queryClient.invalidateQueries({ queryKey: ["documents"] });
+    setExtracting(false);
+    setExtractingDocs(new Set());
+  };
+
+  // View extraction for a single document
+  const handleViewExtraction = async (docId: string) => {
+    try {
+      const result = await api.getDocumentExtraction(docId);
+      setExtractionData(result);
+      setViewingExtraction(docId);
+    } catch (error: any) {
+      toast({
+        title: "Failed to load extraction",
+        description: error.message || "Could not load extraction data",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Helper to remove document ID from project in localStorage
   const removeDocumentIdFromProject = (docId: string) => {
     if (!projectId) return;
@@ -238,30 +303,36 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     }
   };
 
-  // Individual document deletion removed - use bulk operations instead
-  // const deleteMutation = useMutation({
-  //   mutationFn: (id: string) => api.deleteDocument(id),
-  //   onSuccess: (_, deletedId) => {
-  //     toast({
-  //       title: "Document deleted",
-  //       description: "The document has been removed.",
-  //     });
-  //     removeDocumentIdFromProject(deletedId);
-  //     queryClient.invalidateQueries({ queryKey: ["documents"] });
-  //     queryClient.invalidateQueries({ queryKey: ["timeline-uploaded"] });
-  //     queryClient.invalidateQueries({ queryKey: ["graph"] });
-  //     queryClient.invalidateQueries({ queryKey: ["ingest-status"] });
-  //     queryClient.invalidateQueries({ queryKey: ["health"] });
-  //     queryClient.invalidateQueries({ queryKey: ["graph-indexing-status"] });
-  //   },
-  //   onError: (error: Error) => {
-  //     toast({
-  //       title: "Delete failed",
-  //       description: error.message,
-  //       variant: "destructive",
-  //     });
-  //   },
-  // });
+  // Delete mutation for single or multiple documents
+  const deleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      // Delete documents sequentially
+      for (const id of ids) {
+        await api.deleteDocument(id);
+      }
+      return ids;
+    },
+    onSuccess: (deletedIds) => {
+      toast({
+        title: "Documents deleted",
+        description: `${deletedIds.length} document(s) have been removed.`,
+      });
+      // Remove from project
+      deletedIds.forEach(id => removeDocumentIdFromProject(id));
+      // Clear selection
+      setSelectedDocs(new Set());
+      // Invalidate queries
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["ingest-status"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Delete failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -283,23 +354,6 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     doc.filename.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Fetch per-document annotation stats to show label counts in table/grid
-  const annotationStatsQueries = useQueries({
-    queries: filteredDocs.map((doc) => ({
-      queryKey: ["annotation-stats", doc.id],
-      queryFn: () => api.getAnnotationStats(doc.id),
-      staleTime: 0,
-    })),
-  });
-
-  const annotationCountByDoc = useMemo(() => {
-    const counts = new Map<string, number>();
-    filteredDocs.forEach((doc, idx) => {
-      const total = annotationStatsQueries[idx]?.data?.total_annotations ?? 0;
-      counts.set(doc.id, total);
-    });
-    return counts;
-  }, [filteredDocs, annotationStatsQueries]);
 
   const formatDate = (dateStr: string | undefined) => {
     if (!dateStr) return "—";
@@ -394,96 +448,6 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     });
   };
 
-  // Suggest labels (schema-based annotations) for all classified documents asynchronously
-  const handleSuggestLabelsAll = async () => {
-    const eligible = filteredDocs.filter((doc) => !!doc.document_type);
-    if (eligible.length === 0) {
-      toast({
-        title: "No Eligible Documents",
-        description: "Classify documents first, then run label suggestions.",
-      });
-      return;
-    }
-
-    setSuggestingLabels(true);
-    setSuggestingLabelDocs(new Set(eligible.map((doc) => doc.id)));
-
-    const start = Date.now();
-    const results = await Promise.all(
-      eligible.map(async (doc) => {
-        try {
-          const documentTypeId = doc.document_type?.id;
-          if (!documentTypeId) {
-            throw new Error("Document has no document type id");
-          }
-
-          // Use the exact schema-derived labels for this document type.
-          const labelsResponse = await api.listLabels(documentTypeId, false);
-          const labelIds = (labelsResponse.labels || []).map((label) => label.id);
-          
-          // Use the exact same suggestion call shape as Label Studio.
-          const response = await api.suggestAnnotations(
-            doc.id,
-            {
-              label_ids: labelIds,
-              max_suggestions: 20,
-              min_confidence: 0.5,
-            },
-            false
-          );
-
-          let createdCount = 0;
-          await Promise.all(
-            (response.suggestions || []).map(async (suggestion) => {
-              try {
-                await api.createAnnotation(doc.id, {
-                  label_id: suggestion.label_id,
-                  annotation_type: "text_span",
-                  start_offset: suggestion.start_offset,
-                  end_offset: suggestion.end_offset,
-                  text: suggestion.text,
-                  metadata: suggestion.metadata,
-                  created_by: "ai_batch_suggestion",
-                });
-                createdCount += 1;
-              } catch (error) {
-                // Skip duplicates/invalid suggestions and continue batch.
-                console.warn(`Failed creating annotation for ${doc.filename}`, error);
-              }
-            })
-          );
-
-          setSuggestingLabelDocs((prev) => {
-            const next = new Set(prev);
-            next.delete(doc.id);
-            return next;
-          });
-          return { success: true, docId: doc.id, created: createdCount };
-        } catch (error) {
-          console.error(`Failed label suggestion for ${doc.filename}`, error);
-          setSuggestingLabelDocs((prev) => {
-            const next = new Set(prev);
-            next.delete(doc.id);
-            return next;
-          });
-          return { success: false, docId: doc.id };
-        }
-      })
-    );
-
-    const successCount = results.filter((r) => r.success).length;
-    const createdTotal = results.reduce((acc, r) => acc + (r.success ? r.created : 0), 0);
-    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-
-    setSuggestingLabels(false);
-    queryClient.invalidateQueries({ queryKey: ["annotation-stats"] });
-    queryClient.invalidateQueries({ queryKey: ["annotations"] });
-
-    toast({
-      title: "Label Suggestions Complete",
-      description: `Processed ${successCount}/${eligible.length} documents, created ${createdTotal} annotations in ${elapsed}s`,
-    });
-  };
 
   // Accept a classification
   const acceptMutation = useMutation({
@@ -529,40 +493,6 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     },
   });
 
-  const indexGraphMutation = useMutation({
-    mutationFn: (documentIds: string[]) => api.indexGraphDocuments(documentIds),
-    onSuccess: async (result, requestedDocumentIds) => {
-      const missingIds = new Set(result.missing_document_ids);
-      const alreadyIndexedIds = new Set(result.already_indexed_document_ids);
-      const enqueuedIds = requestedDocumentIds.filter(
-        (id) => !missingIds.has(id) && !alreadyIndexedIds.has(id),
-      );
-      if (enqueuedIds.length > 0) {
-        setQueuedNeoDocIds((prev) => {
-          const next = new Set(prev);
-          enqueuedIds.forEach((id) => next.add(id));
-          return next;
-        });
-      }
-      await queryClient.invalidateQueries({ queryKey: ["graph-indexing-status"] });
-      await queryClient.invalidateQueries({ queryKey: ["graph"] });
-      toast({
-        title: "Index DB queued",
-        description:
-          result.enqueued_documents > 0
-            ? `Queued ${result.enqueued_documents} of ${result.valid_documents} project document(s)`
-            : `No project documents needed indexing (${result.already_indexed_documents} already indexed)`,
-      });
-    },
-    onError: (err: Error) => {
-      toast({
-        title: "Index DB failed",
-        description: err.message,
-        variant: "destructive",
-      });
-    },
-  });
-
   // Graph database deletion removed - Neo4j integration disabled
   // const deleteGraphDbMutation = useMutation({
   //   mutationFn: () => api.deleteGraphDatabase(),
@@ -592,31 +522,6 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
     () => (filteredData?.documents || []).map((doc) => doc.id),
     [filteredData],
   );
-  const pendingIdSet = useMemo(
-    () => new Set(graphIndexingStatus?.pending_document_ids || []),
-    [graphIndexingStatus],
-  );
-  useEffect(() => {
-    // Keep local queued markers only for docs still pending in backend status.
-    setQueuedNeoDocIds((prev) => {
-      let changed = false;
-      const next = new Set<string>();
-      prev.forEach((id) => {
-        if (pendingIdSet.has(id)) {
-          next.add(id);
-        } else {
-          changed = true;
-        }
-      });
-      return changed ? next : prev;
-    });
-  }, [pendingIdSet]);
-
-  const projectPendingDocuments = useMemo(
-    () => projectDocumentIds.filter((id) => pendingIdSet.has(id)).length,
-    [projectDocumentIds, pendingIdSet],
-  );
-  const projectIndexedDocuments = projectDocumentIds.length - projectPendingDocuments;
 
   // Individual graph document removal removed - use bulk operations instead
   // const removeGraphDocMutation = useMutation({
@@ -647,10 +552,6 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
   //     });
   //   },
   // });
-
-  const pendingGraphDocuments = projectPendingDocuments;
-  const graphEntityCount = graphIndexingStatus?.graph_entities_total || 0;
-  const graphRelationshipCount = graphIndexingStatus?.graph_relationships_total || 0;
 
   if (error) {
     return (
@@ -715,37 +616,38 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
             )}
             Classify Documents
           </Button>
-          <Button
+          <Button 
             variant="outline"
             className="gap-2"
-            onClick={handleSuggestLabelsAll}
-            disabled={suggestingLabels || filteredDocs.filter((d) => !d.document_type).length === filteredDocs.length}
+            onClick={handleExtractAll}
+            disabled={extracting || filteredDocs.filter(d => d.document_type).length === 0}
           >
-            {suggestingLabels ? (
+            {extracting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <Tags className="h-4 w-4" />
+              <Sparkles className="h-4 w-4" />
             )}
-            Suggest Labels
+            Extract All
           </Button>
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => indexGraphMutation.mutate(projectDocumentIds)}
-            disabled={
-              indexGraphMutation.isPending
-              || projectDocumentIds.length === 0
-              || pendingGraphDocuments === 0
-            }
-          >
-            {indexGraphMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Network className="h-4 w-4" />
-            )}
-            Index DB
-          </Button>
-          {/* Graph deletion button removed - Neo4j integration disabled */}
+          {selectedDocs.size > 0 && (
+            <Button 
+              variant="destructive"
+              className="gap-2"
+              onClick={() => {
+                if (confirm(`Delete ${selectedDocs.size} selected document(s)?`)) {
+                  deleteMutation.mutate(Array.from(selectedDocs));
+                }
+              }}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              Delete ({selectedDocs.size})
+            </Button>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -781,18 +683,6 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
       {/* Stats */}
       <div className="flex items-center gap-4 text-sm text-muted-foreground">
         <span>{filteredData?.total || 0} document{(filteredData?.total || 0) !== 1 ? "s" : ""}</span>
-        <span>
-          KG (project): {projectIndexedDocuments}/{projectDocumentIds.length} indexed
-        </span>
-        <span>
-          {pendingGraphDocuments} pending
-        </span>
-        <span>
-          {graphEntityCount} entities
-        </span>
-        <span>
-          {graphRelationshipCount} relationships
-        </span>
       </div>
 
       {isLoading ? (
@@ -822,8 +712,7 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
           {filteredDocs.map((doc) => (
             <Card 
               key={doc.id} 
-              className="group overflow-hidden hover:shadow-md transition-all hover:border-accent/50 cursor-pointer"
-              onClick={() => onDocumentClick?.(doc.id)}
+              className="group overflow-hidden hover:shadow-md transition-all hover:border-accent/50"
             >
               <div className="aspect-[3/4] bg-muted/30 relative border-b flex items-center justify-center">
                 <FileText className="h-12 w-12 text-muted-foreground/50" />
@@ -855,14 +744,22 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/5">
+                <TableHead className="w-[50px]">
+                  <Checkbox
+                    checked={selectedDocs.size > 0 && selectedDocs.size === filteredDocs.length}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setSelectedDocs(new Set(filteredDocs.map(d => d.id)));
+                      } else {
+                        setSelectedDocs(new Set());
+                      }
+                    }}
+                  />
+                </TableHead>
                 <TableHead className="w-[300px]">Document</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Classification</TableHead>
                 <TableHead>Date Extracted</TableHead>
-                <TableHead>Chunks</TableHead>
-                <TableHead>Tokens</TableHead>
-                <TableHead>Labels</TableHead>
-                <TableHead>Indexed in Neo4j</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -870,9 +767,23 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
               {filteredDocs.map((doc) => (
                 <TableRow 
                   key={doc.id} 
-                  className="group cursor-pointer hover:bg-muted/5"
-                  onClick={() => onDocumentClick?.(doc.id)}
+                  className="group hover:bg-muted/5"
                 >
+                  <TableCell>
+                    <Checkbox
+                      checked={selectedDocs.has(doc.id)}
+                      onCheckedChange={(checked) => {
+                        const newSelected = new Set(selectedDocs);
+                        if (checked) {
+                          newSelected.add(doc.id);
+                        } else {
+                          newSelected.delete(doc.id);
+                        }
+                        setSelectedDocs(newSelected);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <div className="h-10 w-8 bg-muted/20 border rounded flex items-center justify-center shrink-0">
@@ -1048,62 +959,77 @@ export function DocumentPool({ onDocumentClick, projectId }: DocumentPoolProps) 
                       {doc.date_extracted ? formatDate(doc.date_extracted) : "—"}
                     </span>
                   </TableCell>
-                  <TableCell>
-                    <span className="font-mono text-sm">{doc.chunk_count}</span>
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-end gap-2">
+                      {extractingDocs.has(doc.id) ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      ) : doc.document_type ? (
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          className="h-8 gap-2"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewExtraction(doc.id);
+                          }}
+                        >
+                          <Sparkles className="h-3 w-3" />
+                          View Extraction
+                        </Button>
+                      ) : null}
+                    </div>
                   </TableCell>
-                  <TableCell>
-                    <span className="font-mono text-sm">
-                      {(doc.token_count || 0).toLocaleString()}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    {suggestingLabelDocs.has(doc.id) ? (
-                      <div className="flex items-center gap-1 text-muted-foreground text-sm">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        suggesting...
-                      </div>
-                    ) : (
-                      <span className="font-mono text-sm">
-                        {annotationCountByDoc.get(doc.id) ?? 0}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {queuedNeoDocIds.has(doc.id) ? (
-                      <Badge variant="secondary" className="gap-1">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        Queued
-                      </Badge>
-                    ) : pendingIdSet.has(doc.id) ? (
-                      <Badge variant="outline" className="text-amber-700 border-amber-300">
-                        Pending
-                      </Badge>
-                    ) : (
-                      <Badge variant="default" className="bg-emerald-600">
-                        Indexed
-                      </Badge>
-                    )}
-                  </TableCell>
-                  {/* Individual document deletion disabled - use bulk operations */}
-                  {/* <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteMutation.mutate(doc.id);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell> */}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </div>
       )}
+
+      {/* Extraction Viewer Dialog */}
+      <Dialog open={!!viewingExtraction} onOpenChange={() => setViewingExtraction(null)}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Extraction Results</DialogTitle>
+            <DialogDescription>
+              {viewingExtraction && filteredDocs.find(d => d.id === viewingExtraction)?.filename}
+            </DialogDescription>
+          </DialogHeader>
+          {extractionData && (
+            <div className="space-y-4">
+              {extractionData.fields && extractionData.fields.length > 0 ? (
+                <div className="space-y-3">
+                  {extractionData.fields.map((field: any, idx: number) => (
+                    <div key={idx} className="border rounded-lg p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-sm">{field.field_name}</span>
+                        {field.confidence && (
+                          <Badge variant="secondary" className="text-xs">
+                            {Math.round(field.confidence * 100)}%
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-sm">
+                        {typeof field.value === 'object' ? (
+                          <pre className="bg-muted p-3 rounded text-xs overflow-x-auto">
+                            {JSON.stringify(field.value, null, 2)}
+                          </pre>
+                        ) : (
+                          <div className="text-foreground">{String(field.value)}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  No extraction data available. Click "Extract All" or run extraction first.
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

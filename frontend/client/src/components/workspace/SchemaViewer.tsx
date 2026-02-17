@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Code, Plus, Trash2, Settings2, GripVertical, Sparkles, MessageSquare, Search, Edit3, Save, X, Loader2, ThumbsDown, FileText } from "lucide-react";
+import { Code, Plus, Trash2, Settings2, GripVertical, Sparkles, MessageSquare, Search, Edit3, Save, X, Loader2, ThumbsDown, FileText, Edit } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -37,6 +37,9 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   const [isCreating, setIsCreating] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
   const [newTypeDescription, setNewTypeDescription] = useState("");
+  const [isEditingType, setIsEditingType] = useState(false);
+  const [editTypeName, setEditTypeName] = useState("");
+  const [editTypeDescription, setEditTypeDescription] = useState("");
   
   // State for editing
   const [editingField, setEditingField] = useState<string | null>(null);
@@ -639,14 +642,27 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                   <Plus className="h-4 w-4" />
                 </Button>
                 {selectedType && (
-                  <Button 
-                    variant="outline" 
-                    size="icon"
-                    className="text-destructive hover:bg-destructive/10"
-                    onClick={() => deleteTypeMutation.mutate(selectedTypeId!)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <>
+                    <Button 
+                      variant="outline" 
+                      size="icon"
+                      onClick={() => {
+                        setEditTypeName(selectedType.name);
+                        setEditTypeDescription(selectedType.description || "");
+                        setIsEditingType(true);
+                      }}
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="icon"
+                      className="text-destructive hover:bg-destructive/10"
+                      onClick={() => deleteTypeMutation.mutate(selectedTypeId!)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </>
                 )}
               </div>
               {selectedType?.description && (
@@ -906,7 +922,11 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 placeholder="Describe this document type..."
                 value={newTypeDescription}
                 onChange={(e) => setNewTypeDescription(e.target.value)}
+                className="min-h-[100px]"
               />
+              <p className="text-xs text-muted-foreground">
+                This description will be used by the AI when classifying documents.
+              </p>
             </div>
           </div>
           <DialogFooter>
@@ -920,6 +940,57 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
             >
               {createTypeMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Document Type Dialog */}
+      <Dialog open={isEditingType} onOpenChange={setIsEditingType}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Document Type</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Name</label>
+              <Input 
+                placeholder="e.g., Invoice, Contract, Claim Form"
+                value={editTypeName}
+                onChange={(e) => setEditTypeName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Description</label>
+              <Textarea 
+                placeholder="Describe this document type..."
+                value={editTypeDescription}
+                onChange={(e) => setEditTypeDescription(e.target.value)}
+                className="min-h-[100px]"
+              />
+              <p className="text-xs text-muted-foreground">
+                This description will be used by the AI when classifying documents.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditingType(false)}>Cancel</Button>
+            <Button 
+              onClick={() => {
+                if (!selectedTypeId) return;
+                updateTypeMutation.mutate({
+                  id: selectedTypeId,
+                  data: { 
+                    name: editTypeName, 
+                    description: editTypeDescription || undefined 
+                  }
+                });
+                setIsEditingType(false);
+              }}
+              disabled={!editTypeName.trim() || updateTypeMutation.isPending}
+            >
+              {updateTypeMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>

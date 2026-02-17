@@ -2,28 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import {
-  Activity,
   FileText,
-  CheckCircle2,
-  User,
   Building2,
-  MapPin,
-  Network,
   GraduationCap,
   ArrowRight,
   Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
 import { api } from "@/lib/api";
 
 export default function Dashboard() {
@@ -39,21 +25,23 @@ export default function Dashboard() {
     staleTime: 30000,
   });
 
-  const { data: evaluations } = useQuery({
-    queryKey: ["dashboard-evaluations"],
-    queryFn: () => api.listEvaluations({ limit: 30 }),
+  const { data: documentTypes } = useQuery({
+    queryKey: ["document-types"],
+    queryFn: () => api.listDocumentTypes(),
     staleTime: 30000,
   });
 
   const totalDocs = ingestStatus?.documents || 0;
-  const graphStats = ingestStatus?.graph || {};
-  const chartData = (evaluations?.evaluations || [])
-    .slice(0, 30)
-    .reverse()
-    .map((e: any) => ({
-      date: new Date(e.evaluated_at).toLocaleDateString(),
-      f1: Number(((e.metrics?.f1_score || 0) * 100).toFixed(2)),
-    }));
+  
+  // Get projects from localStorage
+  const projects = (() => {
+    try {
+      const stored = localStorage.getItem("uu-projects");
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  })();
 
   return (
     <Shell>
@@ -76,7 +64,7 @@ export default function Dashboard() {
                     <Sparkles className="h-4 w-4 text-amber-500" />
                   </h3>
                   <p className="text-sm text-muted-foreground max-w-xl">
-                    Learn how to classify, annotate, and evaluate extraction quality from real documents.
+                    Learn how to define schemas, classify documents, and extract structured data from real documents.
                   </p>
                 </div>
               </div>
@@ -90,7 +78,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <Card className="bg-background border-muted-foreground/10">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Total Documents</CardTitle>
@@ -98,98 +86,24 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{totalDocs.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground mt-1">{ingestStatus?.chunks || 0} chunks indexed</p>
             </CardContent>
           </Card>
           <Card className="bg-background border-muted-foreground/10">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">People</CardTitle>
-              <User className="h-4 w-4 text-blue-500" />
+              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Document Types</CardTitle>
+              <FileText className="h-4 w-4 text-purple-500" />
             </CardHeader>
-            <CardContent><div className="text-2xl font-bold">{(graphStats as any).persons || 0}</div></CardContent>
+            <CardContent><div className="text-2xl font-bold">{documentTypes?.types?.length || 0}</div></CardContent>
           </Card>
           <Card className="bg-background border-muted-foreground/10">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Organizations</CardTitle>
-              <Building2 className="h-4 w-4 text-purple-500" />
+              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Projects</CardTitle>
+              <Building2 className="h-4 w-4 text-blue-500" />
             </CardHeader>
-            <CardContent><div className="text-2xl font-bold">{(graphStats as any).organizations || 0}</div></CardContent>
-          </Card>
-          <Card className="bg-background border-muted-foreground/10">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Relationships</CardTitle>
-              <Network className="h-4 w-4 text-orange-500" />
-            </CardHeader>
-            <CardContent><div className="text-2xl font-bold">{(graphStats as any).relationships || 0}</div></CardContent>
+            <CardContent><div className="text-2xl font-bold">{projects.length}</div></CardContent>
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card className="bg-background border-muted-foreground/10">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Locations</CardTitle>
-              <MapPin className="h-4 w-4 text-green-500" />
-            </CardHeader>
-            <CardContent><div className="text-2xl font-bold">{(graphStats as any).locations || 0}</div></CardContent>
-          </Card>
-          <Card className="bg-background border-muted-foreground/10">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Events</CardTitle>
-              <Activity className="h-4 w-4 text-amber-500" />
-            </CardHeader>
-            <CardContent><div className="text-2xl font-bold">{(graphStats as any).events || 0}</div></CardContent>
-          </Card>
-          <Card className="bg-background border-muted-foreground/10">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Vector DB</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-            </CardHeader>
-            <CardContent><div className="text-sm font-medium">{health?.services?.vector_db || "—"}</div></CardContent>
-          </Card>
-          <Card className="bg-background border-muted-foreground/10">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Graph DB</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-            </CardHeader>
-            <CardContent><div className="text-sm font-medium">{health?.services?.neo4j || "—"}</div></CardContent>
-          </Card>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle>Recent Evaluation F1</CardTitle>
-              <CardDescription>Real extraction evaluation trend from saved runs.</CardDescription>
-            </CardHeader>
-            <CardContent className="h-[300px] pl-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData}>
-                  <defs>
-                    <linearGradient id="colorVol" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))" />
-                  <XAxis dataKey="date" hide />
-                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} />
-                  <Tooltip />
-                  <Area type="monotone" dataKey="f1" stroke="hsl(var(--primary))" fillOpacity={1} fill="url(#colorVol)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Project Health</CardTitle>
-              <CardDescription>Not implemented yet (no mock data).</CardDescription>
-            </CardHeader>
-            <CardContent className="px-6 py-8 text-sm text-muted-foreground">
-              This panel intentionally shows no synthetic data. Add project-level risk/coverage metrics when backend signals are available.
-            </CardContent>
-          </Card>
-        </div>
       </div>
     </Shell>
   );

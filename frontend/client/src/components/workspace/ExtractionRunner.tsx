@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,25 +15,72 @@ type ExtractedField = {
 };
 
 export function ExtractionRunner({ projectId }: { projectId?: string }) {
-  const [documents, setDocuments] = useState<any[]>([]);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
   const [useStructuredOutput, setUseStructuredOutput] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [fields, setFields] = useState<ExtractedField[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [localStorageVersion, setLocalStorageVersion] = useState(0);
 
+  // Listen for localStorage changes
   useEffect(() => {
-    const load = async () => {
-      try {
-        const response = await api.listDocuments();
-        setDocuments(response.documents || []);
-        if (response.documents?.length) setSelectedDocumentId(response.documents[0].id);
-      } catch (e: any) {
-        setError(e.message || "Failed to load documents");
-      }
+    const handleStorageChange = () => {
+      setLocalStorageVersion(v => v + 1);
     };
-    load();
+    window.addEventListener('storage', handleStorageChange);
+    // Also listen for custom event from same window
+    window.addEventListener('localStorageUpdate', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('localStorageUpdate', handleStorageChange);
+    };
   }, []);
+
+  // Fetch documents with React Query for automatic cache invalidation
+  const { data: documentsData } = useQuery({
+    queryKey: ["documents"],
+    queryFn: () => api.listDocuments(),
+  });
+
+  // Filter documents by project
+  const documents = useMemo(() => {
+    if (!documentsData?.documents || !projectId) return [];
+    
+    // Get document IDs for this project from localStorage
+    let projectDocumentIds: string[] = [];
+    try {
+      const stored = localStorage.getItem("uu-projects");
+      if (stored) {
+        const projects = JSON.parse(stored);
+        const project = projects.find((p: { id: string }) => p.id === projectId);
+        projectDocumentIds = project?.documentIds || [];
+        
+        console.log('[ExtractionRunner] Project:', projectId);
+        console.log('[ExtractionRunner] Project document IDs:', projectDocumentIds);
+        console.log('[ExtractionRunner] All documents:', documentsData.documents.length);
+      }
+    } catch (e) {
+      console.error('[ExtractionRunner] Error reading localStorage:', e);
+      projectDocumentIds = [];
+    }
+    
+    const filtered = documentsData.documents.filter(doc => projectDocumentIds.includes(doc.id));
+    console.log('[ExtractionRunner] Filtered documents:', filtered.length);
+    
+    return filtered;
+  }, [documentsData, projectId, localStorageVersion]);
+
+  // Update selected document when documents change
+  useEffect(() => {
+    if (documents.length > 0 && !selectedDocumentId) {
+      setSelectedDocumentId(documents[0].id);
+    } else if (documents.length > 0 && !documents.find(d => d.id === selectedDocumentId)) {
+      // Selected document was deleted, select first available
+      setSelectedDocumentId(documents[0].id);
+    } else if (documents.length === 0) {
+      setSelectedDocumentId("");
+    }
+  }, [documents, selectedDocumentId]);
 
   const selectedDoc = useMemo(
     () => documents.find((d) => d.id === selectedDocumentId),

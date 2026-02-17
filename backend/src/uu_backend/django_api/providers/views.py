@@ -27,22 +27,12 @@ def _reset_openai_runtime_singletons() -> None:
     from uu_backend.llm import openai_client
     from uu_backend.services import (
         classification_service,
-        evaluation_service,
         extraction_service,
-        label_suggestion_service,
-        qa_service,
-        schema_based_suggestion_service,
-        suggestion_service,
     )
 
     openai_client._client = None
     classification_service._classification_service = None
     extraction_service._extraction_service = None
-    evaluation_service._evaluation_service = None
-    suggestion_service._suggestion_service = None
-    label_suggestion_service._label_suggestion_service = None
-    schema_based_suggestion_service._service = None
-    qa_service._qa_service = None
 
 
 def _get_effective_openai_key() -> tuple[str, str]:

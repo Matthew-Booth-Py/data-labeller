@@ -30,7 +30,6 @@ class IngestView(APIView):
         document_repo = get_document_repository()
 
         documents_processed = 0
-        chunks_created = 0
         document_ids: list[str] = []
         errors: list[str] = []
 
@@ -65,7 +64,7 @@ class IngestView(APIView):
                     content=result.content,
                     date_extracted=date_extracted,
                     metadata=result.metadata,
-                    chunks=[],
+                    file_path=str(original_file_path),
                 )
 
                 # Store document in database
@@ -98,7 +97,6 @@ class IngestView(APIView):
         payload = IngestResponse(
             status="success" if not errors else "partial",
             documents_processed=documents_processed,
-            chunks_created=0,
             processing_time_seconds=round(processing_time, 2),
             document_ids=document_ids,
             errors=errors,
@@ -116,6 +114,5 @@ class IngestStatusView(APIView):
         return Response(
             {
                 "documents": document_repo.count(),
-                "chunks": 0,
             }
         )
