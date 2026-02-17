@@ -988,19 +988,19 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
 
       {/* Extraction Viewer Dialog */}
       <Dialog open={!!viewingExtraction} onOpenChange={() => setViewingExtraction(null)}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-3xl flex flex-col max-h-[85vh]">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>Extraction Results</DialogTitle>
             <DialogDescription>
               {viewingExtraction && filteredDocs.find(d => d.id === viewingExtraction)?.filename}
             </DialogDescription>
           </DialogHeader>
           {extractionData && (
-            <div className="space-y-4">
+            <div className="flex-1 overflow-y-auto pr-2 min-h-0">
               {extractionData.fields && extractionData.fields.length > 0 ? (
-                <div className="space-y-3">
+                <div className="space-y-3 pb-4">
                   {extractionData.fields.map((field: any, idx: number) => (
-                    <div key={idx} className="border rounded-lg p-4 space-y-2">
+                    <div key={idx} className="border rounded-lg p-4 space-y-2 bg-card">
                       <div className="flex items-center justify-between">
                         <span className="font-medium text-sm">{field.field_name}</span>
                         {field.confidence && (
@@ -1011,11 +1011,11 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                       </div>
                       <div className="text-sm">
                         {typeof field.value === 'object' ? (
-                          <pre className="bg-muted p-3 rounded text-xs overflow-x-auto">
+                          <pre className="bg-muted p-3 rounded text-xs overflow-x-auto max-h-[200px] overflow-y-auto">
                             {JSON.stringify(field.value, null, 2)}
                           </pre>
                         ) : (
-                          <div className="text-foreground">{String(field.value)}</div>
+                          <div className="text-foreground break-words">{String(field.value)}</div>
                         )}
                       </div>
                     </div>

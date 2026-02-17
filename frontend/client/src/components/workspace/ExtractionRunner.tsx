@@ -18,9 +18,35 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
   const [useStructuredOutput, setUseStructuredOutput] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
-  const [fields, setFields] = useState<ExtractedField[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [localStorageVersion, setLocalStorageVersion] = useState(0);
+  
+  // Persist extraction results per document
+  const [extractionCache, setExtractionCache] = useState<Map<string, ExtractedField[]>>(() => {
+    try {
+      const stored = sessionStorage.getItem('extraction-cache');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return new Map(Object.entries(parsed));
+      }
+    } catch (e) {
+      console.error('Failed to load extraction cache:', e);
+    }
+    return new Map();
+  });
+
+  // Get fields for currently selected document
+  const fields = selectedDocumentId ? (extractionCache.get(selectedDocumentId) || []) : [];
+
+  // Save cache to sessionStorage whenever it changes
+  useEffect(() => {
+    try {
+      const obj = Object.fromEntries(extractionCache);
+      sessionStorage.setItem('extraction-cache', JSON.stringify(obj));
+    } catch (e) {
+      console.error('Failed to save extraction cache:', e);
+    }
+  }, [extractionCache]);
 
   // Listen for localStorage changes
   useEffect(() => {
@@ -82,6 +108,30 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
     }
   }, [documents, selectedDocumentId]);
 
+  // Load extraction from backend when document changes (if not in cache)
+  useEffect(() => {
+    if (!selectedDocumentId) return;
+    if (extractionCache.has(selectedDocumentId)) return; // Already in cache
+    
+    // Try to load from backend
+    const loadExtraction = async () => {
+      try {
+        const result = await api.getDocumentExtraction(selectedDocumentId);
+        if (result.fields && result.fields.length > 0) {
+          setExtractionCache(prev => {
+            const updated = new Map(prev);
+            updated.set(selectedDocumentId, result.fields);
+            return updated;
+          });
+        }
+      } catch (e) {
+        // No extraction exists yet, that's fine
+      }
+    };
+    
+    loadExtraction();
+  }, [selectedDocumentId, extractionCache]);
+
   const selectedDoc = useMemo(
     () => documents.find((d) => d.id === selectedDocumentId),
     [documents, selectedDocumentId]
@@ -91,14 +141,27 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
     if (!selectedDocumentId) return;
     setIsRunning(true);
     setError(null);
-    setFields([]);
+    
+    // Clear fields for this document while loading
+    setExtractionCache(prev => {
+      const updated = new Map(prev);
+      updated.set(selectedDocumentId, []);
+      return updated;
+    });
+    
     try {
       const data = await api.extractDocument(
         selectedDocumentId,
         !useStructuredOutput,
         useStructuredOutput
       );
-      setFields(data.fields || []);
+      
+      // Save to cache
+      setExtractionCache(prev => {
+        const updated = new Map(prev);
+        updated.set(selectedDocumentId, data.fields || []);
+        return updated;
+      });
     } catch (e: any) {
       setError(e.message || "Extraction failed");
     } finally {
@@ -158,22 +221,37 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
+      <Card className="flex flex-col max-h-[600px]">
+        <CardHeader className="flex-shrink-0">
           <CardTitle>Extracted Fields</CardTitle>
           <CardDescription>Real extraction output from backend.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex-1 overflow-y-auto min-h-0">
           {error ? <div className="text-sm text-red-600">{error}</div> : null}
           {!error && fields.length === 0 ? (
             <div className="text-sm text-muted-foreground">No extraction results yet.</div>
           ) : null}
           {fields.length > 0 ? (
-            <div className="space-y-3">
+            <div className="space-y-3 pr-2 pb-4">
               {fields.map((field) => (
-                <div key={field.field_name} className="rounded-md border p-3">
-                  <div className="text-xs uppercase text-muted-foreground">{field.field_name}</div>
-                  <pre className="text-sm whitespace-pre-wrap break-all">{JSON.stringify(field.value, null, 2)}</pre>
+                <div key={field.field_name} className="rounded-lg border p-4 space-y-2 bg-card">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-sm">{field.field_name}</span>
+                    {field.confidence && (
+                      <span className="text-xs text-muted-foreground">
+                        {Math.round(field.confidence * 100)}%
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm">
+                    {typeof field.value === 'object' ? (
+                      <pre className="bg-muted p-3 rounded text-xs overflow-x-auto max-h-[200px] overflow-y-auto">
+                        {JSON.stringify(field.value, null, 2)}
+                      </pre>
+                    ) : (
+                      <div className="text-foreground break-words">{String(field.value)}</div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
