@@ -215,8 +215,31 @@ export function DataLabellerImproved() {
     setLoadingSuggestions(true);
     try {
       const result = await api.suggestAnnotations(selectedDocId);
-      setSuggestions(result.suggestions || []);
-      toast.success(`Generated ${result.suggestions?.length || 0} suggestions`);
+      
+      // Filter out suggestions for fields that already have annotations
+      const existingFieldNames = new Set(annotations.map(a => a.field_name));
+      const filteredSuggestions = (result.suggestions || []).filter(s => {
+        // For array fields, check if this specific instance is already labeled
+        const instanceNum = s.annotation_data?.instance_num;
+        if (instanceNum) {
+          // Check if this field + instance combo exists
+          return !annotations.some(a => 
+            a.field_name === s.field_name && 
+            a.annotation_data?.instance_num === instanceNum
+          );
+        }
+        // For simple fields, check if field exists at all
+        return !existingFieldNames.has(s.field_name);
+      });
+      
+      setSuggestions(filteredSuggestions);
+      
+      const skipped = (result.suggestions?.length || 0) - filteredSuggestions.length;
+      if (skipped > 0) {
+        toast.success(`Generated ${filteredSuggestions.length} suggestions (${skipped} already labeled)`);
+      } else {
+        toast.success(`Generated ${filteredSuggestions.length} suggestions`);
+      }
     } catch (error: any) {
       toast.error(`Failed to generate suggestions: ${error.message}`);
     } finally {
@@ -225,24 +248,35 @@ export function DataLabellerImproved() {
   };
 
   const approveSuggestionMutation = useMutation({
-    mutationFn: async ({ suggestionId }: { suggestionId: string }) => {
+    mutationFn: async ({ suggestionId, suggestion }: { suggestionId: string; suggestion: AnnotationSuggestion }) => {
       if (!selectedDocId) throw new Error("No document selected");
-      return api.approveAnnotationSuggestion(selectedDocId, suggestionId);
+      // Create ground truth annotation from suggestion
+      return api.createGroundTruthAnnotation(selectedDocId, {
+        document_id: selectedDocId,
+        field_name: suggestion.field_name,
+        value: String(suggestion.value),
+        annotation_type: "bbox",
+        annotation_data: suggestion.annotation_data,
+        labeled_by: "ai_approved",
+      });
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       refetchAnnotations();
-      setSuggestions(prev => prev.filter(s => s.id !== arguments[0]));
-      toast.success("Suggestion approved");
+      setSuggestions(prev => prev.filter(s => s.id !== variables.suggestionId));
+      toast.success("Suggestion approved and saved");
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to approve: ${error.message}`);
     },
   });
 
   const rejectSuggestionMutation = useMutation({
     mutationFn: async (suggestionId: string) => {
-      if (!selectedDocId) throw new Error("No document selected");
-      return api.rejectAnnotationSuggestion(selectedDocId, suggestionId);
+      // Just remove from local state - suggestions are temporary
+      return { suggestionId };
     },
-    onSuccess: () => {
-      setSuggestions(prev => prev.filter(s => s.id !== arguments[0]));
+    onSuccess: (_, suggestionId) => {
+      setSuggestions(prev => prev.filter(s => s.id !== suggestionId));
       toast.success("Suggestion rejected");
     },
   });
@@ -330,11 +364,16 @@ export function DataLabellerImproved() {
           documentId={selectedDocument.id}
           pdfUrl={documentUrl}
           annotations={annotations.filter(a => !hiddenFields.has(a.field_name))}
+          suggestions={suggestions}
           selectedField={selectedField}
           onAnnotationCreate={(fieldName, value, annotationData) =>
             createAnnotationMutation.mutate({ fieldName, value, annotationData })
           }
           onAnnotationDelete={(annotationId) => deleteAnnotationMutation.mutate(annotationId)}
+          onSuggestionApprove={(suggestion) => 
+            approveSuggestionMutation.mutate({ suggestionId: suggestion.id, suggestion })
+          }
+          onSuggestionReject={(suggestionId) => rejectSuggestionMutation.mutate(suggestionId)}
         />
       );
     } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(fileType)) {
@@ -656,7 +695,7 @@ export function DataLabellerImproved() {
                           size="sm"
                           variant="outline"
                           className="h-6 flex-1"
-                          onClick={() => approveSuggestionMutation.mutate({ suggestionId: suggestion.id })}
+                          onClick={() => approveSuggestionMutation.mutate({ suggestionId: suggestion.id, suggestion })}
                         >
                           <ThumbsUp className="h-3 w-3" />
                         </Button>

@@ -200,3 +200,42 @@
     @apply font-serif font-medium tracking-tight;
   }
 }
+/* PDF Text Layer Styles - Enable text selection */
+.react-pdf__Page__textContent {
+  user-select: text !important;
+  cursor: text !important;
+}
+
+.react-pdf__Page__textContent span {
+  user-select: text !important;
+  cursor: text !important;
+}
+
+/* Make sure annotation overlays don't block text selection */
+.react-pdf__Page {
+  position: relative;
+}
+
+.react-pdf__Page__canvas {
+  display: block;
+}
+
+.react-pdf__Page__textContent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  opacity: 0.2; /* Make text layer visible for debugging */
+  line-height: 1;
+  pointer-events: auto !important;
+}
+
+.react-pdf__Page__textContent span {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  transform-origin: 0% 0%;
+}
+

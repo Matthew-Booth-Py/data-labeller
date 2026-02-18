@@ -2,15 +2,19 @@
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
+
+from asgiref.sync import sync_to_async
 
 from uu_backend.models.annotation import AnnotationSuggestion, AnnotationType
 from uu_backend.models.taxonomy import DocumentType, SchemaField
 from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.services.extraction_service import get_extraction_service
 from uu_backend.services.azure_di_service import get_azure_di_service
+from uu_backend.django_data.models import DocumentModel
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +35,9 @@ class AnnotationSuggestionService:
         """
         Generate AI annotation suggestions for a document.
         
+        Uses extraction to predict field values, then maps predictions
+        to bounding boxes using cached Azure DI analysis.
+        
         Args:
             document_id: Document ID
             document_type: Document type with schema
@@ -40,65 +47,42 @@ class AnnotationSuggestionService:
         """
         logger.info(f"Generating annotation suggestions for document {document_id}")
         
-        # Get document
-        document = self.doc_repo.get_document(document_id)
+        # Get document (wrap sync ORM call)
+        document = await sync_to_async(self.doc_repo.get_document)(document_id)
         if not document:
             logger.error(f"Document not found: {document_id}")
             return []
         
         # Run extraction to get field values
         try:
-            extraction_result = await self.extraction_service.extract_structured(
-                document_id=document_id,
-                document_type_id=document_type.id,
-                schema_fields=document_type.schema_fields,
-                system_prompt=document_type.system_prompt
+            # Wrap sync extraction in sync_to_async
+            extraction_result = await sync_to_async(self.extraction_service.extract_structured)(
+                document_id=document_id
             )
             
-            # Get text with bounding boxes for PDFs using Azure DI
-            text_with_bboxes = None
-            if document.file_type.lower() == "pdf":
-                from uu_backend.config import get_settings
-                settings = get_settings()
-                file_ext = f".{document.file_type}"
-                file_path = settings.file_storage_path / f"{document_id}{file_ext}"
-                
-                if file_path.exists():
-                    try:
-                        # Analyze document with Azure DI
-                        analysis = await self.azure_di_service.analyze_document(file_path)
-                        # Convert Azure DI format to our text_with_bboxes format
-                        text_with_bboxes = []
-                        for page in analysis["pages"]:
-                            for line in page["lines"]:
-                                # Convert Azure polygon to our bbox format
-                                polygon = line["bbox"]
-                                if polygon:
-                                    x_coords = [p.x for p in polygon]
-                                    y_coords = [p.y for p in polygon]
-                                    text_with_bboxes.append({
-                                        "text": line["text"],
-                                        "page": page["page_number"],
-                                        "x": min(x_coords),
-                                        "y": min(y_coords),
-                                        "width": max(x_coords) - min(x_coords),
-                                        "height": max(y_coords) - min(y_coords)
-                                    })
-                    except Exception as azure_error:
-                        logger.error(f"Azure DI analysis error: {azure_error}")
-                        text_with_bboxes = None
+            logger.info(f"Extraction returned {len(extraction_result.fields)} fields")
+            
+            # Get Azure DI analysis (prefer cached) - wrap sync ORM call
+            azure_di_lines = await sync_to_async(self._get_azure_di_lines)(document_id, document.file_type)
+            logger.info(f"Got {len(azure_di_lines)} lines from Azure DI")
             
             # Convert extraction results to suggestions with locations
             suggestions = []
             
-            for field in extraction_result.fields:
-                suggestion = await self._create_suggestion_from_extraction(
+            # Flatten nested extraction results (e.g., line_items array)
+            flat_fields = self._flatten_extraction_fields(extraction_result.fields)
+            logger.info(f"Flattened to {len(flat_fields)} field values")
+            
+            for field_name, value, instance_num in flat_fields:
+                if value is None or value == "":
+                    continue
+                    
+                suggestion = self._create_suggestion(
                     document=document,
-                    field_name=field.field_name,
-                    value=field.value,
-                    confidence=field.confidence or 0.8,
-                    source_text=field.source_text,
-                    text_with_bboxes=text_with_bboxes
+                    field_name=field_name,
+                    value=str(value),
+                    instance_num=instance_num,
+                    azure_di_lines=azure_di_lines
                 )
                 
                 if suggestion:
@@ -113,166 +97,176 @@ class AnnotationSuggestionService:
             traceback.print_exc()
             return []
     
-    async def _create_suggestion_from_extraction(
+    def _get_azure_di_lines(self, document_id: str, file_type: str) -> list[dict]:
+        """Get Azure DI lines from cached analysis or run fresh analysis."""
+        try:
+            # Try to get cached analysis from database
+            doc_model = DocumentModel.objects.filter(id=document_id).first()
+            if doc_model and doc_model.azure_di_analysis:
+                lines = []
+                for page in doc_model.azure_di_analysis.get("pages", []):
+                    page_num = page.get("page_number", 1)
+                    for line in page.get("lines", []):
+                        polygon = line.get("bbox", [])
+                        if polygon:
+                            # Handle dict format from cache
+                            x_coords = [p["x"] if isinstance(p, dict) else p[0] for p in polygon]
+                            y_coords = [p["y"] if isinstance(p, dict) else p[1] for p in polygon]
+                            lines.append({
+                                "text": line.get("text", ""),
+                                "page": page_num,
+                                "x": min(x_coords),
+                                "y": min(y_coords),
+                                "width": max(x_coords) - min(x_coords),
+                                "height": max(y_coords) - min(y_coords)
+                            })
+                return lines
+        except Exception as e:
+            logger.error(f"Error getting cached Azure DI analysis: {e}")
+        
+        return []
+    
+    def _flatten_extraction_fields(self, fields: list) -> list[tuple[str, Any, int]]:
+        """
+        Flatten nested extraction fields into (field_name, value, instance_num) tuples.
+        
+        E.g., line_items: [{quantity: 1, description: "foo"}, {quantity: 2}]
+        becomes: [("line_items.quantity", "1", 1), ("line_items.description", "foo", 1), 
+                  ("line_items.quantity", "2", 2)]
+        """
+        result = []
+        
+        for field in fields:
+            field_name = field.field_name
+            value = field.value
+            
+            if isinstance(value, list):
+                # Array field - iterate with instance numbers
+                for idx, item in enumerate(value):
+                    instance_num = idx + 1
+                    if isinstance(item, dict):
+                        # Array of objects
+                        for key, val in item.items():
+                            result.append((f"{field_name}.{key}", val, instance_num))
+                    else:
+                        # Array of primitives
+                        result.append((field_name, item, instance_num))
+            elif isinstance(value, dict):
+                # Object field
+                for key, val in value.items():
+                    result.append((f"{field_name}.{key}", val, 1))
+            else:
+                # Simple field
+                result.append((field_name, value, 0))
+        
+        return result
+    
+    def _create_suggestion(
         self,
         document: Any,
         field_name: str,
-        value: Any,
-        confidence: float,
-        source_text: Optional[str],
-        text_with_bboxes: Optional[dict]
+        value: str,
+        instance_num: int,
+        azure_di_lines: list[dict]
     ) -> Optional[AnnotationSuggestion]:
-        """
-        Create an annotation suggestion from extraction result.
-        
-        Args:
-            document: Document object
-            field_name: Field name
-            value: Extracted value
-            confidence: Confidence score
-            source_text: Source text from extraction
-            text_with_bboxes: Text with bounding boxes from PDF
-            
-        Returns:
-            AnnotationSuggestion or None
-        """
+        """Create an annotation suggestion by finding the value in Azure DI lines."""
         try:
-            # Determine annotation type based on document type
-            if document.file_type.lower() in ["txt", "docx"]:
-                # Text span annotation
-                annotation_type = AnnotationType.TEXT_SPAN
-                annotation_data = self._find_text_span(
-                    document.content,
-                    source_text or str(value)
-                )
-            elif document.file_type.lower() == "pdf":
-                # Bounding box annotation
-                annotation_type = AnnotationType.BBOX
-                annotation_data = self._find_bbox_in_pdf(
-                    source_text or str(value),
-                    text_with_bboxes
-                )
-            else:
-                # Image - use full image bbox as placeholder
-                annotation_type = AnnotationType.BBOX
-                annotation_data = {
-                    "page": 1,
-                    "x": 0,
-                    "y": 0,
-                    "width": 100,
-                    "height": 100,
-                    "text": str(value)
-                }
+            # Find bounding box for this value
+            bbox = self._find_text_bbox(value, azure_di_lines)
             
-            if not annotation_data:
-                logger.warning(f"Could not find location for field {field_name}")
+            if not bbox:
+                logger.debug(f"Could not find bbox for '{value}' in field {field_name}")
                 return None
+            
+            # Add instance_num to annotation_data
+            annotation_data = {
+                **bbox,
+                "instance_num": instance_num
+            } if instance_num > 0 else bbox
             
             return AnnotationSuggestion(
                 id=str(uuid4()),
                 document_id=document.id,
                 field_name=field_name,
                 value=value,
-                annotation_type=annotation_type,
+                annotation_type=AnnotationType.BBOX,
                 annotation_data=annotation_data,
-                confidence=confidence,
-                text_snippet=source_text or str(value)
+                confidence=0.8,
+                text_snippet=value
             )
             
         except Exception as e:
             logger.error(f"Error creating suggestion for field {field_name}: {e}")
             return None
     
-    def _find_text_span(self, content: str, search_text: str) -> Optional[dict]:
+    def _find_text_bbox(self, search_text: str, lines: list[dict]) -> Optional[dict]:
         """
-        Find character offsets for text in document content.
+        Find bounding box for text in Azure DI lines.
         
-        Args:
-            content: Full document content
-            search_text: Text to search for
-            
-        Returns:
-            Dictionary with start, end, text or None
+        Strategies:
+        1. Exact match on a single line
+        2. Partial match (search text contained in line)
+        3. Fuzzy match for numbers (ignore formatting differences)
         """
-        if not search_text or not content:
+        if not search_text or not lines:
             return None
         
-        # Simple substring search
-        start = content.find(search_text)
-        if start == -1:
-            # Try case-insensitive search
-            start = content.lower().find(search_text.lower())
-            if start == -1:
-                return None
+        search_lower = search_text.lower().strip()
+        search_normalized = self._normalize_text(search_text)
         
-        end = start + len(search_text)
+        # Strategy 1: Exact match
+        for line in lines:
+            if line["text"].lower().strip() == search_lower:
+                return {
+                    "page": line["page"],
+                    "x": line["x"],
+                    "y": line["y"],
+                    "width": line["width"],
+                    "height": line["height"],
+                    "text": line["text"]
+                }
         
-        return {
-            "start": start,
-            "end": end,
-            "text": content[start:end]
-        }
-    
-    def _find_bbox_in_pdf(
-        self,
-        search_text: str,
-        text_with_bboxes: Optional[dict]
-    ) -> Optional[dict]:
-        """
-        Find bounding box for text in PDF using pdfplumber data.
+        # Strategy 2: Search text is contained in a line
+        for line in lines:
+            if search_lower in line["text"].lower():
+                return {
+                    "page": line["page"],
+                    "x": line["x"],
+                    "y": line["y"],
+                    "width": line["width"],
+                    "height": line["height"],
+                    "text": line["text"]
+                }
         
-        Args:
-            search_text: Text to search for
-            text_with_bboxes: PDF text with bounding boxes
-            
-        Returns:
-            Dictionary with page, x, y, width, height or None
-        """
-        if not text_with_bboxes or not search_text:
-            return None
+        # Strategy 3: Normalized match (good for numbers like "58,000" vs "58000")
+        for line in lines:
+            if self._normalize_text(line["text"]) == search_normalized:
+                return {
+                    "page": line["page"],
+                    "x": line["x"],
+                    "y": line["y"],
+                    "width": line["width"],
+                    "height": line["height"],
+                    "text": line["text"]
+                }
         
-        search_text_lower = search_text.lower().strip()
+        # Strategy 4: Partial normalized match
+        for line in lines:
+            if search_normalized in self._normalize_text(line["text"]):
+                return {
+                    "page": line["page"],
+                    "x": line["x"],
+                    "y": line["y"],
+                    "width": line["width"],
+                    "height": line["height"],
+                    "text": line["text"]
+                }
         
-        for page_data in text_with_bboxes.get("pages", []):
-            words = page_data.get("words", [])
-            
-            # Try to find matching word sequence
-            for i, word in enumerate(words):
-                # Check if this word starts the search text
-                if search_text_lower.startswith(word["text"].lower()):
-                    # Collect words that match the search text
-                    matching_words = [word]
-                    remaining_text = search_text_lower[len(word["text"]):].strip()
-                    
-                    j = i + 1
-                    while remaining_text and j < len(words):
-                        next_word = words[j]
-                        if remaining_text.startswith(next_word["text"].lower()):
-                            matching_words.append(next_word)
-                            remaining_text = remaining_text[len(next_word["text"]):].strip()
-                            j += 1
-                        else:
-                            break
-                    
-                    # If we matched enough of the text, return bbox
-                    if len(remaining_text) < len(search_text_lower) * 0.3:  # 70% match
-                        # Combine bounding boxes
-                        x0 = min(w["x0"] for w in matching_words)
-                        y0 = min(w["y0"] for w in matching_words)
-                        x1 = max(w["x1"] for w in matching_words)
-                        y1 = max(w["y1"] for w in matching_words)
-                        
-                        return {
-                            "page": page_data["page"],
-                            "x": x0,
-                            "y": y0,
-                            "width": x1 - x0,
-                            "height": y1 - y0,
-                            "text": search_text
-                        }
-        
-        logger.warning(f"Could not find bbox for text: {search_text[:50]}...")
         return None
+    
+    def _normalize_text(self, text: str) -> str:
+        """Normalize text for comparison (remove punctuation, lowercase)."""
+        return re.sub(r'[^\w]', '', text.lower())
 
 
 # Singleton instance

@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ZoomIn, ZoomOut, Square } from "lucide-react";
-import type { GroundTruthAnnotation, BoundingBoxData } from "@/lib/api";
+import type { GroundTruthAnnotation, BoundingBoxData, AnnotationSuggestion } from "@/lib/api";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
@@ -20,9 +20,12 @@ interface PdfBboxAnnotatorProps {
   documentId: string;
   pdfUrl: string;
   annotations: GroundTruthAnnotation[];
+  suggestions?: AnnotationSuggestion[];
   selectedField: string | null;
   onAnnotationCreate: (fieldName: string, value: string, annotationData: BoundingBoxData) => void;
   onAnnotationDelete: (annotationId: string) => void;
+  onSuggestionApprove?: (suggestion: AnnotationSuggestion) => void;
+  onSuggestionReject?: (suggestionId: string) => void;
 }
 
 interface DrawingBox {
@@ -48,9 +51,12 @@ export function PdfBboxAnnotator({
   documentId,
   pdfUrl,
   annotations,
+  suggestions = [],
   selectedField,
   onAnnotationCreate,
   onAnnotationDelete,
+  onSuggestionApprove,
+  onSuggestionReject,
 }: PdfBboxAnnotatorProps) {
   const [numPages, setNumPages] = useState<number>(0);
   const [scale, setScale] = useState(1.0);
@@ -201,6 +207,63 @@ export function PdfBboxAnnotator({
     });
   };
 
+  // Render AI suggestion overlays (dashed border, different styling)
+  const renderSuggestionOverlays = (pageNumber: number) => {
+    const pageSuggestions = suggestions.filter(
+      s => s.annotation_type === 'bbox' && (s.annotation_data as BoundingBoxData).page === pageNumber
+    );
+
+    return pageSuggestions.map(suggestion => {
+      const bbox = suggestion.annotation_data as BoundingBoxData;
+
+      return (
+        <div
+          key={suggestion.id}
+          className="absolute cursor-pointer hover:opacity-90 transition-opacity group"
+          style={{
+            left: `${bbox.x * scale}px`,
+            top: `${bbox.y * scale}px`,
+            width: `${bbox.width * scale}px`,
+            height: `${bbox.height * scale}px`,
+            backgroundColor: "rgba(255, 165, 0, 0.15)",
+            border: "2px dashed orange",
+          }}
+          title={`AI Suggestion: ${suggestion.field_name}: ${suggestion.value}`}
+        >
+          {/* Suggestion label */}
+          <div className="absolute -top-7 left-0 bg-orange-500 text-white text-xs px-2 py-1 rounded whitespace-nowrap flex items-center gap-1">
+            <span>AI: {suggestion.field_name}</span>
+          </div>
+          {/* Action buttons on hover */}
+          <div className="absolute -bottom-8 left-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+            {onSuggestionApprove && (
+              <button
+                className="bg-green-500 text-white text-xs px-2 py-1 rounded hover:bg-green-600"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSuggestionApprove(suggestion);
+                }}
+              >
+                Accept
+              </button>
+            )}
+            {onSuggestionReject && (
+              <button
+                className="bg-red-500 text-white text-xs px-2 py-1 rounded hover:bg-red-600"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSuggestionReject(suggestion.id);
+                }}
+              >
+                Reject
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    });
+  };
+
   return (
     <Card className="flex flex-col h-full">
       <CardHeader className="flex-shrink-0">
@@ -287,6 +350,7 @@ export function PdfBboxAnnotator({
                   className="mx-auto"
                 />
                 {renderAnnotationOverlays(index + 1)}
+                {renderSuggestionOverlays(index + 1)}
                 {renderDrawingBox(index + 1)}
               </div>
             ))}

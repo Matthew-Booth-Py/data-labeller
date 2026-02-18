@@ -6,6 +6,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     build-essential \
     poppler-utils \
+    ocrmypdf \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    unpaper \
     && rm -rf /var/lib/apt/lists/*
 
 # Install UV
