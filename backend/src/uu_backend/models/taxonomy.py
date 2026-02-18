@@ -28,6 +28,9 @@ class SchemaField(BaseModel):
     extraction_prompt: Optional[str] = Field(
         None, description="LLM prompt for extracting this field"
     )
+    order: Optional[int] = Field(
+        None, description="Display order for nested properties (lower = first)"
+    )
     properties: Optional[dict[str, "SchemaField"]] = Field(
         None, description="Nested properties for object types"
     )
@@ -200,11 +203,15 @@ class GlobalFieldUpdate(BaseModel):
 
 
 class FieldPropertySuggestion(BaseModel):
-    """Suggested property for object/array-of-object field definitions."""
+    """Suggested property for object/array-of-object field definitions. Supports nesting."""
 
     name: str = Field(..., min_length=1)
     type: FieldType
     description: Optional[str] = None
+    items_type: Optional[FieldType] = Field(None, description="For array properties, the type of array items")
+    properties: Optional[list["FieldPropertySuggestion"]] = Field(
+        None, description="Nested properties for object or array-of-object sub-properties"
+    )
 
 
 class FieldAssistantRequest(BaseModel):
@@ -215,6 +222,10 @@ class FieldAssistantRequest(BaseModel):
     existing_field_names: list[str] = Field(
         default_factory=list,
         description="Existing field names to avoid collisions",
+    )
+    screenshot_base64: Optional[str] = Field(
+        None,
+        description="Optional base64-encoded screenshot to help draft the schema",
     )
 
 

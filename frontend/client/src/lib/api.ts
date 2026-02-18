@@ -265,6 +265,7 @@ export interface SchemaField {
   description?: string;
   required?: boolean;
   extraction_prompt?: string;
+  order?: number;
   properties?: Record<string, SchemaField>;
   items?: SchemaField;
 }
@@ -278,6 +279,7 @@ export interface DocumentType {
   post_processing?: string;
   extraction_model?: string;
   ocr_engine?: string;
+  schema_version_id?: string;
   created_at: string;
   updated_at: string;
 }
@@ -329,12 +331,15 @@ export interface FieldAssistantProperty {
   name: string;
   type: FieldType;
   description?: string;
+  items_type?: FieldType | null;
+  properties?: FieldAssistantProperty[];
 }
 
 export interface FieldAssistantRequest {
   user_input: string;
   document_type_id?: string;
   existing_field_names?: string[];
+  screenshot_base64?: string;
 }
 
 export interface FieldAssistantResponse {
@@ -599,6 +604,7 @@ class ApiClient {
 
   async getIngestStatus(): Promise<{
     documents: number;
+    classified_documents?: number;
   }> {
     return this.request(`${API_PREFIX}/ingest/status`);
   }

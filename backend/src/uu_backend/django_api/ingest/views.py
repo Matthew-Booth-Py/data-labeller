@@ -123,9 +123,15 @@ class IngestStatusView(APIView):
 
     def get(self, request):
         document_repo = get_document_repository()
+        total_count = document_repo.count()
+        
+        # Also count classified documents (those actively in use)
+        from uu_backend.django_data import models as orm
+        classified_count = orm.ClassificationModel.objects.count()
 
         return Response(
             {
-                "documents": document_repo.count(),
+                "documents": total_count,
+                "classified_documents": classified_count,
             }
         )

@@ -228,7 +228,11 @@ class DjangoORMRepository:
 
     def list_document_types(self) -> list[DocumentType]:
         rows = orm.DocumentTypeModel.objects.order_by("name")
-        return [self._document_type_from_model(row) for row in rows]
+        types = [self._document_type_from_model(row) for row in rows]
+        # Debug log extraction models
+        for t in types:
+            print(f"[list_document_types] {t.name}: extraction_model={t.extraction_model}")
+        return types
 
     @transaction.atomic
     def update_document_type(self, type_id: str, data: DocumentTypeUpdate) -> Optional[DocumentType]:
@@ -288,6 +292,14 @@ class DjangoORMRepository:
         for key, value in updates.items():
             setattr(existing, key, value)
         existing.save(update_fields=list(updates.keys()))
+        
+        # Log extraction model updates for debugging
+        if "extraction_model" in updates:
+            print(f"[DocumentType Update] ID: {type_id}, extraction_model saved: {updates['extraction_model']}")
+        
+        # Verify the save by re-reading
+        refreshed = orm.DocumentTypeModel.objects.get(id=type_id)
+        print(f"[DocumentType Update] Verified extraction_model in DB: {refreshed.extraction_model}")
 
         return self._document_type_from_model(existing)
 

@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Loader2, PlayCircle } from "lucide-react";
+import { Loader2, PlayCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { api } from "@/lib/api";
 
 type ExtractedField = {
@@ -221,7 +222,7 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
         </Card>
       )}
 
-      <Card className="flex flex-col max-h-[600px]">
+      <Card className="flex flex-col max-h-[1200px]">
         <CardHeader className="flex-shrink-0">
           <CardTitle>Extracted Fields</CardTitle>
           <CardDescription>Real extraction output from backend.</CardDescription>
@@ -232,27 +233,41 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
             <div className="text-sm text-muted-foreground">No extraction results yet.</div>
           ) : null}
           {fields.length > 0 ? (
-            <div className="space-y-3 pr-2 pb-4">
+            <div className="space-y-2 pr-2 pb-4">
               {fields.map((field) => (
-                <div key={field.field_name} className="rounded-lg border p-4 space-y-2 bg-card">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-sm">{field.field_name}</span>
-                    {field.confidence && (
-                      <span className="text-xs text-muted-foreground">
-                        {Math.round(field.confidence * 100)}%
-                      </span>
-                    )}
+                <Collapsible key={field.field_name} defaultOpen={false} className="group">
+                  <div className="rounded-lg border bg-card overflow-hidden">
+                    <CollapsibleTrigger asChild>
+                      <button className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors text-left">
+                        <div className="flex items-center gap-2">
+                          <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-90" />
+                          <span className="font-medium text-sm">{field.field_name}</span>
+                          {typeof field.value === 'object' && Array.isArray(field.value) && (
+                            <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                              {field.value.length} items
+                            </span>
+                          )}
+                        </div>
+                        {field.confidence && (
+                          <span className="text-xs text-muted-foreground">
+                            {Math.round(field.confidence * 100)}%
+                          </span>
+                        )}
+                      </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="px-3 pb-3 text-sm border-t">
+                        {typeof field.value === 'object' ? (
+                          <pre className="bg-muted p-3 rounded text-xs overflow-x-auto max-h-[500px] overflow-y-auto mt-3">
+                            {JSON.stringify(field.value, null, 2)}
+                          </pre>
+                        ) : (
+                          <div className="text-foreground break-words pt-3">{String(field.value)}</div>
+                        )}
+                      </div>
+                    </CollapsibleContent>
                   </div>
-                  <div className="text-sm">
-                    {typeof field.value === 'object' ? (
-                      <pre className="bg-muted p-3 rounded text-xs overflow-x-auto max-h-[200px] overflow-y-auto">
-                        {JSON.stringify(field.value, null, 2)}
-                      </pre>
-                    ) : (
-                      <div className="text-foreground break-words">{String(field.value)}</div>
-                    )}
-                  </div>
-                </div>
+                </Collapsible>
               ))}
             </div>
           ) : null}

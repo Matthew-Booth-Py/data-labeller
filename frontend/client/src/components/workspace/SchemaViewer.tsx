@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Code, Plus, Trash2, Settings2, GripVertical, Sparkles, MessageSquare, Search, Edit3, Save, X, Loader2, ThumbsDown, FileText, Edit } from "lucide-react";
+import { Code, Plus, Trash2, Settings2, GripVertical, Sparkles, MessageSquare, Search, Edit3, Save, X, Loader2, ThumbsDown, FileText, Edit, ImagePlus, Image, ChevronDown, ChevronRight, ArrowUp, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -16,12 +16,390 @@ import {
   SchemaField,
   FieldType,
   FieldAssistantResponse,
+  FieldAssistantProperty,
   LabelSuggestion,
   LabelSuggestionResponse,
   FieldPromptVersion,
 } from "@/lib/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tag } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+
+// Recursive property type for nested objects and arrays
+interface NestedProperty {
+  name: string;
+  type: FieldType;
+  description?: string;
+  items_type?: FieldType;  // For array sub-properties
+  properties?: NestedProperty[];  // For object or array-of-object sub-properties
+}
+
+// Helper to convert NestedProperty[] to SchemaField properties format
+function nestedPropertiesToSchemaProperties(props: NestedProperty[]): Record<string, SchemaField> {
+  const result: Record<string, SchemaField> = {};
+  props.forEach((prop, index) => {
+    const field: SchemaField = {
+      name: prop.name,
+      type: prop.type,
+      description: prop.description,
+      order: index,  // Preserve order explicitly
+    };
+    if (prop.type === "object" && prop.properties && prop.properties.length > 0) {
+      field.properties = nestedPropertiesToSchemaProperties(prop.properties);
+    }
+    if (prop.type === "array" && prop.properties && prop.properties.length > 0) {
+      // Array of objects with nested properties
+      field.items = {
+        name: "item",
+        type: "object",
+        properties: nestedPropertiesToSchemaProperties(prop.properties),
+      };
+    } else if (prop.type === "array" && prop.items_type) {
+      // Array of simple types
+      field.items = {
+        name: "item",
+        type: prop.items_type,
+      };
+    }
+    result[prop.name] = field;
+  });
+  return result;
+}
+
+// Helper to convert SchemaField properties to NestedProperty[]
+function schemaPropertiesToNestedProperties(props: Record<string, SchemaField>): NestedProperty[] {
+  // Convert to array and sort by order field if present
+  const entries = Object.entries(props);
+  entries.sort(([, a], [, b]) => {
+    const orderA = a.order ?? Number.MAX_SAFE_INTEGER;
+    const orderB = b.order ?? Number.MAX_SAFE_INTEGER;
+    return orderA - orderB;
+  });
+  
+  return entries.map(([name, schema]) => {
+    const nested: NestedProperty = {
+      name,
+      type: schema.type,
+      description: schema.description,
+    };
+    
+    if (schema.type === "object" && schema.properties) {
+      nested.properties = schemaPropertiesToNestedProperties(schema.properties);
+    }
+    
+    if (schema.type === "array" && schema.items) {
+      if (schema.items.type === "object" && schema.items.properties) {
+        nested.properties = schemaPropertiesToNestedProperties(schema.items.properties);
+      } else {
+        nested.items_type = schema.items.type;
+      }
+    }
+    
+    return nested;
+  });
+}
+
+// Helper to convert AI assistant property suggestions to NestedProperty[]
+function assistantPropertiesToNestedProperties(props: FieldAssistantProperty[]): NestedProperty[] {
+  return props.map((prop) => {
+    const nested: NestedProperty = {
+      name: prop.name,
+      type: prop.type,
+      description: prop.description,
+    };
+    
+    // Handle object type with nested properties
+    if (prop.type === "object" && prop.properties && prop.properties.length > 0) {
+      nested.properties = assistantPropertiesToNestedProperties(prop.properties);
+    }
+    
+    // Handle array type
+    if (prop.type === "array") {
+      if (prop.items_type === "object" && prop.properties && prop.properties.length > 0) {
+        // Array of objects with nested properties
+        nested.properties = assistantPropertiesToNestedProperties(prop.properties);
+      } else if (prop.items_type && prop.items_type !== "object") {
+        // Array of simple types
+        nested.items_type = prop.items_type;
+      }
+    }
+    
+    return nested;
+  });
+}
+
+// Helper to generate example JSON output for nested properties
+function generateExampleOutput(props: NestedProperty[], indent: number = 0): string {
+  const pad = "  ".repeat(indent);
+  const lines: string[] = [];
+  
+  props.forEach((prop, idx) => {
+    const comma = idx < props.length - 1 ? "," : "";
+    
+    if (prop.type === "object" && prop.properties && prop.properties.length > 0) {
+      // Nested object
+      lines.push(`${pad}"${prop.name}": {`);
+      lines.push(generateExampleOutput(prop.properties, indent + 1));
+      lines.push(`${pad}}${comma}`);
+    } else if (prop.type === "array" && prop.properties && prop.properties.length > 0) {
+      // Array of objects
+      lines.push(`${pad}"${prop.name}": [`);
+      lines.push(`${pad}  {`);
+      lines.push(generateExampleOutput(prop.properties, indent + 2));
+      lines.push(`${pad}  }`);
+      lines.push(`${pad}]${comma}`);
+    } else if (prop.type === "array") {
+      // Array of simple types
+      const itemType = prop.items_type || "string";
+      const exampleVal = itemType === "number" ? "0" : itemType === "boolean" ? "true" : '"value"';
+      lines.push(`${pad}"${prop.name}": [${exampleVal}]${comma}`);
+    } else {
+      // Simple type
+      const exampleVal = prop.type === "number" ? "0" : prop.type === "boolean" ? "true" : prop.type === "date" ? '"2024-01-01"' : '"value"';
+      lines.push(`${pad}"${prop.name}": ${exampleVal}${comma}`);
+    }
+  });
+  
+  return lines.join("\n");
+}
+
+// Recursive Property Editor Component
+interface PropertyEditorProps {
+  properties: NestedProperty[];
+  onChange: (properties: NestedProperty[]) => void;
+  depth?: number;
+  maxDepth?: number;
+}
+
+function PropertyEditor({ properties, onChange, depth = 0, maxDepth = 3 }: PropertyEditorProps) {
+  const updateProperty = (idx: number, updates: Partial<NestedProperty>) => {
+    const updated = [...properties];
+    updated[idx] = { ...updated[idx], ...updates };
+    onChange(updated);
+  };
+
+  const removeProperty = (idx: number) => {
+    onChange(properties.filter((_, i) => i !== idx));
+  };
+
+  const moveProperty = (idx: number, direction: "up" | "down") => {
+    const newIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (newIdx < 0 || newIdx >= properties.length) return;
+    const updated = [...properties];
+    [updated[idx], updated[newIdx]] = [updated[newIdx], updated[idx]];
+    onChange(updated);
+  };
+
+  const addProperty = () => {
+    onChange([...properties, { name: "", type: "string" }]);
+  };
+
+  const addNestedProperty = (idx: number) => {
+    const updated = [...properties];
+    updated[idx].properties = [...(updated[idx].properties || []), { name: "", type: "string" }];
+    onChange(updated);
+  };
+
+  return (
+    <div className="space-y-2">
+      {properties.length === 0 && depth === 0 && (
+        <div className="text-xs text-muted-foreground p-3 border border-dashed rounded">
+          Add properties for each column in your table (e.g., item_name, description, cost)
+        </div>
+      )}
+      
+      {properties.map((prop, idx) => (
+        <div key={idx} className={`border rounded bg-background ${depth > 0 ? 'ml-4 border-l-2 border-l-primary/30' : ''}`}>
+          <div className="flex gap-2 items-start p-3">
+            <div className="flex-1 space-y-2">
+              <Input
+                placeholder={`Property name${depth > 0 ? ' (nested)' : ''}`}
+                value={prop.name}
+                onChange={(e) => updateProperty(idx, { name: e.target.value })}
+                className="h-8 text-sm"
+              />
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="w-[140px]">
+                  <Select 
+                    value={prop.type} 
+                    onValueChange={(v) => {
+                      const newType = v as FieldType;
+                      updateProperty(idx, { 
+                        type: newType,
+                        properties: (newType === "object" || newType === "array") ? (prop.properties || []) : undefined,
+                        items_type: newType === "array" ? (prop.items_type || "string") : undefined,
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-sm w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="string">String</SelectItem>
+                      <SelectItem value="number">Number</SelectItem>
+                      <SelectItem value="date">Date</SelectItem>
+                      <SelectItem value="boolean">Boolean</SelectItem>
+                      {depth < maxDepth && (
+                        <>
+                          <SelectItem value="object">Object</SelectItem>
+                          <SelectItem value="array">Array</SelectItem>
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1 min-w-[180px]">
+                  <Input
+                    placeholder="Description (optional)"
+                    value={prop.description || ""}
+                    onChange={(e) => updateProperty(idx, { description: e.target.value })}
+                    className="h-8 text-sm w-full text-foreground caret-primary"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col gap-0.5 flex-shrink-0">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                onClick={() => moveProperty(idx, "up")}
+                disabled={idx === 0}
+                title="Move up"
+              >
+                <ArrowUp className="h-3 w-3" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                onClick={() => moveProperty(idx, "down")}
+                disabled={idx === properties.length - 1}
+                title="Move down"
+              >
+                <ArrowDown className="h-3 w-3" />
+              </Button>
+            </div>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 text-destructive flex-shrink-0"
+              onClick={() => removeProperty(idx)}
+              title="Remove property"
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
+          
+          {/* Nested object properties */}
+          {prop.type === "object" && depth < maxDepth && (
+            <Collapsible defaultOpen={true}>
+              <div className="px-3 pb-2">
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm" className="gap-1 h-6 text-xs text-muted-foreground hover:text-foreground">
+                    <ChevronDown className="h-3 w-3 collapsible-chevron" />
+                    Nested Properties ({prop.properties?.length || 0})
+                  </Button>
+                </CollapsibleTrigger>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1 h-6 text-xs ml-2"
+                  onClick={() => addNestedProperty(idx)}
+                >
+                  <Plus className="h-3 w-3" /> Add
+                </Button>
+              </div>
+              <CollapsibleContent>
+                <div className="px-3 pb-3">
+                  <PropertyEditor
+                    properties={prop.properties || []}
+                    onChange={(nested) => updateProperty(idx, { properties: nested })}
+                    depth={depth + 1}
+                    maxDepth={maxDepth}
+                  />
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+          
+          {/* Array sub-property configuration */}
+          {prop.type === "array" && depth < maxDepth && (
+            <div className="px-3 pb-3 space-y-2 border-t mt-2 pt-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Array items:</span>
+                <Select
+                  value={prop.properties && prop.properties.length > 0 ? "object" : (prop.items_type || "string")}
+                  onValueChange={(v) => {
+                    if (v === "object") {
+                      updateProperty(idx, { items_type: undefined, properties: prop.properties || [] });
+                    } else {
+                      updateProperty(idx, { items_type: v as FieldType, properties: undefined });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-7 text-xs w-[120px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="string">String</SelectItem>
+                    <SelectItem value="number">Number</SelectItem>
+                    <SelectItem value="date">Date</SelectItem>
+                    <SelectItem value="boolean">Boolean</SelectItem>
+                    <SelectItem value="object">Object</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {/* Nested properties for array of objects */}
+              {(prop.properties && prop.properties.length > 0) || (!prop.items_type || prop.items_type === "object" as FieldType) ? (
+                <Collapsible defaultOpen={true}>
+                  <div className="flex items-center gap-2">
+                    <CollapsibleTrigger asChild>
+                      <Button variant="ghost" size="sm" className="gap-1 h-6 text-xs text-muted-foreground hover:text-foreground">
+                        <ChevronDown className="h-3 w-3 collapsible-chevron" />
+                        Item Properties ({prop.properties?.length || 0})
+                      </Button>
+                    </CollapsibleTrigger>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1 h-6 text-xs"
+                      onClick={() => addNestedProperty(idx)}
+                    >
+                      <Plus className="h-3 w-3" /> Add
+                    </Button>
+                  </div>
+                  <CollapsibleContent>
+                    <div className="pt-2">
+                      <PropertyEditor
+                        properties={prop.properties || []}
+                        onChange={(nested) => updateProperty(idx, { properties: nested, items_type: undefined })}
+                        depth={depth + 1}
+                        maxDepth={maxDepth}
+                      />
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              ) : null}
+            </div>
+          )}
+        </div>
+      ))}
+      
+      {depth === 0 && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={addProperty}
+          className="mt-2"
+        >
+          <Plus className="h-3 w-3 mr-1" /> Add Property
+        </Button>
+      )}
+    </div>
+  );
+}
 
 interface SchemaViewerProps {
   projectId?: string;
@@ -47,7 +425,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   const [fieldPromptVersionDescription, setFieldPromptVersionDescription] = useState("");
   const [selectedFieldPromptVersionId, setSelectedFieldPromptVersionId] = useState<string | null>(null);
   const [editingFieldProperties, setEditingFieldProperties] = useState<string | null>(null);
-  const [editedProperties, setEditedProperties] = useState<Array<{name: string, type: FieldType, description?: string}>>([]);
+  const [editedProperties, setEditedProperties] = useState<NestedProperty[]>([]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [postProcessing, setPostProcessing] = useState("");
   const [extractionModel, setExtractionModel] = useState("gpt-5-mini");
@@ -60,8 +438,9 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   const [newFieldDescription, setNewFieldDescription] = useState("");
   const [newFieldPrompt, setNewFieldPrompt] = useState("");
   const [newFieldArrayItemType, setNewFieldArrayItemType] = useState<FieldType>("string");
-  const [newFieldObjectProperties, setNewFieldObjectProperties] = useState<Array<{name: string, type: FieldType, description?: string}>>([]);
+  const [newFieldObjectProperties, setNewFieldObjectProperties] = useState<NestedProperty[]>([]);
   const [aiFieldInput, setAiFieldInput] = useState("");
+  const [aiScreenshot, setAiScreenshot] = useState<string | null>(null);
   
   // State for label suggestions
   const [labelSuggestions, setLabelSuggestions] = useState<LabelSuggestion[]>([]);
@@ -132,12 +511,28 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     }
   };
 
+  // Track the schema version we last synced from to detect server updates
+  const [lastSyncedSchemaVersionId, setLastSyncedSchemaVersionId] = useState<string | null>(null);
+
   useEffect(() => {
     const availableTypes = typesData?.types || [];
     if (availableTypes.length === 0) return;
 
     const availableIds = new Set(availableTypes.map((type) => type.id));
-    if (selectedTypeId && availableIds.has(selectedTypeId)) return;
+    
+    // If we already have a selected type that exists, check if we need to resync due to server update
+    if (selectedTypeId && availableIds.has(selectedTypeId)) {
+      const currentType = availableTypes.find((t) => t.id === selectedTypeId);
+      // Resync if the schema version changed (meaning server data updated)
+      if (currentType && currentType.schema_version_id !== lastSyncedSchemaVersionId) {
+        setSystemPrompt(currentType.system_prompt || "");
+        setPostProcessing(currentType.post_processing || "");
+        setExtractionModel(currentType.extraction_model || "gpt-5-mini");
+        setOcrEngine(currentType.ocr_engine || "azure-di-prebuilt");
+        setLastSyncedSchemaVersionId(currentType.schema_version_id || null);
+      }
+      return;
+    }
 
     let storedTypeId: string | null = null;
     try {
@@ -157,7 +552,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     setPostProcessing(nextType?.post_processing || "");
     setExtractionModel(nextType?.extraction_model || "gpt-5-mini");
     setOcrEngine(nextType?.ocr_engine || "azure-di-prebuilt");
-  }, [typesData, selectedTypeId, selectedTypeStorageKey]);
+    setLastSyncedSchemaVersionId(nextType?.schema_version_id || null);
+  }, [typesData, selectedTypeId, selectedTypeStorageKey, lastSyncedSchemaVersionId]);
   
   // Update local state when selected type changes
   const selectType = (typeId: string) => {
@@ -168,6 +564,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       setPostProcessing(type.post_processing || "");
       setExtractionModel(type.extraction_model || "gpt-5-mini");
       setOcrEngine(type.ocr_engine || "azure-di-prebuilt");
+      setLastSyncedSchemaVersionId(type.schema_version_id || null);
     }
   };
   
@@ -182,6 +579,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       setPostProcessing(result.type.post_processing || "");
       setExtractionModel(result.type.extraction_model || "gpt-5-mini");
       setOcrEngine(result.type.ocr_engine || "azure-di-prebuilt");
+      setLastSyncedSchemaVersionId(result.type.schema_version_id || null);
       setIsCreating(false);
       setNewTypeName("");
       setNewTypeDescription("");
@@ -196,9 +594,17 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   const updateTypeMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<DocumentType> }) =>
       api.updateDocumentType(id, data),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["document-types"] });
       queryClient.invalidateQueries({ queryKey: ["labels"] });
+      // Sync local state with server response to ensure consistency
+      if (result.type && result.type.id === selectedTypeId) {
+        setSystemPrompt(result.type.system_prompt || "");
+        setPostProcessing(result.type.post_processing || "");
+        setExtractionModel(result.type.extraction_model || "gpt-5-mini");
+        setOcrEngine(result.type.ocr_engine || "azure-di-prebuilt");
+        setLastSyncedSchemaVersionId(result.type.schema_version_id || null);
+      }
       toast({ title: "Schema saved" });
     },
     onError: (error: Error) => {
@@ -284,6 +690,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
         user_input: aiFieldInput.trim(),
         document_type_id: selectedTypeId,
         existing_field_names: (selectedType.schema_fields || []).map((field) => field.name),
+        screenshot_base64: aiScreenshot || undefined,
       });
     },
     onSuccess: (suggestion: FieldAssistantResponse) => {
@@ -294,24 +701,18 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       if (suggestion.type === "array") {
         setNewFieldArrayItemType((suggestion.items_type || "string") as FieldType);
         if ((suggestion.items_type || "").toString() === "object") {
+          // Convert AI properties to NestedProperty format (supports nested structures)
           setNewFieldObjectProperties(
-            (suggestion.object_properties || []).map((property) => ({
-              name: property.name,
-              type: property.type,
-              description: property.description,
-            }))
+            assistantPropertiesToNestedProperties(suggestion.object_properties || [])
           );
         } else {
           setNewFieldObjectProperties([]);
         }
       } else if (suggestion.type === "object") {
         setNewFieldArrayItemType("string");
+        // Convert AI properties to NestedProperty format (supports nested structures)
         setNewFieldObjectProperties(
-          (suggestion.object_properties || []).map((property) => ({
-            name: property.name,
-            type: property.type,
-            description: property.description,
-          }))
+          assistantPropertiesToNestedProperties(suggestion.object_properties || [])
         );
       } else {
         setNewFieldArrayItemType("string");
@@ -349,35 +750,19 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       extraction_prompt: newFieldPrompt.trim() || undefined,
     };
 
-    // Handle object type with properties
+    // Handle object type with properties (supports nested objects)
     if (newFieldType === "object" && newFieldObjectProperties.length > 0) {
-      const properties: Record<string, SchemaField> = {};
-      newFieldObjectProperties.forEach(prop => {
-        properties[prop.name] = {
-          name: prop.name,
-          type: prop.type,
-          description: prop.description,
-        };
-      });
-      newField.properties = properties;
+      newField.properties = nestedPropertiesToSchemaProperties(newFieldObjectProperties);
     }
     
     // Handle array type with items
     if (newFieldType === "array") {
       if (newFieldArrayItemType === "object" && newFieldObjectProperties.length > 0) {
-        // Array of objects
-        const properties: Record<string, SchemaField> = {};
-        newFieldObjectProperties.forEach(prop => {
-          properties[prop.name] = {
-            name: prop.name,
-            type: prop.type,
-            description: prop.description,
-          };
-        });
+        // Array of objects (supports nested objects)
         newField.items = {
           name: "item",
           type: "object",
-          properties: properties,
+          properties: nestedPropertiesToSchemaProperties(newFieldObjectProperties),
         };
       } else {
         // Array of simple types
@@ -403,6 +788,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     setNewFieldArrayItemType("string");
     setNewFieldObjectProperties([]);
     setAiFieldInput("");
+    setAiScreenshot(null);
   };
   
   // Remove field from schema
@@ -502,40 +888,24 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     },
   });
 
-  // Update field properties (for array of objects)
-  const updateFieldProperties = (fieldName: string, properties: Array<{name: string, type: FieldType, description?: string}>) => {
+  // Update field properties (for array of objects or object types, supports nested objects)
+  const updateFieldProperties = (fieldName: string, properties: NestedProperty[]) => {
     if (!selectedTypeId || !selectedType) return;
     
     const updatedFields = selectedType.schema_fields.map(f => {
       if (f.name === fieldName && f.type === "array" && f.items?.type === "object") {
-        const propertiesObj: Record<string, SchemaField> = {};
-        properties.forEach(prop => {
-          propertiesObj[prop.name] = {
-            name: prop.name,
-            type: prop.type,
-            description: prop.description,
-          };
-        });
         return {
           ...f,
           items: {
             ...f.items,
-            properties: propertiesObj,
+            properties: nestedPropertiesToSchemaProperties(properties),
           },
         };
       }
       if (f.name === fieldName && f.type === "object") {
-        const propertiesObj: Record<string, SchemaField> = {};
-        properties.forEach(prop => {
-          propertiesObj[prop.name] = {
-            name: prop.name,
-            type: prop.type,
-            description: prop.description,
-          };
-        });
         return {
           ...f,
-          properties: propertiesObj,
+          properties: nestedPropertiesToSchemaProperties(properties),
         };
       }
       return f;
@@ -614,7 +984,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
           </CardHeader>
           <CardContent className="px-0 space-y-4">
             {/* Document Type Selector */}
-            <div className="space-y-2 p-4 rounded-lg bg-muted/20 border">
+            <div className="space-y-3 p-4 rounded-lg bg-muted/20 border">
               <label className="text-xs font-bold uppercase tracking-wider text-primary">
                 Document Type
               </label>
@@ -665,8 +1035,20 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                   </>
                 )}
               </div>
-              {selectedType?.description && (
-                <p className="text-xs text-muted-foreground">{selectedType.description}</p>
+              {selectedType && (
+                <div className="pt-2 border-t border-border/50">
+                  <div className="flex items-start gap-2">
+                    <FileText className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Description</p>
+                      {selectedType.description ? (
+                        <p className="text-sm text-foreground">{selectedType.description}</p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground/60 italic">No description provided. Click edit to add one.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
             
@@ -841,11 +1223,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                         onClick={() => {
                           const sourceProps =
                             field.type === "object" ? field.properties! : field.items!.properties!;
-                          const props = Object.entries(sourceProps).map(([name, schema]) => ({
-                            name,
-                            type: schema.type as FieldType,
-                            description: schema.description,
-                          }));
+                          const props = schemaPropertiesToNestedProperties(sourceProps);
                           setEditedProperties(props);
                           setEditingFieldProperties(field.name);
                         }}
@@ -853,22 +1231,30 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                         <Edit3 className="h-3 w-3" />
                       </Button>
                     </div>
-                    {Object.entries(field.type === "object" ? field.properties! : field.items!.properties!).map(([propName, propSchema]) => (
-                      <div key={propName} className="flex items-center gap-2 pl-2">
-                        <span className="font-mono text-[10px]">{propName}</span>
-                        <Badge variant="outline" className="text-[9px] h-3 px-1 font-mono">{propSchema.type}</Badge>
-                        {propSchema.description && (
-                          <span className="text-[10px] text-muted-foreground">- {propSchema.description}</span>
-                        )}
-                      </div>
-                    ))}
+                    {(() => {
+                      const sourceProps = field.type === "object" ? field.properties! : field.items!.properties!;
+                      const sortedEntries = Object.entries(sourceProps).sort(([, a], [, b]) => {
+                        const orderA = a.order ?? Number.MAX_SAFE_INTEGER;
+                        const orderB = b.order ?? Number.MAX_SAFE_INTEGER;
+                        return orderA - orderB;
+                      });
+                      return sortedEntries.map(([propName, propSchema]) => (
+                        <div key={propName} className="flex items-center gap-2 pl-2">
+                          <span className="font-mono text-[10px]">{propName}</span>
+                          <Badge variant="outline" className="text-[9px] h-3 px-1 font-mono">{propSchema.type}</Badge>
+                          {propSchema.description && (
+                            <span className="text-[10px] text-muted-foreground">- {propSchema.description}</span>
+                          )}
+                        </div>
+                      ));
+                    })()}
                   </div>
                 ) : null}
                 
                 <div className="relative">
                   <label className="absolute -top-2 left-2 bg-background px-1 text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Extraction Prompt</label>
                   <Textarea 
-                    className="min-h-[60px] text-xs resize-none border-muted focus-visible:ring-accent bg-transparent"
+                    className="min-h-[120px] text-xs resize-none border-muted focus-visible:ring-accent bg-transparent"
                     value={
                       activeFieldPrompts[field.name] ||
                       field.extraction_prompt ||
@@ -1012,8 +1398,89 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 placeholder="Describe the field you want (e.g., 'capture all claim line items with area, damage, and estimated cost')."
                 value={aiFieldInput}
                 onChange={(e) => setAiFieldInput(e.target.value)}
+                onPaste={(e) => {
+                  const items = e.clipboardData?.items;
+                  if (!items) return;
+                  for (const item of items) {
+                    if (item.type.startsWith("image/")) {
+                      e.preventDefault();
+                      const file = item.getAsFile();
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const base64 = (reader.result as string).split(",")[1];
+                          setAiScreenshot(base64);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                      break;
+                    }
+                  }
+                }}
                 className="min-h-[80px]"
               />
+              
+              {/* Screenshot upload/preview */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  accept="image/*"
+                  id="screenshot-upload"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        const base64 = (reader.result as string).split(",")[1];
+                        setAiScreenshot(base64);
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                    e.target.value = "";
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => document.getElementById("screenshot-upload")?.click()}
+                  className="gap-2"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                  {aiScreenshot ? "Replace Screenshot" : "Add Screenshot"}
+                </Button>
+                {aiScreenshot && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setAiScreenshot(null)}
+                    className="gap-2 text-destructive hover:text-destructive"
+                  >
+                    <X className="h-4 w-4" />
+                    Remove
+                  </Button>
+                )}
+                <span className="text-xs text-muted-foreground">
+                  Or paste a screenshot (Ctrl+V)
+                </span>
+              </div>
+              
+              {aiScreenshot && (
+                <div className="relative border rounded-lg overflow-hidden bg-background">
+                  <img
+                    src={`data:image/png;base64,${aiScreenshot}`}
+                    alt="Screenshot preview"
+                    className="max-h-[200px] w-auto mx-auto"
+                  />
+                  <div className="absolute top-2 left-2 flex items-center gap-1 bg-background/80 rounded px-2 py-1">
+                    <Image className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">Screenshot attached</span>
+                  </div>
+                </div>
+              )}
+              
               <Button
                 type="button"
                 variant="outline"
@@ -1080,86 +1547,18 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                   </div>
                 )}
                 
-                {/* Object Properties for object and array<object> */}
+                {/* Object Properties for object and array<object> - supports nested objects */}
                 {(newFieldType === "object" || (newFieldType === "array" && newFieldArrayItemType === "object")) && (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium">Object Properties</label>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setNewFieldObjectProperties([...newFieldObjectProperties, { name: "", type: "string" }])}
-                      >
-                        <Plus className="h-3 w-3 mr-1" /> Add Property
-                      </Button>
-                    </div>
-                    
-                    {newFieldObjectProperties.length === 0 && (
-                      <div className="text-xs text-muted-foreground p-3 border border-dashed rounded">
-                        Add properties for each column in your table (e.g., item_name, description, cost)
-                      </div>
-                    )}
-                    
-                    {newFieldObjectProperties.map((prop, idx) => (
-                      <div key={idx} className="flex gap-2 items-start p-3 border rounded bg-background">
-                        <div className="flex-1 space-y-2">
-                          <Input
-                            placeholder="Property name (e.g., item_name)"
-                            value={prop.name}
-                            onChange={(e) => {
-                              const updated = [...newFieldObjectProperties];
-                              updated[idx].name = e.target.value;
-                              setNewFieldObjectProperties(updated);
-                            }}
-                            className="h-8 text-sm"
-                          />
-                          <div className="flex items-center gap-2">
-                            <div className="w-[140px]">
-                              <Select 
-                                value={prop.type} 
-                                onValueChange={(v) => {
-                                  const updated = [...newFieldObjectProperties];
-                                  updated[idx].type = v as FieldType;
-                                  setNewFieldObjectProperties(updated);
-                                }}
-                              >
-                                <SelectTrigger className="h-8 text-sm w-full">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="string">String</SelectItem>
-                                  <SelectItem value="number">Number</SelectItem>
-                                  <SelectItem value="date">Date</SelectItem>
-                                  <SelectItem value="boolean">Boolean</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <Input
-                                placeholder="Description (optional)"
-                                value={prop.description || ""}
-                                onChange={(e) => {
-                                  const updated = [...newFieldObjectProperties];
-                                  updated[idx].description = e.target.value;
-                                  setNewFieldObjectProperties(updated);
-                                }}
-                                className="h-8 text-sm w-full min-w-[180px] text-foreground caret-primary"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-destructive"
-                          onClick={() => {
-                            setNewFieldObjectProperties(newFieldObjectProperties.filter((_, i) => i !== idx));
-                          }}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ))}
+                    <label className="text-sm font-medium">Object Properties</label>
+                    <p className="text-xs text-muted-foreground">
+                      Properties can be nested up to 3 levels deep. Select "Object" as a type to add nested properties.
+                    </p>
+                    <PropertyEditor
+                      properties={newFieldObjectProperties}
+                      onChange={setNewFieldObjectProperties}
+                      maxDepth={3}
+                    />
                   </div>
                 )}
               </div>
@@ -1190,12 +1589,12 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 <pre className="text-[10px] overflow-x-auto">
 {newFieldType === "object" ? `{
   "${newFieldName || 'field_name'}": {
-${newFieldObjectProperties.map(p => `    "${p.name || 'property'}": ${p.type === 'number' ? '0' : p.type === 'boolean' ? 'true' : '"value"'}`).join(',\n')}
+${generateExampleOutput(newFieldObjectProperties, 2)}
   }
 }` : `{
   "${newFieldName || 'field_name'}": [
     {
-${newFieldObjectProperties.map(p => `      "${p.name || 'property'}": ${p.type === 'number' ? '0' : p.type === 'boolean' ? 'true' : '"value"'}`).join(',\n')}
+${generateExampleOutput(newFieldObjectProperties, 3)}
     }
   ]
 }`}
@@ -1210,6 +1609,7 @@ ${newFieldObjectProperties.map(p => `      "${p.name || 'property'}": ${p.type =
               setNewFieldArrayItemType("string");
               setNewFieldPrompt("");
               setAiFieldInput("");
+              setAiScreenshot(null);
             }}>Cancel</Button>
             <Button 
               onClick={addField}
@@ -1361,83 +1761,18 @@ ${newFieldObjectProperties.map(p => `      "${p.name || 'property'}": ${p.type =
             <DialogTitle>Edit Object Properties</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="flex items-center justify-between">
+            <div>
               <label className="text-sm font-medium">Properties for {editingFieldProperties}</label>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setEditedProperties([...editedProperties, { name: "", type: "string" }])}
-              >
-                <Plus className="h-3 w-3 mr-1" /> Add Property
-              </Button>
+              <p className="text-xs text-muted-foreground mt-1">
+                Properties can be nested up to 3 levels deep. Select "Object" as a type to add nested properties.
+              </p>
             </div>
             
-            {editedProperties.length === 0 && (
-              <div className="text-xs text-muted-foreground p-3 border border-dashed rounded">
-                Add properties for each column in your table (e.g., item_name, description, cost)
-              </div>
-            )}
-            
-            {editedProperties.map((prop, idx) => (
-              <div key={idx} className="flex gap-2 items-start p-3 border rounded bg-background">
-                <div className="flex-1 space-y-2">
-                  <Input
-                    placeholder="Property name (e.g., item_name)"
-                    value={prop.name}
-                    onChange={(e) => {
-                      const updated = [...editedProperties];
-                      updated[idx].name = e.target.value;
-                      setEditedProperties(updated);
-                    }}
-                    className="h-8 text-sm"
-                  />
-                  <div className="flex items-center gap-2">
-                    <div className="w-[140px]">
-                      <Select 
-                        value={prop.type} 
-                        onValueChange={(v) => {
-                          const updated = [...editedProperties];
-                          updated[idx].type = v as FieldType;
-                          setEditedProperties(updated);
-                        }}
-                      >
-                        <SelectTrigger className="h-8 text-sm w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="string">String</SelectItem>
-                          <SelectItem value="number">Number</SelectItem>
-                          <SelectItem value="date">Date</SelectItem>
-                          <SelectItem value="boolean">Boolean</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <Input
-                        placeholder="Description (optional)"
-                        value={prop.description || ""}
-                        onChange={(e) => {
-                          const updated = [...editedProperties];
-                          updated[idx].description = e.target.value;
-                          setEditedProperties(updated);
-                        }}
-                        className="h-8 text-sm w-full min-w-[180px] text-foreground caret-primary"
-                      />
-                    </div>
-                  </div>
-                </div>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-8 w-8 text-destructive"
-                  onClick={() => {
-                    setEditedProperties(editedProperties.filter((_, i) => i !== idx));
-                  }}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              </div>
-            ))}
+            <PropertyEditor
+              properties={editedProperties}
+              onChange={setEditedProperties}
+              maxDepth={3}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => {

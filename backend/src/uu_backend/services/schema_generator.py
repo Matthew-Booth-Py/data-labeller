@@ -60,7 +60,12 @@ def _field_type_to_python_type(field: SchemaField) -> Any:
         if field.properties:
             # Create nested Pydantic model for object
             nested_fields = {}
-            for prop_name, prop_schema in field.properties.items():
+            # Sort properties by order field to preserve user-defined order
+            sorted_props = sorted(
+                field.properties.items(),
+                key=lambda x: x[1].order if x[1].order is not None else float('inf')
+            )
+            for prop_name, prop_schema in sorted_props:
                 prop_type = _field_type_to_python_type(prop_schema)
                 prop_field = Field(
                     description=prop_schema.description,

@@ -32,6 +32,7 @@ export default function Dashboard() {
   });
 
   const totalDocs = ingestStatus?.documents || 0;
+  const classifiedDocs = ingestStatus?.classified_documents || 0;
   
   // Get projects from localStorage
   const projects = (() => {
@@ -81,11 +82,14 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <Card className="bg-background border-muted-foreground/10">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Total Documents</CardTitle>
+              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Classified Documents</CardTitle>
               <FileText className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{totalDocs.toLocaleString()}</div>
+              <div className="text-2xl font-bold">{classifiedDocs.toLocaleString()}</div>
+              {totalDocs > classifiedDocs && (
+                <p className="text-xs text-muted-foreground mt-1">{totalDocs} total in system</p>
+              )}
             </CardContent>
           </Card>
           <Card className="bg-background border-muted-foreground/10">

@@ -174,8 +174,11 @@ Extract all fields according to the schema. Return null for fields that cannot b
         print(f"File Type: {file_type}")
         print(f"Using Vision API: {use_vision}")
         print(f"Type: {doc_type.name}")
+        print(f"Model: {model_name}")
         print(f"Fields: {[f.name for f in effective_schema_fields]}")
         print(f"{'='*60}\n")
+        
+        logger.info(f"Extraction started - Document: {document.filename}, Model: {model_name}, Vision: {use_vision}")
 
         try:
             response = self.client.beta.chat.completions.parse(
@@ -281,8 +284,12 @@ Document Content:
 
 Extract all fields according to the schema. Return null for fields that cannot be found."""
 
+        effective_model = model or self.model
+        logger.info(f"Snapshot extraction - Filename: {filename}, Model: {effective_model}, Type: {document_type_name}")
+        print(f"[Extraction] Model: {effective_model} | File: {filename} | Type: {document_type_name}")
+
         response = self.client.beta.chat.completions.parse(
-            model=model or self.model,
+            model=effective_model,
             messages=[
                 {"role": "system", "content": effective_system_prompt},
                 {"role": "user", "content": user_prompt},

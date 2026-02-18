@@ -148,16 +148,20 @@ class TaxonomyPrefixView(APIView):
             system_prompt = (
                 "You are a document extraction schema assistant.\n"
                 "Generate one field suggestion from user intent.\n"
+                "If a screenshot is provided, use it to understand the document structure and suggest appropriate fields.\n"
                 "Rules:\n"
                 "1) Output valid JSON only.\n"
                 "2) Field name must be snake_case and not collide with existing_field_names.\n"
                 "3) Type must be one of: string, number, date, boolean, object, array.\n"
                 "4) extraction_prompt must enforce RAW extraction (no interpretation).\n"
-                "5) If type=array and array of objects is appropriate, set items_type=object and include object_properties.\n"
-                "6) For non-array fields set items_type=null and object_properties=[].\n"
-                "7) Keep output concise and practical for production extraction.\n"
+                "5) For TABLES with multiple rows, ALWAYS use type=array with items_type=object.\n"
+                "6) If type=array and array of objects is appropriate, set items_type=object and include object_properties.\n"
+                "7) For non-array fields set items_type=null and object_properties=[].\n"
+                "8) object_properties can have nested objects: use type=object with nested 'properties' array.\n"
+                "9) For repeated sub-items within a row (like multiple limits per coverage), use type=array with nested items.\n"
+                "10) Keep output concise and practical for production extraction.\n"
             )
-            user_prompt = (
+            user_prompt_text = (
                 f"Document type: {doc_type.name if doc_type else 'N/A'}\n"
                 f"Document type description: {doc_type.description if doc_type else 'N/A'}\n"
                 f"Existing field names: {existing_names}\n"
@@ -169,17 +173,59 @@ class TaxonomyPrefixView(APIView):
                 '  "description": "short description",\n'
                 '  "extraction_prompt": "field extraction prompt",\n'
                 '  "items_type": "string|number|date|boolean|object|null",\n'
-                '  "object_properties": [{"name":"...","type":"string|number|date|boolean","description":"..."}]\n'
+                '  "object_properties": [\n'
+                '    {\n'
+                '      "name": "property_name",\n'
+                '      "type": "string|number|date|boolean|object|array",\n'
+                '      "description": "...",\n'
+                '      "items_type": "string|number|date|boolean|object|null (only if type=array)",\n'
+                '      "properties": [...nested properties if type=object or items_type=object...]\n'
+                '    }\n'
+                '  ]\n'
+                "}\n"
+                "\nExample for a coverage table with multiple limits per row:\n"
+                "{\n"
+                '  "name": "coverages",\n'
+                '  "type": "array",\n'
+                '  "items_type": "object",\n'
+                '  "object_properties": [\n'
+                '    {"name": "coverage_type", "type": "string"},\n'
+                '    {"name": "policy_number", "type": "string"},\n'
+                '    {"name": "effective_date", "type": "date"},\n'
+                '    {"name": "expiration_date", "type": "date"},\n'
+                '    {"name": "limits", "type": "array", "items_type": "object", "properties": [\n'
+                '      {"name": "description", "type": "string"},\n'
+                '      {"name": "amount", "type": "string"}\n'
+                '    ]}\n'
+                '  ]\n'
                 "}\n"
             )
 
-            model = settings.openai_tagging_model or settings.openai_model
+            # Build user message content - with or without image
+            if parsed.screenshot_base64:
+                # Multimodal message with image
+                user_content = [
+                    {"type": "text", "text": user_prompt_text},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{parsed.screenshot_base64}",
+                            "detail": "high",
+                        },
+                    },
+                ]
+            else:
+                user_content = user_prompt_text
+
+            # Use document type's extraction model if available, otherwise fall back to global settings
+            model = (doc_type.extraction_model if doc_type and doc_type.extraction_model else None) or settings.openai_tagging_model or settings.openai_model
+            print(f"[Field Assistant] Model: {model} | DocType: {doc_type.name if doc_type else 'N/A'} | Input: {parsed.user_input[:50]}...")
             try:
                 response = OpenAI(api_key=settings.openai_api_key).chat.completions.create(
                     model=model,
                     messages=[
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
+                        {"role": "user", "content": user_content},
                     ],
                     response_format={"type": "json_object"},
                     **reasoning_options_for_model(model),
@@ -212,19 +258,38 @@ class TaxonomyPrefixView(APIView):
                 if items_raw is not None and str(items_raw).lower() != "null":
                     items_type = FieldType(str(items_raw).strip().lower())
 
-                object_properties = []
-                for prop in payload.get("object_properties", []) or []:
-                    prop_name = str(prop.get("name", "")).strip().lower().replace(" ", "_")
-                    if not prop_name:
-                        continue
-                    prop_type = FieldType(str(prop.get("type", "string")).strip().lower())
-                    object_properties.append(
-                        FieldPropertySuggestion(
-                            name=prop_name,
-                            type=prop_type,
-                            description=prop.get("description") or None,
+                def parse_properties(props_list: list) -> list[FieldPropertySuggestion]:
+                    """Recursively parse nested properties from AI response."""
+                    result = []
+                    for prop in props_list or []:
+                        prop_name = str(prop.get("name", "")).strip().lower().replace(" ", "_")
+                        if not prop_name:
+                            continue
+                        prop_type = FieldType(str(prop.get("type", "string")).strip().lower())
+                        
+                        # Parse items_type for array sub-properties
+                        prop_items_raw = prop.get("items_type")
+                        prop_items_type = None
+                        if prop_items_raw is not None and str(prop_items_raw).lower() != "null":
+                            prop_items_type = FieldType(str(prop_items_raw).strip().lower())
+                        
+                        # Recursively parse nested properties
+                        nested_props = None
+                        if prop.get("properties"):
+                            nested_props = parse_properties(prop.get("properties", []))
+                        
+                        result.append(
+                            FieldPropertySuggestion(
+                                name=prop_name,
+                                type=prop_type,
+                                description=prop.get("description") or None,
+                                items_type=prop_items_type,
+                                properties=nested_props if nested_props else None,
+                            )
                         )
-                    )
+                    return result
+
+                object_properties = parse_properties(payload.get("object_properties", []))
 
                 suggestion = FieldAssistantResponse(
                     name=name,
