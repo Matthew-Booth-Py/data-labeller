@@ -42,6 +42,10 @@ class Settings(BaseModel):
     openai_tagging_model: str = "gpt-5-mini"
     openai_reasoning_effort: str = "low"
 
+    # Azure Document Intelligence Settings
+    azure_di_endpoint: str = "https://matt-test.cognitiveservices.azure.com/"
+    azure_di_key: str = ""
+
     @property
     def file_storage_path(self) -> Path:
         """Return file storage directory as Path."""
@@ -62,6 +66,8 @@ _ENV_TO_FIELD = {
     "OPENAI_MODEL": "openai_model",
     "OPENAI_TAGGING_MODEL": "openai_tagging_model",
     "OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
+    "AZURE_DI_ENDPOINT": "azure_di_endpoint",
+    "AZURE_DI_KEY": "azure_di_key",
 }
 
 

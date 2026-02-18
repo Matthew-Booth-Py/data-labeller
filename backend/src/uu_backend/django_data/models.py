@@ -12,7 +12,11 @@ class DocumentModel(models.Model):
     date_extracted = models.DateField(blank=True, null=True, db_index=True)
     created_at = models.DateTimeField(db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
-    file_path = models.CharField(max_length=512, blank=True, null=True)  # Path to original file
+    file_path = models.CharField(max_length=512, blank=True, null=True)
+    
+    # Azure DI analysis cache
+    azure_di_analysis = models.JSONField(blank=True, null=True)  # Cached Azure DI analysis results
+    azure_di_status = models.CharField(max_length=20, default="pending")  # pending, processing, completed, failed
     
     # Metadata fields
     page_count = models.IntegerField(blank=True, null=True)
@@ -205,3 +209,26 @@ class GlobalFieldModel(models.Model):
 
     class Meta:
         db_table = "global_fields"
+
+
+class GroundTruthAnnotationModel(models.Model):
+    """Ground truth annotations for data labelling."""
+    id = models.CharField(primary_key=True, max_length=64)
+    document_id = models.CharField(max_length=64, db_index=True)
+    field_name = models.CharField(max_length=255, db_index=True)
+    value = models.JSONField()  # Store any type of value
+    annotation_type = models.CharField(max_length=20)  # text_span, bbox, table_row
+    annotation_data = models.JSONField()  # Stores coordinates/spans
+    confidence = models.FloatField(default=1.0)
+    labeled_by = models.CharField(max_length=50)  # manual, ai-suggested, ai-approved
+    is_approved = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "ground_truth_annotations"
+        indexes = [
+            models.Index(fields=["document_id", "field_name"]),
+            models.Index(fields=["document_id", "created_at"]),
+            models.Index(fields=["labeled_by"]),
+        ]

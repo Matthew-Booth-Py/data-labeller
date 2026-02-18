@@ -23,6 +23,21 @@ from uu_backend.models.prompt import (
     PromptVersion,
     FieldPromptVersion,
 )
+from uu_backend.models.annotation import (
+    AnnotationType,
+    AnnotationSuggestion,
+    AnnotationSuggestionResponse,
+    ApproveAnnotationRequest,
+    BoundingBoxData,
+    GroundTruthAnnotation,
+    GroundTruthAnnotationCreate,
+    GroundTruthAnnotationListResponse,
+    GroundTruthAnnotationResponse,
+    GroundTruthAnnotationUpdate,
+    TableRowData,
+    TableRowFieldData,
+    TextSpanData,
+)
 
 __all__ = [
     "Document",
@@ -44,4 +59,18 @@ __all__ = [
     # Prompt models
     "PromptVersion",
     "FieldPromptVersion",
+    # Annotation models
+    "AnnotationType",
+    "AnnotationSuggestion",
+    "AnnotationSuggestionResponse",
+    "ApproveAnnotationRequest",
+    "BoundingBoxData",
+    "GroundTruthAnnotation",
+    "GroundTruthAnnotationCreate",
+    "GroundTruthAnnotationListResponse",
+    "GroundTruthAnnotationResponse",
+    "GroundTruthAnnotationUpdate",
+    "TableRowData",
+    "TableRowFieldData",
+    "TextSpanData",
 ]

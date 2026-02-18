@@ -384,6 +384,73 @@ export interface ExtractionResult {
   extracted_at: string;
 }
 
+// ============================================================================
+// Annotation Types
+// ============================================================================
+
+export type AnnotationType = 'text_span' | 'bbox' | 'table_row';
+
+export interface TextSpanData {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface BoundingBoxData {
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text?: string;
+}
+
+export interface TableRowFieldData {
+  name: string;
+  bbox?: BoundingBoxData;
+  text_span?: TextSpanData;
+}
+
+export interface TableRowData {
+  row_index: number;
+  fields: TableRowFieldData[];
+}
+
+export interface GroundTruthAnnotation {
+  id: string;
+  document_id: string;
+  field_name: string;
+  value: any;
+  annotation_type: AnnotationType;
+  annotation_data: TextSpanData | BoundingBoxData | TableRowData;
+  confidence: number;
+  labeled_by: string;
+  is_approved: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GroundTruthAnnotationCreate {
+  document_id: string;
+  field_name: string;
+  value: any;
+  annotation_type: AnnotationType;
+  annotation_data: any;
+  confidence?: number;
+  labeled_by?: string;
+}
+
+export interface AnnotationSuggestion {
+  id: string;
+  document_id: string;
+  field_name: string;
+  value: any;
+  annotation_type: AnnotationType;
+  annotation_data: any;
+  confidence: number;
+  text_snippet?: string;
+}
+
 export interface FieldPromptVersion {
   id: string;
   name: string;
@@ -452,6 +519,11 @@ class ApiClient {
     this.baseUrl = baseUrl;
   }
 
+  // Public getter for base URL (needed for constructing file URLs)
+  get baseURL(): string {
+    return this.baseUrl;
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
@@ -488,13 +560,21 @@ class ApiClient {
     return this.request(`${API_PREFIX}/documents/${id}`);
   }
 
-  getDocumentFileUrl(id: string, download: boolean = false): string {
+  getDocumentFileUrl(id: string, options: { download?: boolean; ocr?: boolean } = {}): string {
     const url = `${this.baseUrl}${API_PREFIX}/documents/${id}/file`;
-    return download ? `${url}?download=true` : url;
+    const params = new URLSearchParams();
+    if (options.download) params.append('download', 'true');
+    if (options.ocr) params.append('ocr', 'true');
+    const queryString = params.toString();
+    return queryString ? `${url}?${queryString}` : url;
   }
 
   async deleteDocument(id: string): Promise<{ status: string; document_id: string }> {
     return this.request(`${API_PREFIX}/documents/${id}`, { method: 'DELETE' });
+  }
+
+  async reindexDocumentAzureDI(id: string): Promise<{ status: string; document_id: string; message: string }> {
+    return this.request(`${API_PREFIX}/documents/${id}/reindex-azure-di`, { method: 'POST' });
   }
 
   // Ingestion
@@ -905,6 +985,51 @@ class ApiClient {
     }
     return response.json();
   }
+
+  // Ground Truth Annotations
+  async getGroundTruthAnnotations(documentId: string): Promise<{ annotations: GroundTruthAnnotation[]; total: number }> {
+    return this.request(`${API_PREFIX}/documents/${documentId}/ground-truth`);
+  }
+
+  async createGroundTruthAnnotation(documentId: string, data: GroundTruthAnnotationCreate): Promise<{ annotation: GroundTruthAnnotation }> {
+    return this.request(`${API_PREFIX}/documents/${documentId}/ground-truth`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateGroundTruthAnnotation(annotationId: string, data: Partial<GroundTruthAnnotationCreate>): Promise<{ annotation: GroundTruthAnnotation }> {
+    return this.request(`${API_PREFIX}/annotations/${annotationId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteGroundTruthAnnotation(documentId: string, annotationId: string): Promise<{ status: string; annotation_id: string }> {
+    return this.request(`${API_PREFIX}/annotations/${annotationId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async suggestAnnotations(documentId: string): Promise<{ suggestions: AnnotationSuggestion[]; total: number }> {
+    return this.request(`${API_PREFIX}/documents/${documentId}/suggest-annotations`, {
+      method: 'POST',
+    });
+  }
+
+  async approveAnnotation(annotationId: string, editedValue?: any): Promise<{ annotation: GroundTruthAnnotation }> {
+    return this.request(`${API_PREFIX}/annotations/${annotationId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ annotation_id: annotationId, edited_value: editedValue }),
+    });
+  }
+
+  async rejectAnnotation(annotationId: string): Promise<{ status: string; annotation_id: string }> {
+    return this.request(`${API_PREFIX}/annotations/${annotationId}/reject`, {
+      method: 'POST',
+    });
+  }
+
 }
 
 // Export singleton instance

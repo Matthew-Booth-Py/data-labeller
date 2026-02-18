@@ -26,6 +26,8 @@ class DocumentRepository:
                 "date_extracted": document.date_extracted,
                 "created_at": document.created_at or datetime.utcnow(),
                 "file_path": document.file_path,
+                "azure_di_analysis": document.azure_di_analysis if hasattr(document, 'azure_di_analysis') else None,
+                "azure_di_status": document.azure_di_status if hasattr(document, 'azure_di_status') else "pending",
                 "page_count": (
                     document.metadata.page_count if document.metadata else None
                 ),
@@ -142,6 +144,8 @@ class DocumentRepository:
             created_at=doc.created_at,
             metadata=metadata,
             file_path=doc.file_path,
+            azure_di_analysis=doc.azure_di_analysis,
+            azure_di_status=doc.azure_di_status,
         )
 
     def _model_to_summary(self, doc: DocumentModel) -> DocumentSummary:
@@ -153,6 +157,44 @@ class DocumentRepository:
             date_extracted=doc.date_extracted,
             created_at=doc.created_at,
         )
+    
+    def update_ocr_status(
+        self,
+        document_id: str,
+        ocr_status: str,
+        ocr_file_path: Optional[str] = None,
+        has_text_layer: Optional[bool] = None
+    ) -> bool:
+        """
+        Update OCR processing status for a document.
+        
+        Args:
+            document_id: The document ID
+            ocr_status: Status: pending, processing, completed, failed
+            ocr_file_path: Path to OCR'd PDF (if completed)
+            has_text_layer: Whether PDF has text layer
+            
+        Returns:
+            True if updated, False if document not found
+        """
+        try:
+            doc = DocumentModel.objects.get(id=document_id)
+            doc.ocr_status = ocr_status
+            
+            update_fields = ["ocr_status"]
+            
+            if ocr_file_path is not None:
+                doc.ocr_file_path = ocr_file_path
+                update_fields.append("ocr_file_path")
+            
+            if has_text_layer is not None:
+                doc.has_text_layer = has_text_layer
+                update_fields.append("has_text_layer")
+            
+            doc.save(update_fields=update_fields)
+            return True
+        except DocumentModel.DoesNotExist:
+            return False
 
 
 # Singleton instance

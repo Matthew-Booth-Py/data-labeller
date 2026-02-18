@@ -21,6 +21,8 @@ services:
       - DJANGO_DATABASE_URL=${DJANGO_DATABASE_URL:-postgres://uu:uu@postgres:5432/uu_django}
       - REDIS_URL=redis://redis:6379/0
       - DJANGO_SETTINGS_MODULE=uu_backend.django_project.settings.local
+      - AZURE_DI_ENDPOINT=${AZURE_DI_ENDPOINT}
+      - AZURE_DI_KEY=${AZURE_DI_KEY}
     depends_on:
       redis:
         condition: service_healthy
@@ -61,6 +63,8 @@ services:
       - DJANGO_DATABASE_URL=${DJANGO_DATABASE_URL:-postgres://uu:uu@postgres:5432/uu_django}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      - AZURE_DI_ENDPOINT=${AZURE_DI_ENDPOINT}
+      - AZURE_DI_KEY=${AZURE_DI_KEY}
     volumes:
       - file_storage:/app/data/files
       - taxonomy_data:/app/data

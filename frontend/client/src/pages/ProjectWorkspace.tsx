@@ -24,6 +24,7 @@ import { SchemaViewer } from "@/components/workspace/SchemaViewer";
 import { DeploymentView } from "@/components/workspace/DeploymentView";
 import { APIManagement } from "@/components/workspace/APIManagement";
 import { ExtractionRunner } from "@/components/workspace/ExtractionRunner";
+import { DataLabellerImproved as DataLabeller } from "@/components/workspace/DataLabellerImproved";
 
 interface Project {
   id: string;
@@ -41,9 +42,18 @@ export default function ProjectWorkspace() {
     "schema",
     "documents",
     "extraction",
+    "labeller",
     "api",
     "deployment",
   ]);
+
+  // Set the selected project in localStorage for other components to use
+  useEffect(() => {
+    if (id) {
+      localStorage.setItem("selected-project", id);
+      console.log('[ProjectWorkspace] Set selected-project to:', id);
+    }
+  }, [id]);
   
   // Get tab from URL hash or default to "documents"
   const getTabFromUrl = () => {
@@ -211,6 +221,12 @@ export default function ProjectWorkspace() {
               >
                 Extraction
               </TabsTrigger>
+              <TabsTrigger
+                value="labeller"
+                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
+              >
+                Data Labeller
+              </TabsTrigger>
               <TabsTrigger 
                 value="api" 
                 className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
@@ -235,6 +251,9 @@ export default function ProjectWorkspace() {
             </TabsContent>
             <TabsContent value="extraction" className="h-full m-0 p-6 overflow-auto">
               <ExtractionRunner projectId={id} />
+            </TabsContent>
+            <TabsContent value="labeller" className="h-full m-0 p-6 overflow-hidden">
+              <DataLabeller />
             </TabsContent>
             <TabsContent value="api" className="h-full m-0 p-6 overflow-auto">
               <APIManagement />

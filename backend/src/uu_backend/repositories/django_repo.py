@@ -924,3 +924,105 @@ class DjangoORMRepository:
         deleted, _ = orm.FieldPromptVersionModel.objects.filter(id=version_id).delete()
         return deleted > 0
 
+    # Ground Truth Annotation Methods
+    
+    def _ground_truth_annotation_from_model(self, model: orm.GroundTruthAnnotationModel):
+        """Convert Django ORM model to Pydantic model."""
+        from uu_backend.models.annotation import GroundTruthAnnotation, AnnotationType
+        
+        return GroundTruthAnnotation(
+            id=model.id,
+            document_id=model.document_id,
+            field_name=model.field_name,
+            value=model.value,
+            annotation_type=AnnotationType(model.annotation_type),
+            annotation_data=model.annotation_data,
+            confidence=model.confidence,
+            labeled_by=model.labeled_by,
+            is_approved=model.is_approved,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+        )
+    
+    def save_ground_truth_annotation(self, annotation_data: dict[str, Any]) -> str:
+        """Save a ground truth annotation."""
+        annotation_id = annotation_data.get("id") or str(uuid4())
+        
+        orm.GroundTruthAnnotationModel.objects.update_or_create(
+            id=annotation_id,
+            defaults={
+                "document_id": annotation_data["document_id"],
+                "field_name": annotation_data["field_name"],
+                "value": annotation_data["value"],
+                "annotation_type": annotation_data["annotation_type"],
+                "annotation_data": annotation_data["annotation_data"],
+                "confidence": annotation_data.get("confidence", 1.0),
+                "labeled_by": annotation_data.get("labeled_by", "manual"),
+                "is_approved": annotation_data.get("is_approved", False),
+            }
+        )
+        
+        return annotation_id
+    
+    def get_ground_truth_annotation(self, annotation_id: str):
+        """Get a single ground truth annotation by ID."""
+        model = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).first()
+        return self._ground_truth_annotation_from_model(model) if model else None
+    
+    def get_ground_truth_annotations(self, document_id: str) -> list:
+        """Get all ground truth annotations for a document."""
+        models = orm.GroundTruthAnnotationModel.objects.filter(
+            document_id=document_id
+        ).order_by("created_at")
+        
+        return [self._ground_truth_annotation_from_model(model) for model in models]
+    
+    def get_ground_truth_by_field(self, document_id: str, field_name: str) -> list:
+        """Get ground truth annotations for a specific field in a document."""
+        models = orm.GroundTruthAnnotationModel.objects.filter(
+            document_id=document_id,
+            field_name=field_name
+        ).order_by("created_at")
+        
+        return [self._ground_truth_annotation_from_model(model) for model in models]
+    
+    def update_ground_truth_annotation(self, annotation_id: str, updates: dict[str, Any]) -> bool:
+        """Update a ground truth annotation."""
+        model = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).first()
+        if not model:
+            return False
+        
+        changed_fields = []
+        for key, value in updates.items():
+            if hasattr(model, key) and value is not None:
+                setattr(model, key, value)
+                changed_fields.append(key)
+        
+        if changed_fields:
+            model.save(update_fields=changed_fields)
+            return True
+        
+        return False
+    
+    def delete_ground_truth_annotation(self, annotation_id: str) -> bool:
+        """Delete a ground truth annotation."""
+        deleted, _ = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).delete()
+        return deleted > 0
+    
+    def approve_annotation(self, annotation_id: str, edited_value: Optional[Any] = None) -> bool:
+        """Approve an AI suggestion and convert it to ground truth."""
+        model = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).first()
+        if not model:
+            return False
+        
+        update_fields = ["is_approved", "labeled_by"]
+        model.is_approved = True
+        model.labeled_by = "ai-approved"
+        
+        if edited_value is not None:
+            model.value = edited_value
+            update_fields.append("value")
+        
+        model.save(update_fields=update_fields)
+        return True
+
