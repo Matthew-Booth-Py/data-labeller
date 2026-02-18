@@ -98,7 +98,14 @@ class AnnotationSuggestionService:
             return []
     
     def _get_azure_di_lines(self, document_id: str, file_type: str) -> list[dict]:
-        """Get Azure DI lines from cached analysis or run fresh analysis."""
+        """Get Azure DI lines from cached analysis or run fresh analysis.
+        
+        Azure DI returns coordinates in inches. We convert to pixels using 72 DPI
+        to match the PDF rendering coordinate system.
+        """
+        # Standard PDF DPI - Azure DI returns inches, we need pixels
+        DPI = 72.0
+        
         try:
             # Try to get cached analysis from database
             doc_model = DocumentModel.objects.filter(id=document_id).first()
@@ -112,13 +119,20 @@ class AnnotationSuggestionService:
                             # Handle dict format from cache
                             x_coords = [p["x"] if isinstance(p, dict) else p[0] for p in polygon]
                             y_coords = [p["y"] if isinstance(p, dict) else p[1] for p in polygon]
+                            
+                            # Convert from inches to pixels (72 DPI standard)
+                            x_min = min(x_coords) * DPI
+                            y_min = min(y_coords) * DPI
+                            width = (max(x_coords) - min(x_coords)) * DPI
+                            height = (max(y_coords) - min(y_coords)) * DPI
+                            
                             lines.append({
                                 "text": line.get("text", ""),
                                 "page": page_num,
-                                "x": min(x_coords),
-                                "y": min(y_coords),
-                                "width": max(x_coords) - min(x_coords),
-                                "height": max(y_coords) - min(y_coords)
+                                "x": x_min,
+                                "y": y_min,
+                                "width": width,
+                                "height": height
                             })
                 return lines
         except Exception as e:
