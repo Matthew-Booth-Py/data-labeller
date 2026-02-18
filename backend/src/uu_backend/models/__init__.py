@@ -38,6 +38,22 @@ from uu_backend.models.annotation import (
     TableRowFieldData,
     TextSpanData,
 )
+from uu_backend.models.evaluation import (
+    EvaluationMetrics,
+    EvaluationResult,
+    EvaluationRun,
+    EvaluationRunCreate,
+    EvaluationRunListResponse,
+    EvaluationRunResponse,
+    EvaluationSummary,
+    FieldComparison,
+    FieldMetrics,
+    FlattenedMetrics,
+    InstanceComparison,
+    InstanceMetrics,
+    MatchResult,
+    MatchType,
+)
 
 __all__ = [
     "Document",
@@ -73,4 +89,19 @@ __all__ = [
     "TableRowData",
     "TableRowFieldData",
     "TextSpanData",
+    # Evaluation models
+    "EvaluationMetrics",
+    "EvaluationResult",
+    "EvaluationRun",
+    "EvaluationRunCreate",
+    "EvaluationRunListResponse",
+    "EvaluationRunResponse",
+    "EvaluationSummary",
+    "FieldComparison",
+    "FieldMetrics",
+    "FlattenedMetrics",
+    "InstanceComparison",
+    "InstanceMetrics",
+    "MatchResult",
+    "MatchType",
 ]

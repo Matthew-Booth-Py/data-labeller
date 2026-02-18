@@ -3,18 +3,20 @@
  * Uses Azure Document Intelligence to extract text from drawn boxes
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useLayoutEffect } from "react";
+import { flushSync } from "react-dom";
 import { Document, Page, pdfjs } from "react-pdf";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ZoomIn, ZoomOut, Square } from "lucide-react";
 import type { GroundTruthAnnotation, BoundingBoxData, AnnotationSuggestion } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
-// Set up PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// Set up PDF.js worker using cdnjs (more reliable than unpkg)
+pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
 
 interface PdfBboxAnnotatorProps {
   documentId: string;
@@ -22,8 +24,10 @@ interface PdfBboxAnnotatorProps {
   annotations: GroundTruthAnnotation[];
   suggestions?: AnnotationSuggestion[];
   selectedField: string | null;
+  editingAnnotationId?: string | null;
   onAnnotationCreate: (fieldName: string, value: string, annotationData: BoundingBoxData) => void;
   onAnnotationDelete: (annotationId: string) => void;
+  onAnnotationUpdate?: (annotationId: string, bbox: { x: number; y: number; width: number; height: number }) => void;
   onSuggestionApprove?: (suggestion: AnnotationSuggestion) => void;
   onSuggestionReject?: (suggestionId: string) => void;
 }
@@ -53,8 +57,10 @@ export function PdfBboxAnnotator({
   annotations,
   suggestions = [],
   selectedField,
+  editingAnnotationId = null,
   onAnnotationCreate,
   onAnnotationDelete,
+  onAnnotationUpdate,
   onSuggestionApprove,
   onSuggestionReject,
 }: PdfBboxAnnotatorProps) {
@@ -64,7 +70,32 @@ export function PdfBboxAnnotator({
   const [error, setError] = useState<string | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawingBox, setDrawingBox] = useState<DrawingBox | null>(null);
+  const [resizingAnnotation, setResizingAnnotation] = useState<{ id: string; handle: string } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Force browser repaint - workaround for rendering stall issue
+  const forceRepaint = () => {
+    if (containerRef.current) {
+      // Force a reflow by reading offsetHeight
+      void containerRef.current.offsetHeight;
+      // Also try forcing a style recalculation
+      containerRef.current.style.transform = 'translateZ(0)';
+      requestAnimationFrame(() => {
+        if (containerRef.current) {
+          containerRef.current.style.transform = '';
+        }
+      });
+    }
+  };
+
+  // Reset loading state when document changes
+  useEffect(() => {
+    setIsLoading(true);
+    setNumPages(0);
+    setError(null);
+  }, [pdfUrl]);
 
   // Assign colors to fields
   useEffect(() => {
@@ -80,11 +111,26 @@ export function PdfBboxAnnotator({
   }, [annotations, selectedField]);
 
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
-    setNumPages(numPages);
+    console.log('[PdfBboxAnnotator] PDF loaded successfully, numPages:', numPages);
+    // Use flushSync to force synchronous state update and DOM commit
+    flushSync(() => {
+      setNumPages(numPages);
+      setIsLoading(false);
+    });
+    // Force browser to repaint after state update
+    forceRepaint();
+    requestAnimationFrame(() => {
+      forceRepaint();
+    });
   };
 
-  // Handle mouse down - start drawing
+  // Handle mouse down - start drawing or resizing
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>, pageNumber: number) => {
+    // Don't start drawing if clicking on an annotation
+    if ((e.target as HTMLElement).closest('[data-annotation-id]')) {
+      return;
+    }
+    
     if (!selectedField) return;
 
     const rect = e.currentTarget.getBoundingClientRect();
@@ -183,28 +229,181 @@ export function PdfBboxAnnotator({
     return pageAnnotations.map(annotation => {
       const bbox = annotation.annotation_data as BoundingBoxData;
       const color = fieldColorMap[annotation.field_name] || "rgba(128, 128, 128, 0.3)";
+      const isEditing = editingAnnotationId === annotation.id;
 
       return (
         <div
           key={annotation.id}
-          className="absolute border-2 cursor-pointer hover:opacity-70 transition-opacity"
+          data-annotation-id={annotation.id}
+          className={cn(
+            "absolute border-2 group transition-opacity",
+            isEditing ? "cursor-move ring-2 ring-blue-500" : "cursor-pointer hover:opacity-70"
+          )}
           style={{
             left: `${bbox.x * scale}px`,
             top: `${bbox.y * scale}px`,
             width: `${bbox.width * scale}px`,
             height: `${bbox.height * scale}px`,
             backgroundColor: color,
-            borderColor: color.replace('0.3', '1'),
+            borderColor: isEditing ? '#3b82f6' : color.replace('0.3', '1'),
           }}
-          onClick={() => onAnnotationDelete(annotation.id)}
-          title={`${annotation.field_name}: ${annotation.value}\nClick to delete`}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!isEditing) {
+              onAnnotationDelete(annotation.id);
+            }
+          }}
+          onMouseDown={(e) => {
+            if (isEditing) {
+              e.stopPropagation();
+              const rect = e.currentTarget.getBoundingClientRect();
+              const startX = e.clientX;
+              const startY = e.clientY;
+              const startLeft = bbox.x * scale;
+              const startTop = bbox.y * scale;
+
+              const handleMouseMove = (moveEvent: MouseEvent) => {
+                const deltaX = moveEvent.clientX - startX;
+                const deltaY = moveEvent.clientY - startY;
+                
+                const newX = (startLeft + deltaX) / scale;
+                const newY = (startTop + deltaY) / scale;
+                
+                if (onAnnotationUpdate) {
+                  onAnnotationUpdate(annotation.id, {
+                    x: Math.max(0, newX),
+                    y: Math.max(0, newY),
+                    width: bbox.width,
+                    height: bbox.height,
+                  });
+                }
+              };
+
+              const handleMouseUp = () => {
+                document.removeEventListener('mousemove', handleMouseMove);
+                document.removeEventListener('mouseup', handleMouseUp);
+              };
+
+              document.addEventListener('mousemove', handleMouseMove);
+              document.addEventListener('mouseup', handleMouseUp);
+            }
+          }}
+          title={isEditing ? "Drag to move, use handles to resize" : `${annotation.field_name}: ${annotation.value}\nClick to delete`}
         >
-          <div className="absolute -top-6 left-0 bg-gray-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap opacity-0 hover:opacity-100 transition-opacity">
+          <div className={cn(
+            "absolute -top-6 left-0 bg-gray-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap transition-opacity",
+            isEditing ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          )}>
             {annotation.field_name}
           </div>
+          
+          {/* Resize handles - only show when editing */}
+          {isEditing && (
+            <>
+              {/* Corner handles */}
+              <div
+                className="absolute w-3 h-3 bg-blue-500 border border-white rounded-full cursor-nwse-resize"
+                style={{ left: -6, top: -6 }}
+                onMouseDown={(e) => handleResizeStart(e, annotation.id, 'nw', bbox)}
+              />
+              <div
+                className="absolute w-3 h-3 bg-blue-500 border border-white rounded-full cursor-nesw-resize"
+                style={{ right: -6, top: -6 }}
+                onMouseDown={(e) => handleResizeStart(e, annotation.id, 'ne', bbox)}
+              />
+              <div
+                className="absolute w-3 h-3 bg-blue-500 border border-white rounded-full cursor-nwse-resize"
+                style={{ right: -6, bottom: -6 }}
+                onMouseDown={(e) => handleResizeStart(e, annotation.id, 'se', bbox)}
+              />
+              <div
+                className="absolute w-3 h-3 bg-blue-500 border border-white rounded-full cursor-nesw-resize"
+                style={{ left: -6, bottom: -6 }}
+                onMouseDown={(e) => handleResizeStart(e, annotation.id, 'sw', bbox)}
+              />
+              
+              {/* Edge handles */}
+              <div
+                className="absolute w-3 h-3 bg-blue-500 border border-white rounded-full cursor-ns-resize"
+                style={{ left: '50%', top: -6, transform: 'translateX(-50%)' }}
+                onMouseDown={(e) => handleResizeStart(e, annotation.id, 'n', bbox)}
+              />
+              <div
+                className="absolute w-3 h-3 bg-blue-500 border border-white rounded-full cursor-ew-resize"
+                style={{ right: -6, top: '50%', transform: 'translateY(-50%)' }}
+                onMouseDown={(e) => handleResizeStart(e, annotation.id, 'e', bbox)}
+              />
+              <div
+                className="absolute w-3 h-3 bg-blue-500 border border-white rounded-full cursor-ns-resize"
+                style={{ left: '50%', bottom: -6, transform: 'translateX(-50%)' }}
+                onMouseDown={(e) => handleResizeStart(e, annotation.id, 's', bbox)}
+              />
+              <div
+                className="absolute w-3 h-3 bg-blue-500 border border-white rounded-full cursor-ew-resize"
+                style={{ left: -6, top: '50%', transform: 'translateY(-50%)' }}
+                onMouseDown={(e) => handleResizeStart(e, annotation.id, 'w', bbox)}
+              />
+            </>
+          )}
         </div>
       );
     });
+  };
+
+  const handleResizeStart = (
+    e: React.MouseEvent,
+    annotationId: string,
+    handle: string,
+    bbox: BoundingBoxData
+  ) => {
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startBbox = { ...bbox };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = (moveEvent.clientX - startX) / scale;
+      const deltaY = (moveEvent.clientY - startY) / scale;
+      
+      let newBbox = { ...startBbox };
+
+      // Handle different resize directions
+      if (handle.includes('n')) {
+        newBbox.y = startBbox.y + deltaY;
+        newBbox.height = startBbox.height - deltaY;
+      }
+      if (handle.includes('s')) {
+        newBbox.height = startBbox.height + deltaY;
+      }
+      if (handle.includes('w')) {
+        newBbox.x = startBbox.x + deltaX;
+        newBbox.width = startBbox.width - deltaX;
+      }
+      if (handle.includes('e')) {
+        newBbox.width = startBbox.width + deltaX;
+      }
+
+      // Ensure minimum size
+      if (newBbox.width < 10) newBbox.width = 10;
+      if (newBbox.height < 10) newBbox.height = 10;
+
+      if (onAnnotationUpdate) {
+        onAnnotationUpdate(annotationId, {
+          x: Math.max(0, newBbox.x),
+          y: Math.max(0, newBbox.y),
+          width: newBbox.width,
+          height: newBbox.height,
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
   };
 
   // Render AI suggestion overlays (dashed border, different styling)
@@ -265,6 +464,7 @@ export function PdfBboxAnnotator({
   };
 
   return (
+    <div ref={containerRef} style={{ willChange: 'transform' }}>
     <Card className="flex flex-col h-full">
       <CardHeader className="flex-shrink-0">
         <div className="flex items-center justify-between">
@@ -302,15 +502,20 @@ export function PdfBboxAnnotator({
       </CardHeader>
       <CardContent className="flex-1 overflow-y-auto min-h-0">
         <Document
+          key={pdfUrl}
           file={pdfUrl}
           onLoadSuccess={onDocumentLoadSuccess}
           onLoadError={(error) => {
             console.error('PDF load error:', error);
             setError(error.message || 'Failed to load PDF');
+            setIsLoading(false);
           }}
           loading={
-            <div className="flex items-center justify-center h-full">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">Loading PDF...</p>
+              </div>
             </div>
           }
           error={
@@ -377,5 +582,6 @@ export function PdfBboxAnnotator({
         )}
       </CardContent>
     </Card>
+    </div>
   );
 }

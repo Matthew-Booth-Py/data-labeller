@@ -15,7 +15,9 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, Sparkles, ThumbsUp, ThumbsDown, Trash2, Eye, EyeOff, Plus, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, Sparkles, ThumbsUp, ThumbsDown, Trash2, Eye, EyeOff, Plus, ChevronDown, ChevronRight, Pencil, Check, X, XCircle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { PdfBboxAnnotator } from "@/components/labeller/PdfBboxAnnotator";
 import { ImageAnnotator } from "@/components/labeller/ImageAnnotator";
 import { TextAnnotator } from "@/components/labeller/TextAnnotator";
@@ -44,8 +46,23 @@ export function DataLabellerImproved() {
   const [hiddenFields, setHiddenFields] = useState<Set<string>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [currentInstance, setCurrentInstance] = useState<Record<string, number>>({});
+  const [editingAnnotation, setEditingAnnotation] = useState<string | null>(null);
+  const [editingBbox, setEditingBbox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [collapsedInstances, setCollapsedInstances] = useState<Set<string>>(new Set());
+  const [renderKey, setRenderKey] = useState(0);
 
   const projectId = localStorage.getItem("selected-project") || "all";
+  
+  // Force re-render when document changes to ensure PDF viewer mounts properly
+  useEffect(() => {
+    if (selectedDocId) {
+      // Schedule a micro-task to force React to flush updates
+      const timeoutId = setTimeout(() => {
+        setRenderKey(k => k + 1);
+      }, 0);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [selectedDocId]);
 
   const { data: documentsData } = useQuery({
     queryKey: ["documents"],
@@ -102,17 +119,38 @@ export function DataLabellerImproved() {
     }> = [];
     let colorIndex = 0;
     
+    const flattenSchemaField = (field: { name: string; type: string; items?: any; properties?: any }, prefix: string = ""): Array<{ path: string; label: string }> => {
+      const result: Array<{ path: string; label: string }> = [];
+      const fullPath = prefix ? `${prefix}.${field.name}` : field.name;
+      
+      if (field.type === "array" && field.items?.type === "object" && field.items.properties) {
+        // Array of objects - recursively flatten properties
+        Object.entries(field.items.properties).forEach(([propName, propField]: [string, any]) => {
+          const nestedFields = flattenSchemaField({ ...propField, name: propName }, fullPath);
+          result.push(...nestedFields);
+        });
+      } else if (field.type === "object" && field.properties) {
+        // Object - recursively flatten properties
+        Object.entries(field.properties).forEach(([propName, propField]: [string, any]) => {
+          const nestedFields = flattenSchemaField({ ...propField, name: propName }, fullPath);
+          result.push(...nestedFields);
+        });
+      } else {
+        // Leaf field
+        result.push({ path: fullPath, label: field.name });
+      }
+      
+      return result;
+    };
+    
     schemaFields.forEach(field => {
       if (field.type === "array" && field.items?.type === "object" && field.items.properties) {
-        // Array of objects - create a group
-        const children: Array<{ path: string; label: string; colorIndex: number }> = [];
-        Object.entries(field.items.properties).forEach(([propName, propField]: [string, any]) => {
-          children.push({
-            path: `${field.name}.${propName}`,
-            label: propName,
-            colorIndex: colorIndex
-          });
-        });
+        // Array of objects - create a group with all nested fields
+        const children = flattenSchemaField(field).map(child => ({
+          ...child,
+          colorIndex: colorIndex
+        }));
+        
         groups.push({
           parentName: field.name,
           parentType: "array",
@@ -122,15 +160,12 @@ export function DataLabellerImproved() {
         });
         colorIndex++;
       } else if (field.type === "object" && field.properties) {
-        // Object - create a group
-        const children: Array<{ path: string; label: string; colorIndex: number }> = [];
-        Object.entries(field.properties).forEach(([propName, propField]: [string, any]) => {
-          children.push({
-            path: `${field.name}.${propName}`,
-            label: propName,
-            colorIndex: colorIndex
-          });
-        });
+        // Object - create a group with all nested fields
+        const children = flattenSchemaField(field).map(child => ({
+          ...child,
+          colorIndex: colorIndex
+        }));
+        
         groups.push({
           parentName: field.name,
           parentType: "object",
@@ -209,6 +244,129 @@ export function DataLabellerImproved() {
     },
   });
 
+  const updateAnnotationMutation = useMutation({
+    mutationFn: async ({ annotationId, bbox }: { annotationId: string; bbox: { x: number; y: number; width: number; height: number } }) => {
+      if (!selectedDocId) throw new Error("No document selected");
+      const annotation = annotations.find(a => a.id === annotationId);
+      if (!annotation) throw new Error("Annotation not found");
+      
+      // Update the annotation_data with new bbox coordinates
+      const updatedAnnotationData = {
+        ...annotation.annotation_data,
+        x: bbox.x,
+        y: bbox.y,
+        width: bbox.width,
+        height: bbox.height,
+      };
+      
+      return api.updateGroundTruthAnnotation(annotationId, { annotation_data: updatedAnnotationData });
+    },
+    onSuccess: () => {
+      refetchAnnotations();
+      setEditingAnnotation(null);
+      setEditingBbox(null);
+      toast.success("Bounding box updated");
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to update annotation: ${error.message}`);
+    },
+  });
+
+  const startEditingAnnotation = (ann: GroundTruthAnnotation) => {
+    setEditingAnnotation(ann.id);
+    const bbox = ann.annotation_data as any;
+    setEditingBbox({
+      x: bbox.x || 0,
+      y: bbox.y || 0,
+      width: bbox.width || 0,
+      height: bbox.height || 0,
+    });
+  };
+
+  const cancelEditing = () => {
+    setEditingAnnotation(null);
+    setEditingBbox(null);
+  };
+
+  const saveAnnotationEdit = (annotationId: string) => {
+    if (!editingBbox) return;
+    updateAnnotationMutation.mutate({ annotationId, bbox: editingBbox });
+  };
+
+  const toggleInstanceCollapse = (instanceKey: string) => {
+    setCollapsedInstances(prev => {
+      const next = new Set(prev);
+      if (next.has(instanceKey)) {
+        next.delete(instanceKey);
+      } else {
+        next.add(instanceKey);
+      }
+      return next;
+    });
+  };
+
+  const deleteInstanceMutation = useMutation({
+    mutationFn: async ({ parentName, instanceNum }: { parentName: string; instanceNum: number }) => {
+      if (!selectedDocId) throw new Error("No document selected");
+      
+      // Find all annotations for this instance
+      const instanceAnnotations = annotations.filter(ann => 
+        ann.field_name.startsWith(parentName + '.') &&
+        (ann.annotation_data as any)?.instance_num === instanceNum
+      );
+      
+      // Delete all annotations for this instance
+      await Promise.all(
+        instanceAnnotations.map(ann => 
+          api.deleteGroundTruthAnnotation(selectedDocId, ann.id)
+        )
+      );
+      
+      // Find all annotations with higher instance numbers
+      const higherInstanceAnnotations = annotations.filter(ann => 
+        ann.field_name.startsWith(parentName + '.') &&
+        (ann.annotation_data as any)?.instance_num > instanceNum
+      );
+      
+      // Renumber them (decrement by 1)
+      await Promise.all(
+        higherInstanceAnnotations.map(ann => {
+          const currentInstanceNum = (ann.annotation_data as any)?.instance_num;
+          const updatedAnnotationData = {
+            ...ann.annotation_data,
+            instance_num: currentInstanceNum - 1
+          };
+          return api.updateGroundTruthAnnotation(ann.id, { annotation_data: updatedAnnotationData });
+        })
+      );
+      
+      return { parentName, instanceNum };
+    },
+    onSuccess: (_, variables) => {
+      refetchAnnotations();
+      
+      // Update current instance if needed
+      setCurrentInstance(prev => {
+        const currentNum = prev[variables.parentName];
+        if (currentNum === variables.instanceNum) {
+          // If we deleted the current instance, clear it
+          const next = { ...prev };
+          delete next[variables.parentName];
+          return next;
+        } else if (currentNum && currentNum > variables.instanceNum) {
+          // If current instance is higher, decrement it
+          return { ...prev, [variables.parentName]: currentNum - 1 };
+        }
+        return prev;
+      });
+      
+      toast.success(`Instance #${variables.instanceNum} deleted and remaining instances renumbered`);
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to delete instance: ${error.message}`);
+    },
+  });
+
   const handleAISuggest = async () => {
     if (!selectedDocId || !selectedDocType) return;
     
@@ -220,12 +378,12 @@ export function DataLabellerImproved() {
       const existingFieldNames = new Set(annotations.map(a => a.field_name));
       const filteredSuggestions = (result.suggestions || []).filter(s => {
         // For array fields, check if this specific instance is already labeled
-        const instanceNum = s.annotation_data?.instance_num;
+        const instanceNum = (s.annotation_data as any)?.instance_num;
         if (instanceNum) {
           // Check if this field + instance combo exists
           return !annotations.some(a => 
             a.field_name === s.field_name && 
-            a.annotation_data?.instance_num === instanceNum
+            (a.annotation_data as any)?.instance_num === instanceNum
           );
         }
         // For simple fields, check if field exists at all
@@ -281,9 +439,23 @@ export function DataLabellerImproved() {
     },
   });
 
+  const flattenedFields = useMemo(() => {
+    const fields: Array<{ path: string; colorIndex: number }> = [];
+    fieldGroups.forEach(group => {
+      if (group.isGroup && group.children) {
+        group.children.forEach(child => {
+          fields.push({ path: child.path, colorIndex: child.colorIndex });
+        });
+      } else if (group.path) {
+        fields.push({ path: group.path, colorIndex: group.colorIndex });
+      }
+    });
+    return fields;
+  }, [fieldGroups]);
+
   const getFieldColor = (fieldPath: string) => {
     const field = flattenedFields.find(f => f.path === fieldPath);
-    return field ? FIELD_COLORS[field.colorIndex] : FIELD_COLORS[0];
+    return field ? FIELD_COLORS[field.colorIndex % FIELD_COLORS.length] : FIELD_COLORS[0];
   };
 
   const toggleFieldVisibility = (fieldPath: string) => {
@@ -324,7 +496,7 @@ export function DataLabellerImproved() {
           const childAnnotations = groupedAnnotations[child.path] || [];
           childAnnotations.forEach((ann, idx) => {
             // Extract instance number from annotation_data.instance_num, or use index + 1
-            const instanceNum = ann.annotation_data?.instance_num || (idx + 1);
+            const instanceNum = (ann.annotation_data as any)?.instance_num || (idx + 1);
             
             if (!instanceMap[instanceNum]) {
               instanceMap[instanceNum] = {};
@@ -361,15 +533,20 @@ export function DataLabellerImproved() {
     if (fileType === "pdf") {
       return (
         <PdfBboxAnnotator
+          key={`${selectedDocument.id}-${renderKey}`}
           documentId={selectedDocument.id}
           pdfUrl={documentUrl}
           annotations={annotations.filter(a => !hiddenFields.has(a.field_name))}
           suggestions={suggestions}
           selectedField={selectedField}
+          editingAnnotationId={editingAnnotation}
           onAnnotationCreate={(fieldName, value, annotationData) =>
             createAnnotationMutation.mutate({ fieldName, value, annotationData })
           }
           onAnnotationDelete={(annotationId) => deleteAnnotationMutation.mutate(annotationId)}
+          onAnnotationUpdate={(annotationId, bbox) => {
+            updateAnnotationMutation.mutate({ annotationId, bbox });
+          }}
           onSuggestionApprove={(suggestion) => 
             approveSuggestionMutation.mutate({ suggestionId: suggestion.id, suggestion })
           }
@@ -506,7 +683,7 @@ export function DataLabellerImproved() {
                 // Count annotations for active instance
                 const activeInstanceAnnotations = activeInstanceNum 
                   ? annotations.filter(ann => 
-                      ann.annotation_data?.instance_num === activeInstanceNum &&
+                      (ann.annotation_data as any)?.instance_num === activeInstanceNum &&
                       ann.field_name.startsWith(group.parentName + '.')
                     )
                   : [];
@@ -514,11 +691,11 @@ export function DataLabellerImproved() {
                 return (
                   <div key={group.parentName} className="space-y-1">
                     {/* Group Header */}
-                    <div className={cn("flex items-center gap-2 p-2 rounded-md border-2", color.bg, color.border)}>
+                    <div className={cn("flex items-center gap-1.5 p-2 rounded-md border-2", color.bg, color.border)}>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-5 w-5 p-0"
+                        className="h-5 w-5 p-0 flex-shrink-0"
                         onClick={() => {
                           setExpandedGroups(prev => {
                             const next = new Set(prev);
@@ -534,20 +711,20 @@ export function DataLabellerImproved() {
                         {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                       </Button>
                       <div 
-                        className={cn("w-3 h-3 rounded", color.bg, color.border, "border-2")}
+                        className={cn("w-3 h-3 rounded flex-shrink-0", color.bg, color.border, "border-2")}
                       />
-                      <span className={cn("text-sm font-medium flex-1", color.text)}>
+                      <span className={cn("text-sm font-medium flex-1 truncate", color.text)}>
                         {group.parentName}
                       </span>
                       {totalAnnotations > 0 && (
-                        <Badge variant="secondary" className="text-xs">
+                        <Badge variant="secondary" className="text-xs flex-shrink-0">
                           {totalAnnotations}
                         </Badge>
                       )}
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 px-2 text-xs"
+                        className="h-6 px-2 text-xs flex-shrink-0"
                         onClick={() => {
                           // Get current instance number for this group
                           const currentNum = currentInstance[group.parentName];
@@ -555,7 +732,7 @@ export function DataLabellerImproved() {
                           if (currentNum && group.children) {
                             // Check how many properties have been labeled for current instance
                             const activeInstanceAnnotations = annotations.filter(ann => 
-                              ann.annotation_data?.instance_num === currentNum &&
+                              (ann.annotation_data as any)?.instance_num === currentNum &&
                               ann.field_name.startsWith(group.parentName + '.')
                             );
                             
@@ -722,118 +899,164 @@ export function DataLabellerImproved() {
         {renderDocumentViewer()}
       </div>
 
-      {/* Right Sidebar - Annotations */}
+      {/* Right Sidebar - Annotations (Compact) */}
       {selectedDocId && annotations.length > 0 && (
-        <div className="w-80 flex-shrink-0 overflow-y-auto">
+        <div className="w-72 flex-shrink-0 overflow-y-auto">
           <Card className="h-full">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Annotations ({annotations.length})</CardTitle>
+            <CardHeader className="py-2 px-3">
+              <CardTitle className="text-sm">Annotations ({annotations.length})</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="p-2 space-y-1">
               {fieldGroups.map(group => {
                 const color = FIELD_COLORS[group.colorIndex];
                 
                 if (!group.isGroup) {
-                  // Simple field
+                  // Simple field - compact inline display
                   const fieldAnnotations = groupedAnnotations[group.path!] || [];
                   if (fieldAnnotations.length === 0) return null;
 
-                  return (
-                    <div key={group.path} className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <div className={cn("w-3 h-3 rounded", color.bg, color.border, "border-2")} />
-                        <span className="text-sm font-medium">{group.label}</span>
-                        <Badge variant="secondary" className="text-xs">{fieldAnnotations.length}</Badge>
-                      </div>
-                      <div className="space-y-1 pl-5">
-                        {fieldAnnotations.map(ann => (
-                          <div
-                            key={ann.id}
-                            className={cn(
-                              "group flex items-start gap-2 p-2 rounded border text-xs",
-                              color.bg,
-                              color.border
-                            )}
-                          >
-                            <div className="flex-1 break-words">
-                              {ann.value || <span className="text-muted-foreground italic">No value</span>}
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100"
-                              onClick={() => deleteAnnotationMutation.mutate(ann.id)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                      <Separator />
+                  return fieldAnnotations.map(ann => (
+                    <div
+                      key={ann.id}
+                      className={cn(
+                        "group flex items-center gap-1.5 px-2 py-1 rounded text-xs border",
+                        color.bg, color.border
+                      )}
+                    >
+                      <div className={cn("w-2 h-2 rounded-full flex-shrink-0", color.bg, color.border, "border")} />
+                      <span className="font-medium text-[10px] text-muted-foreground flex-shrink-0 max-w-[60px] truncate">
+                        {group.label}
+                      </span>
+                      <span className="flex-1 truncate" title={ann.value || ""}>
+                        {ann.value || <span className="text-muted-foreground italic">No value</span>}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-4 w-4 p-0 opacity-0 group-hover:opacity-100 flex-shrink-0"
+                        onClick={() => {
+                          setSelectedField(ann.field_name);
+                          startEditingAnnotation(ann);
+                        }}
+                        title="Edit bounding box"
+                      >
+                        <Pencil className="h-2.5 w-2.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-4 w-4 p-0 opacity-0 group-hover:opacity-100 flex-shrink-0 text-destructive"
+                        onClick={() => deleteAnnotationMutation.mutate(ann.id)}
+                      >
+                        <Trash2 className="h-2.5 w-2.5" />
+                      </Button>
                     </div>
-                  );
+                  ));
                 }
 
-                // Group annotations by instance
+                // Group annotations by instance - collapsible
                 const instances = instancedAnnotations[group.parentName] || [];
                 if (instances.length === 0) return null;
 
                 return (
-                  <div key={group.parentName} className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className={cn("w-3 h-3 rounded", color.bg, color.border, "border-2")} />
-                      <span className="text-sm font-medium">{group.parentName}</span>
-                      <Badge variant="secondary" className="text-xs">{instances.length} instances</Badge>
-                    </div>
-                    
-                    {/* Show each instance as a card */}
-                    <div className="space-y-2 pl-5">
-                      {instances.map((instance) => (
-                        <div 
-                          key={instance.instanceId}
-                          className={cn(
-                            "p-3 rounded-lg border-2 space-y-2",
-                            color.bg,
-                            color.border
-                          )}
-                        >
-                          <div className="text-xs font-semibold text-muted-foreground">
-                            Instance #{instance.instanceNum}
-                          </div>
+                  <Collapsible key={group.parentName} defaultOpen={true}>
+                    <CollapsibleTrigger asChild>
+                      <div className={cn(
+                        "flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer hover:bg-muted/50",
+                        color.bg, color.border, "border"
+                      )}>
+                        <ChevronDown className="h-3 w-3 flex-shrink-0 transition-transform [&[data-state=closed]]:rotate-[-90deg]" />
+                        <div className={cn("w-2 h-2 rounded-full flex-shrink-0", color.bg, color.border, "border")} />
+                        <span className="text-xs font-medium flex-1">{group.parentName}</span>
+                        <Badge variant="secondary" className="text-[10px] h-4 px-1">{instances.length}</Badge>
+                      </div>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="pl-3 space-y-0.5 mt-0.5">
+                        {instances.map((instance) => {
+                          const instanceKey = `${group.parentName}-${instance.instanceNum}`;
+                          const isCollapsed = collapsedInstances.has(instanceKey);
                           
-                          {group.children?.map(child => {
-                            const fieldAnnotations = instance.annotations[child.path] || [];
-                            if (fieldAnnotations.length === 0) return null;
+                          return (
+                            <div key={instance.instanceId} className="space-y-0.5">
+                              <div 
+                                className="group/instance flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+                              >
+                                <button
+                                  className="cursor-pointer"
+                                  onClick={() => toggleInstanceCollapse(instanceKey)}
+                                >
+                                  {isCollapsed ? <ChevronRight className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />}
+                                </button>
+                                <span 
+                                  className="flex-1 cursor-pointer"
+                                  onClick={() => toggleInstanceCollapse(instanceKey)}
+                                >
+                                  Instance #{instance.instanceNum}
+                                </span>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-3.5 w-3.5 p-0 opacity-0 group-hover/instance:opacity-100 text-destructive"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (confirm(`Delete instance #${instance.instanceNum} and all its annotations?`)) {
+                                      deleteInstanceMutation.mutate({ 
+                                        parentName: group.parentName, 
+                                        instanceNum: instance.instanceNum 
+                                      });
+                                    }
+                                  }}
+                                  title="Delete instance"
+                                >
+                                  <XCircle className="h-2.5 w-2.5" />
+                                </Button>
+                              </div>
+                              
+                              {!isCollapsed && group.children?.map(child => {
+                                const fieldAnnotations = instance.annotations[child.path] || [];
+                                if (fieldAnnotations.length === 0) return null;
 
-                            return (
-                              <div key={child.path} className="space-y-1">
-                                <div className="text-xs font-medium opacity-70">{child.label}</div>
-                                {fieldAnnotations.map(ann => (
+                                return fieldAnnotations.map(ann => (
                                   <div
                                     key={ann.id}
-                                    className="group flex items-start gap-2 p-2 rounded bg-white/50 text-xs"
+                                    className="group flex items-center gap-1 pl-4 pr-1 py-0.5 text-xs rounded hover:bg-white/50"
                                   >
-                                    <div className="flex-1 break-words font-medium">
-                                      {ann.value || <span className="text-muted-foreground italic">No value</span>}
-                                    </div>
+                                    <span className="text-[9px] text-muted-foreground w-16 truncate flex-shrink-0" title={child.label}>
+                                      {child.label}
+                                    </span>
+                                    <span className="flex-1 truncate text-[11px]" title={ann.value || ""}>
+                                      {ann.value || <span className="text-muted-foreground italic">-</span>}
+                                    </span>
                                     <Button
                                       variant="ghost"
                                       size="sm"
-                                      className="h-4 w-4 p-0 opacity-0 group-hover:opacity-100"
+                                      className="h-3.5 w-3.5 p-0 opacity-0 group-hover:opacity-100 flex-shrink-0"
+                                      onClick={() => {
+                                        setSelectedField(ann.field_name);
+                                        startEditingAnnotation(ann);
+                                      }}
+                                      title="Edit bounding box"
+                                    >
+                                      <Pencil className="h-2 w-2" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-3.5 w-3.5 p-0 opacity-0 group-hover:opacity-100 flex-shrink-0 text-destructive"
                                       onClick={() => deleteAnnotationMutation.mutate(ann.id)}
                                     >
-                                      <Trash2 className="h-3 w-3" />
+                                      <Trash2 className="h-2 w-2" />
                                     </Button>
                                   </div>
-                                ))}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                    <Separator />
-                  </div>
+                                ));
+                              })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
                 );
               })}
             </CardContent>

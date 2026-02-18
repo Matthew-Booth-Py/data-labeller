@@ -232,3 +232,32 @@ class GroundTruthAnnotationModel(models.Model):
             models.Index(fields=["document_id", "created_at"]),
             models.Index(fields=["labeled_by"]),
         ]
+
+
+class EvaluationRunModel(models.Model):
+    """Evaluation run storage - compares ground truth vs predictions."""
+    id = models.CharField(primary_key=True, max_length=64)
+    document_id = models.CharField(max_length=64, db_index=True)
+    project_id = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+    
+    # Evaluation results (stored as JSON for flexibility)
+    metrics = models.JSONField()  # EvaluationMetrics
+    field_comparisons = models.JSONField()  # List of FieldComparison
+    instance_comparisons = models.JSONField(default=dict)  # Dict of InstanceComparison lists
+    
+    # Performance metrics
+    extraction_time_ms = models.FloatField(blank=True, null=True)
+    evaluation_time_ms = models.FloatField(blank=True, null=True)
+    
+    # Metadata
+    notes = models.TextField(blank=True, null=True)
+    evaluated_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = "evaluation_runs"
+        ordering = ["-evaluated_at"]
+        indexes = [
+            models.Index(fields=["document_id", "-evaluated_at"]),
+            models.Index(fields=["project_id", "-evaluated_at"]),
+            models.Index(fields=["-evaluated_at"]),
+        ]

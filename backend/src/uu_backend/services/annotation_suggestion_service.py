@@ -73,6 +73,9 @@ class AnnotationSuggestionService:
             flat_fields = self._flatten_extraction_fields(extraction_result.fields)
             logger.info(f"Flattened to {len(flat_fields)} field values")
             
+            # Track used line indices to avoid matching the same bbox twice
+            used_line_indices: set[int] = set()
+            
             for field_name, value, instance_num in flat_fields:
                 if value is None or value == "":
                     continue
@@ -82,7 +85,8 @@ class AnnotationSuggestionService:
                     field_name=field_name,
                     value=str(value),
                     instance_num=instance_num,
-                    azure_di_lines=azure_di_lines
+                    azure_di_lines=azure_di_lines,
+                    used_line_indices=used_line_indices
                 )
                 
                 if suggestion:
@@ -147,33 +151,48 @@ class AnnotationSuggestionService:
         E.g., line_items: [{quantity: 1, description: "foo"}, {quantity: 2}]
         becomes: [("line_items.quantity", "1", 1), ("line_items.description", "foo", 1), 
                   ("line_items.quantity", "2", 2)]
+        
+        Also handles deeply nested structures like:
+        policy_coverages_table[0].limits[0].amount
         """
         result = []
         
         for field in fields:
             field_name = field.field_name
             value = field.value
-            
-            if isinstance(value, list):
-                # Array field - iterate with instance numbers
-                for idx, item in enumerate(value):
-                    instance_num = idx + 1
-                    if isinstance(item, dict):
-                        # Array of objects
-                        for key, val in item.items():
-                            result.append((f"{field_name}.{key}", val, instance_num))
-                    else:
-                        # Array of primitives
-                        result.append((field_name, item, instance_num))
-            elif isinstance(value, dict):
-                # Object field
-                for key, val in value.items():
-                    result.append((f"{field_name}.{key}", val, 1))
-            else:
-                # Simple field
-                result.append((field_name, value, 0))
+            self._flatten_value(field_name, value, 0, result)
         
         return result
+    
+    def _flatten_value(
+        self, 
+        prefix: str, 
+        value: Any, 
+        instance_num: int, 
+        result: list[tuple[str, Any, int]]
+    ) -> None:
+        """Recursively flatten a value into field tuples."""
+        if value is None or value == "":
+            return
+            
+        if isinstance(value, list):
+            # Array - iterate with instance numbers
+            for idx, item in enumerate(value):
+                item_instance = idx + 1
+                if isinstance(item, dict):
+                    # Array of objects - flatten each property
+                    for key, val in item.items():
+                        self._flatten_value(f"{prefix}.{key}", val, item_instance, result)
+                else:
+                    # Array of primitives
+                    result.append((prefix, str(item), item_instance))
+        elif isinstance(value, dict):
+            # Object - flatten each property
+            for key, val in value.items():
+                self._flatten_value(f"{prefix}.{key}", val, instance_num, result)
+        else:
+            # Simple value - add to result
+            result.append((prefix, str(value), instance_num))
     
     def _create_suggestion(
         self,
@@ -181,16 +200,21 @@ class AnnotationSuggestionService:
         field_name: str,
         value: str,
         instance_num: int,
-        azure_di_lines: list[dict]
+        azure_di_lines: list[dict],
+        used_line_indices: set[int]
     ) -> Optional[AnnotationSuggestion]:
         """Create an annotation suggestion by finding the value in Azure DI lines."""
         try:
-            # Find bounding box for this value
-            bbox = self._find_text_bbox(value, azure_di_lines)
+            # Find bounding box for this value, avoiding already-used lines
+            bbox, line_idx = self._find_text_bbox(value, azure_di_lines, used_line_indices)
             
             if not bbox:
                 logger.debug(f"Could not find bbox for '{value}' in field {field_name}")
                 return None
+            
+            # Mark this line as used so it won't match again
+            if line_idx is not None:
+                used_line_indices.add(line_idx)
             
             # Add instance_num to annotation_data
             annotation_data = {
@@ -213,9 +237,20 @@ class AnnotationSuggestionService:
             logger.error(f"Error creating suggestion for field {field_name}: {e}")
             return None
     
-    def _find_text_bbox(self, search_text: str, lines: list[dict]) -> Optional[dict]:
+    def _find_text_bbox(
+        self, 
+        search_text: str, 
+        lines: list[dict],
+        used_line_indices: set[int]
+    ) -> tuple[Optional[dict], Optional[int]]:
         """
         Find bounding box for text in Azure DI lines.
+        
+        Skips lines that have already been used (by index) to avoid
+        matching the same physical location twice for repeated values.
+        
+        Returns:
+            Tuple of (bbox_dict, line_index) or (None, None) if not found
         
         Strategies:
         1. Exact match on a single line
@@ -223,60 +258,50 @@ class AnnotationSuggestionService:
         3. Fuzzy match for numbers (ignore formatting differences)
         """
         if not search_text or not lines:
-            return None
+            return None, None
         
         search_lower = search_text.lower().strip()
         search_normalized = self._normalize_text(search_text)
         
+        def make_bbox(line: dict) -> dict:
+            return {
+                "page": line["page"],
+                "x": line["x"],
+                "y": line["y"],
+                "width": line["width"],
+                "height": line["height"],
+                "text": line["text"]
+            }
+        
         # Strategy 1: Exact match
-        for line in lines:
+        for idx, line in enumerate(lines):
+            if idx in used_line_indices:
+                continue
             if line["text"].lower().strip() == search_lower:
-                return {
-                    "page": line["page"],
-                    "x": line["x"],
-                    "y": line["y"],
-                    "width": line["width"],
-                    "height": line["height"],
-                    "text": line["text"]
-                }
+                return make_bbox(line), idx
         
         # Strategy 2: Search text is contained in a line
-        for line in lines:
+        for idx, line in enumerate(lines):
+            if idx in used_line_indices:
+                continue
             if search_lower in line["text"].lower():
-                return {
-                    "page": line["page"],
-                    "x": line["x"],
-                    "y": line["y"],
-                    "width": line["width"],
-                    "height": line["height"],
-                    "text": line["text"]
-                }
+                return make_bbox(line), idx
         
         # Strategy 3: Normalized match (good for numbers like "58,000" vs "58000")
-        for line in lines:
+        for idx, line in enumerate(lines):
+            if idx in used_line_indices:
+                continue
             if self._normalize_text(line["text"]) == search_normalized:
-                return {
-                    "page": line["page"],
-                    "x": line["x"],
-                    "y": line["y"],
-                    "width": line["width"],
-                    "height": line["height"],
-                    "text": line["text"]
-                }
+                return make_bbox(line), idx
         
         # Strategy 4: Partial normalized match
-        for line in lines:
+        for idx, line in enumerate(lines):
+            if idx in used_line_indices:
+                continue
             if search_normalized in self._normalize_text(line["text"]):
-                return {
-                    "page": line["page"],
-                    "x": line["x"],
-                    "y": line["y"],
-                    "width": line["width"],
-                    "height": line["height"],
-                    "text": line["text"]
-                }
+                return make_bbox(line), idx
         
-        return None
+        return None, None
     
     def _normalize_text(self, text: str) -> str:
         """Normalize text for comparison (remove punctuation, lowercase)."""

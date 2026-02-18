@@ -25,6 +25,8 @@ import { DeploymentView } from "@/components/workspace/DeploymentView";
 import { APIManagement } from "@/components/workspace/APIManagement";
 import { ExtractionRunner } from "@/components/workspace/ExtractionRunner";
 import { DataLabellerImproved as DataLabeller } from "@/components/workspace/DataLabellerImproved";
+import { LabelsView } from "@/components/workspace/LabelsView";
+import { EvaluateView } from "@/components/workspace/EvaluateView";
 
 interface Project {
   id: string;
@@ -43,6 +45,8 @@ export default function ProjectWorkspace() {
     "documents",
     "extraction",
     "labeller",
+    "labels",
+    "evaluate",
     "api",
     "deployment",
   ]);
@@ -227,6 +231,18 @@ export default function ProjectWorkspace() {
               >
                 Data Labeller
               </TabsTrigger>
+              <TabsTrigger
+                value="labels"
+                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
+              >
+                Labels
+              </TabsTrigger>
+              <TabsTrigger
+                value="evaluate"
+                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
+              >
+                Evaluate
+              </TabsTrigger>
               <TabsTrigger 
                 value="api" 
                 className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
@@ -254,6 +270,12 @@ export default function ProjectWorkspace() {
             </TabsContent>
             <TabsContent value="labeller" className="h-full m-0 p-6 overflow-hidden">
               <DataLabeller />
+            </TabsContent>
+            <TabsContent value="labels" className="h-full m-0 p-6 overflow-auto">
+              <LabelsView />
+            </TabsContent>
+            <TabsContent value="evaluate" className="h-full m-0 p-6 overflow-auto">
+              <EvaluateView />
             </TabsContent>
             <TabsContent value="api" className="h-full m-0 p-6 overflow-auto">
               <APIManagement />

@@ -89,6 +89,7 @@ export interface DocumentSummary {
   created_at: string;
   chunk_count: number;
   token_count?: number;
+  document_type?: DocumentType;
 }
 
 export interface IngestResponse {
@@ -513,6 +514,108 @@ export interface SampleDocument {
   is_sample: boolean;
 }
 
+// Evaluation interfaces
+export type MatchType = 'exact' | 'normalized' | 'fuzzy' | 'semantic' | 'no_match';
+
+export interface MatchResult {
+  is_match: boolean;
+  match_type: MatchType;
+  confidence: number;
+  reason?: string;
+}
+
+export interface FieldComparison {
+  field_name: string;
+  ground_truth_value: any;
+  predicted_value: any;
+  match_result: MatchResult;
+  instance_num?: number;
+}
+
+export interface InstanceComparison {
+  parent_field: string;
+  instance_num: number;
+  gt_instance_num?: number;
+  pred_instance_num?: number;
+  field_comparisons: FieldComparison[];
+  is_matched: boolean;
+  match_score: number;
+}
+
+export interface FlattenedMetrics {
+  total_fields: number;
+  correct_fields: number;
+  incorrect_fields: number;
+  missing_fields: number;
+  extra_fields: number;
+  accuracy: number;
+  precision: number;
+  recall: number;
+  f1_score: number;
+  match_type_distribution: Record<string, number>;
+}
+
+export interface InstanceMetrics {
+  total_instances: number;
+  matched_instances: number;
+  missing_instances: number;
+  extra_instances: number;
+  instance_match_rate: number;
+  avg_field_accuracy_in_matched: number;
+  instance_precision: number;
+  instance_recall: number;
+  instance_f1_score: number;
+}
+
+export interface FieldMetrics {
+  field_name: string;
+  total_occurrences: number;
+  correct_predictions: number;
+  incorrect_predictions: number;
+  missing_predictions: number;
+  accuracy: number;
+  precision: number;
+  recall: number;
+  avg_confidence: number;
+  match_type_distribution: Record<string, number>;
+}
+
+export interface EvaluationMetrics {
+  flattened: FlattenedMetrics;
+  instance_metrics: Record<string, InstanceMetrics>;
+  field_metrics: Record<string, FieldMetrics>;
+}
+
+export interface EvaluationResult {
+  document_id: string;
+  metrics: EvaluationMetrics;
+  field_comparisons: FieldComparison[];
+  instance_comparisons: Record<string, InstanceComparison[]>;
+  extraction_time_ms?: number;
+  evaluation_time_ms?: number;
+}
+
+export interface EvaluationRun {
+  id: string;
+  document_id: string;
+  project_id?: string;
+  result: EvaluationResult;
+  notes?: string;
+  evaluated_at: string;
+}
+
+export interface EvaluationSummary {
+  project_id?: string;
+  total_evaluations: number;
+  total_documents: number;
+  avg_accuracy: number;
+  avg_precision: number;
+  avg_recall: number;
+  avg_f1_score: number;
+  field_performance: Record<string, FieldMetrics>;
+  match_type_distribution: Record<string, number>;
+}
+
 // ============================================================================
 // API Client
 // ============================================================================
@@ -534,21 +637,41 @@ class ApiClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
+    console.log('[API] request() called:', { url, method: options.method || 'GET' });
     
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-    });
+    // Add timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      console.log('[API] Request timeout after 60s');
+      controller.abort();
+    }, 60000);
+    
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`API Error ${response.status}: ${errorText}`);
+      clearTimeout(timeoutId);
+      console.log('[API] Response received:', { status: response.status, ok: response.ok });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API Error ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log('[API] Response data:', data);
+      return data;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      console.error('[API] Request failed:', error);
+      throw error;
     }
-
-    return response.json();
   }
 
   // Health
@@ -880,12 +1003,6 @@ class ApiClient {
     });
   }
 
-  async deleteEvaluation(evaluationId: string): Promise<{ message: string }> {
-    return this.request(`${API_PREFIX}/evaluation/results/${evaluationId}`, {
-      method: 'DELETE',
-    });
-  }
-
   async listFieldPromptVersions(
     documentTypeId: string,
     fieldName?: string,
@@ -1033,6 +1150,74 @@ class ApiClient {
   async rejectAnnotation(annotationId: string): Promise<{ status: string; annotation_id: string }> {
     return this.request(`${API_PREFIX}/annotations/${annotationId}/reject`, {
       method: 'POST',
+    });
+  }
+
+  // Evaluation endpoints
+  async runEvaluation(documentId: string, projectId?: string, runExtraction: boolean = true, notes?: string): Promise<{ run: EvaluationRun }> {
+    console.log('[API] runEvaluation called:', { documentId, projectId, runExtraction });
+    
+    // Queue the evaluation task
+    const queueResult = await this.request<{ status: string; task_id: string; message: string }>(`${API_PREFIX}/evaluation/run`, {
+      method: 'POST',
+      body: JSON.stringify({
+        document_id: documentId,
+        project_id: projectId,
+        run_extraction: runExtraction,
+        notes,
+      }),
+    });
+    
+    console.log('[API] Evaluation queued:', queueResult);
+    
+    // Poll for task completion
+    const taskId = queueResult.task_id;
+    let attempts = 0;
+    const maxAttempts = 600; // 10 minutes with 1 second intervals
+    
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+      
+      const taskStatus = await this.request<{ status: string; task_id: string; evaluation_id?: string; error?: string }>(`${API_PREFIX}/evaluation/task/${taskId}`);
+      console.log('[API] Task status:', taskStatus);
+      
+      if (taskStatus.status === 'completed' && taskStatus.evaluation_id) {
+        // Fetch the evaluation details
+        return this.getEvaluationDetails(taskStatus.evaluation_id);
+      } else if (taskStatus.status === 'failed') {
+        throw new Error(taskStatus.error || 'Evaluation failed');
+      }
+      
+      attempts++;
+    }
+    
+    throw new Error('Evaluation timed out after 2 minutes');
+  }
+
+  async listEvaluations(projectId?: string, documentId?: string, limit: number = 50, offset: number = 0): Promise<{ runs: EvaluationRun[]; total: number }> {
+    const params = new URLSearchParams();
+    if (projectId) params.append('project_id', projectId);
+    if (documentId) params.append('document_id', documentId);
+    params.append('limit', limit.toString());
+    params.append('offset', offset.toString());
+    
+    return this.request(`${API_PREFIX}/evaluation/results?${params}`);
+  }
+
+  async getEvaluationDetails(evaluationId: string): Promise<{ run: EvaluationRun }> {
+    return this.request(`${API_PREFIX}/evaluation/results/${evaluationId}`);
+  }
+
+  async getEvaluationSummary(projectId?: string): Promise<EvaluationSummary> {
+    const params = new URLSearchParams();
+    if (projectId) params.append('project_id', projectId);
+    
+    return this.request(`${API_PREFIX}/evaluation/summary?${params}`);
+  }
+
+  async deleteEvaluation(evaluationId: string): Promise<{ status: string; id: string }> {
+    return this.request(`${API_PREFIX}/evaluation/results/${evaluationId}/delete`, {
+      method: 'DELETE',
     });
   }
 

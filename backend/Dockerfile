@@ -54,4 +54,4 @@ ENV CHROMA_PERSIST_DIRECTORY=/app/data/chroma
 EXPOSE 8000
 
 # Run migrations then start the application
-CMD ["sh", "-c", "uv run python manage.py migrate && uv run uvicorn uu_backend.asgi_dispatcher:application --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "uv run python manage.py migrate && uv run uvicorn uu_backend.asgi_dispatcher:application --host 0.0.0.0 --port 8000 --workers 4"]
