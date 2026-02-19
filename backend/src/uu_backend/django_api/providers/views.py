@@ -282,13 +282,13 @@ class OpenAIProviderModelTestView(APIView):
                 client.responses.create(
                     model=model_id,
                     input="Reply with OK",
-                    max_output_tokens=12,
+                    max_output_tokens=120,
                 )
             except Exception:
                 client.chat.completions.create(
                     model=model_id,
                     messages=[{"role": "user", "content": "Reply with OK"}],
-                    max_completion_tokens=12,
+                    max_completion_tokens=300,
                 )
 
             repository.update_llm_provider_test_status("openai", "connected")

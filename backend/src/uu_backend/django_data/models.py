@@ -18,6 +18,10 @@ class DocumentModel(models.Model):
     azure_di_analysis = models.JSONField(blank=True, null=True)  # Cached Azure DI analysis results
     azure_di_status = models.CharField(max_length=20, default="pending")  # pending, processing, completed, failed
     
+    # Contextual retrieval indexing status
+    retrieval_index_status = models.CharField(max_length=20, default="pending")  # pending, processing, completed, failed
+    retrieval_chunks_count = models.IntegerField(blank=True, null=True)
+    
     # Metadata fields
     page_count = models.IntegerField(blank=True, null=True)
     word_count = models.IntegerField(blank=True, null=True)

@@ -265,7 +265,7 @@ Respond with a JSON object:
     "reason": "brief explanation"
 }}"""
             
-            result_data = self.openai_client.complete_json(prompt=prompt, max_tokens=500)
+            result_data = self.openai_client.complete_json(prompt=prompt, max_completion_tokens=500)
             
             result = MatchResult(
                 is_match=result_data.get("is_match", False),

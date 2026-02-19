@@ -43,6 +43,8 @@ env/
 # UV
 # =============================================================================
 .uv/
+*.pkl
+*.bin
 
 # =============================================================================
 # IDE
@@ -105,3 +107,5 @@ docker-compose.override.yml
 *.tmp
 *.temp
 *.bak
+data/chroma_test/8b2f5133-36ec-448d-8592-6a83e9f442d2/header.bin
+data/chroma_test/chroma.sqlite3

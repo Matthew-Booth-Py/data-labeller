@@ -34,6 +34,13 @@ dependencies = [
     "reportlab>=4.0.0",
     "pyyaml>=6.0.0",
     "ipykernel>=7.2.0",
+    "python-dotenv>=1.2.1",
+    "langchain-text-splitters>=0.2.0",
+    "rank-bm25>=0.2.2",
+    "chromadb>=0.4.0",
+    "nest-asyncio>=1.6.0",
+    "tenacity>=8.2.0",
+    "cohere>=5.20.6",
 ]
 
 [project.optional-dependencies]

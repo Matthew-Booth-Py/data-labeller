@@ -12,4 +12,5 @@ urlpatterns = [
     path("", include("uu_backend.django_api.deployments.urls")),
     path("", include("uu_backend.django_api.annotations.urls")),
     path("", include("uu_backend.django_api.evaluation.urls")),
+    path("", include("uu_backend.django_api.retrieval.urls")),
 ]

@@ -25,7 +25,7 @@ class OpenAIClient:
         self,
         prompt: str,
         system_prompt: str | None = None,
-        max_tokens: int = 20_000,
+        max_completion_tokens: int = 20_000,
     ) -> str:
         """Generate a completion from the model."""
         messages = []
@@ -38,7 +38,7 @@ class OpenAIClient:
         response = self._client.chat.completions.create(
             model=self._model,
             messages=messages,
-            **completion_token_options_for_model(self._model, max_tokens),
+            **completion_token_options_for_model(self._model, max_completion_tokens),
             **reasoning_options_for_model(self._model),
         )
 
@@ -48,7 +48,7 @@ class OpenAIClient:
         self,
         prompt: str,
         system_prompt: str | None = None,
-        max_tokens: int = 4000,
+        max_completion_tokens: int = 4000,
     ) -> dict[str, Any]:
         """Generate a JSON completion from the model."""
         messages = []
@@ -61,7 +61,7 @@ class OpenAIClient:
         response = self._client.chat.completions.create(
             model=self._model,
             messages=messages,
-            **completion_token_options_for_model(self._model, max_tokens),
+            **completion_token_options_for_model(self._model, max_completion_tokens),
             response_format={"type": "json_object"},
             **reasoning_options_for_model(self._model),
         )

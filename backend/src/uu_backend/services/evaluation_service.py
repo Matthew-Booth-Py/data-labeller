@@ -212,7 +212,7 @@ class EvaluationService:
                     executor,
                     self.openai_client.complete_json,
                     prompt,
-                    4000  # max_tokens
+                    4000  # max_completion_tokens
                 )
             
             return result.get("evaluations", {})
