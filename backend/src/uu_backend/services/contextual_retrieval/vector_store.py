@@ -87,6 +87,7 @@ class ChromaVectorStore:
                         "chunk_index": chunk.index,
                         "original_text": chunk.original_text[:1000],
                         "context": chunk.context,
+                        "page_summary": chunk.page_summary[:500] if chunk.page_summary else "",
                         **{k: str(v) for k, v in chunk.metadata.items()},
                     }
                     for chunk in doc_chunks_list

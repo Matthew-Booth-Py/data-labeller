@@ -543,13 +543,21 @@ Extract all fields according to the schema. Return null for fields that cannot b
             )
             
             field_pages = set()
-            for result in results:
-                if result.score >= min_score:
-                    page_num = result.metadata.get('page_number')
-                    if page_num:
-                        page_num_int = int(page_num) if isinstance(page_num, str) else page_num
-                        field_pages.add(page_num_int)
-                        all_page_numbers.add(page_num_int)
+            # Only use the top result (highest score)
+            if results and results[0].score >= min_score:
+                result = results[0]
+                page_num = result.metadata.get('page_number')
+                if page_num:
+                    page_num_int = int(page_num) if isinstance(page_num, str) else page_num
+                    field_pages.add(page_num_int)
+                    all_page_numbers.add(page_num_int)
+                    
+                    page_summary = result.metadata.get('page_summary', '')
+                    if page_summary:
+                        logger.debug(
+                            f"Selected page {page_num_int} for field '{field.name}' "
+                            f"(score={result.score:.3f}): {page_summary[:100]}"
+                        )
             
             field_page_map[field.name] = field_pages
             print(f"  {field.name}: pages {sorted(field_pages) if field_pages else '(none)'}")

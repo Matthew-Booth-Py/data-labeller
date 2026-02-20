@@ -9,6 +9,7 @@ from .chunker import DocumentChunker, PageAwareChunker
 from .contextualizer import ChunkContextualizer
 from .embedder import OpenAIEmbedder
 from .models import ContextualizedChunk, SearchResult
+from .page_summarizer import PageSummarizer
 from .reranker import AzureCohereReranker, NoReranker
 from .retriever import HybridRetriever
 from .vector_store import ChromaVectorStore
@@ -59,6 +60,9 @@ class ContextualRetrievalService:
         context_model = os.getenv("CONTEXT_MODEL", context_model)
         self.contextualizer = ChunkContextualizer(model=context_model)
         
+        summary_model = os.getenv("SUMMARY_MODEL", context_model)
+        self.page_summarizer = PageSummarizer(model=summary_model)
+        
         self.embedder = OpenAIEmbedder(model=embedding_model)
         
         self.vector_store = ChromaVectorStore(
@@ -94,9 +98,11 @@ class ContextualRetrievalService:
         
         Pipeline:
         1. Chunk the document
-        2. Generate context for each chunk
-        3. Generate embeddings
-        4. Store in vector DB and BM25 index
+        2. Generate page summaries for each chunk
+        3. Generate context for each chunk
+        4. Merge summaries into contextualized chunks
+        5. Generate embeddings
+        6. Store in vector DB and BM25 index
         
         Args:
             document_id: Unique identifier for the document
@@ -120,6 +126,21 @@ class ContextualRetrievalService:
             return 0
 
         logger.info(f"Generated {len(chunks)} chunks for document {document_id}")
+        
+        if progress_callback:
+            progress_callback("summarizing", 0, len(chunks))
+
+        def summary_progress(current: int, total: int) -> None:
+            if progress_callback:
+                progress_callback("summarizing", current, total)
+
+        # Generate page summaries
+        page_summaries = self.page_summarizer.summarize_pages_async(
+            chunks=chunks,
+            progress_callback=summary_progress,
+        )
+        
+        logger.info(f"Generated {len(page_summaries)} page summaries")
         
         if progress_callback:
             progress_callback("contextualizing", 0, len(chunks))
@@ -146,6 +167,13 @@ class ContextualRetrievalService:
         )
         
         logger.info(f"Contextualized {len(contextualized)} chunks")
+        
+        # Merge page summaries into contextualized chunks
+        for chunk, summary in zip(contextualized, page_summaries):
+            chunk.page_summary = summary
+            chunk.contextualized_text = f"{summary}\n\n{chunk.context}\n\n{chunk.original_text}"
+        
+        logger.info(f"Merged page summaries into contextualized chunks")
         
         if progress_callback:
             progress_callback("embedding", 0, len(contextualized))

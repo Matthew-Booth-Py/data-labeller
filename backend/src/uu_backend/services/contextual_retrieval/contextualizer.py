@@ -219,6 +219,7 @@ class ChunkContextualizer:
             index=chunk.index,
             original_text=chunk.text,
             context=context,
+            page_summary="",
             contextualized_text=f"{context}\n\n{chunk.text}",
             metadata=chunk.metadata,
         )
@@ -244,6 +245,7 @@ class ChunkContextualizer:
                 index=chunk.index,
                 original_text=chunk.text,
                 context=context,
+                page_summary="",
                 contextualized_text=f"{context}\n\n{chunk.text}",
                 metadata=chunk.metadata,
             )

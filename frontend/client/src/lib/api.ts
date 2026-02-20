@@ -598,12 +598,12 @@ class ApiClient {
     const url = `${this.baseUrl}${endpoint}`;
     console.log('[API] request() called:', { url, method: options.method || 'GET' });
     
-    // Add timeout
+    // Add timeout (3 minutes for vision-based extraction)
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      console.log('[API] Request timeout after 60s');
+      console.log('[API] Request timeout after 180s');
       controller.abort();
-    }, 60000);
+    }, 180000);
     
     try {
       const response = await fetch(url, {
@@ -872,10 +872,11 @@ class ApiClient {
     documentId: string,
     useLlm: boolean = true,
     useStructuredOutput: boolean = false,
-    useRetrieval: boolean = false
+    useRetrieval: boolean = false,
+    useRetrievalVision: boolean = false
   ): Promise<ExtractionResult> {
     return this.request(
-      `${API_PREFIX}/documents/${documentId}/extract?use_llm=${useLlm}&use_structured_output=${useStructuredOutput}&use_retrieval=${useRetrieval}`,
+      `${API_PREFIX}/documents/${documentId}/extract?use_llm=${useLlm}&use_structured_output=${useStructuredOutput}&use_retrieval=${useRetrieval}&use_retrieval_vision=${useRetrievalVision}`,
       {
       method: 'POST',
       }

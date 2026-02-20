@@ -506,10 +506,8 @@ class ExtractDocumentView(APIView):
         service = get_extraction_service()
 
         try:
-            if use_retrieval_vision:
+            if use_retrieval_vision or use_retrieval:
                 result = service.extract_structured_with_retrieval_vision(document_id)
-            elif use_retrieval:
-                result = service.extract_structured_with_retrieval(document_id)
             elif use_structured_output:
                 result = service.extract_structured(document_id)
             else:

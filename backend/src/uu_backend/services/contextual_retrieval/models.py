@@ -22,6 +22,7 @@ class ContextualizedChunk:
     index: int
     original_text: str
     context: str
+    page_summary: str
     contextualized_text: str
     metadata: dict[str, Any] = field(default_factory=dict)
 
