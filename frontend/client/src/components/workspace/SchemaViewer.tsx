@@ -428,7 +428,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   const [editedProperties, setEditedProperties] = useState<NestedProperty[]>([]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [postProcessing, setPostProcessing] = useState("");
-  const [extractionModel, setExtractionModel] = useState("gpt-5-mini");
   const [ocrEngine, setOcrEngine] = useState("azure-di-prebuilt");
   
   // State for adding field
@@ -480,11 +479,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     enabled: !!selectedTypeId && !!editingField,
   });
 
-  const { data: providerModelsData } = useQuery({
-    queryKey: ["provider-models", "openai", "enabled"],
-    queryFn: () => api.listOpenAIProviderModels(true),
-  });
-
   useEffect(() => {
     if (!editingField) return;
     const versions = fieldPromptVersionsData?.field_prompt_versions || [];
@@ -527,7 +521,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       if (currentType && currentType.schema_version_id !== lastSyncedSchemaVersionId) {
         setSystemPrompt(currentType.system_prompt || "");
         setPostProcessing(currentType.post_processing || "");
-        setExtractionModel(currentType.extraction_model || "gpt-5-mini");
         setOcrEngine(currentType.ocr_engine || "azure-di-prebuilt");
         setLastSyncedSchemaVersionId(currentType.schema_version_id || null);
       }
@@ -550,7 +543,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     const nextType = availableTypes.find((type) => type.id === nextTypeId);
     setSystemPrompt(nextType?.system_prompt || "");
     setPostProcessing(nextType?.post_processing || "");
-    setExtractionModel(nextType?.extraction_model || "gpt-5-mini");
     setOcrEngine(nextType?.ocr_engine || "azure-di-prebuilt");
     setLastSyncedSchemaVersionId(nextType?.schema_version_id || null);
   }, [typesData, selectedTypeId, selectedTypeStorageKey, lastSyncedSchemaVersionId]);
@@ -562,7 +554,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     if (type) {
       setSystemPrompt(type.system_prompt || "");
       setPostProcessing(type.post_processing || "");
-      setExtractionModel(type.extraction_model || "gpt-5-mini");
       setOcrEngine(type.ocr_engine || "azure-di-prebuilt");
       setLastSyncedSchemaVersionId(type.schema_version_id || null);
     }
@@ -577,7 +568,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       setSelectedType(result.type.id);
       setSystemPrompt(result.type.system_prompt || "");
       setPostProcessing(result.type.post_processing || "");
-      setExtractionModel(result.type.extraction_model || "gpt-5-mini");
       setOcrEngine(result.type.ocr_engine || "azure-di-prebuilt");
       setLastSyncedSchemaVersionId(result.type.schema_version_id || null);
       setIsCreating(false);
@@ -601,7 +591,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       if (result.type && result.type.id === selectedTypeId) {
         setSystemPrompt(result.type.system_prompt || "");
         setPostProcessing(result.type.post_processing || "");
-        setExtractionModel(result.type.extraction_model || "gpt-5-mini");
         setOcrEngine(result.type.ocr_engine || "azure-di-prebuilt");
         setLastSyncedSchemaVersionId(result.type.schema_version_id || null);
       }
@@ -733,7 +722,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       data: {
         system_prompt: systemPrompt,
         post_processing: postProcessing,
-        extraction_model: extractionModel,
         ocr_engine: ocrEngine,
       },
     });
@@ -1091,41 +1079,17 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] uppercase font-bold text-muted-foreground">Model Choice</label>
-                    <Select value={extractionModel} onValueChange={setExtractionModel}>
-                      <SelectTrigger className="h-8 text-xs bg-background">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {!providerModelsData?.models?.length && (
-                          <SelectItem value={extractionModel}>{extractionModel}</SelectItem>
-                        )}
-                        {providerModelsData?.models?.length &&
-                          !providerModelsData.models.some((model) => model.model_id === extractionModel) && (
-                            <SelectItem value={extractionModel}>{extractionModel}</SelectItem>
-                          )}
-                        {(providerModelsData?.models || []).map((model) => (
-                          <SelectItem key={model.model_id} value={model.model_id}>
-                            {model.display_name || model.model_id}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] uppercase font-bold text-muted-foreground">OCR Engine</label>
-                    <Select value={ocrEngine} onValueChange={setOcrEngine}>
-                      <SelectTrigger className="h-8 text-xs bg-background">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="azure-di-prebuilt">Azure DI Prebuilt</SelectItem>
-                        <SelectItem value="aws-textract">AWS Textract</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold text-muted-foreground">OCR Engine</label>
+                  <Select value={ocrEngine} onValueChange={setOcrEngine}>
+                    <SelectTrigger className="h-8 text-xs bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="azure-di-prebuilt">Azure DI Prebuilt</SelectItem>
+                      <SelectItem value="aws-textract">AWS Textract</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </CardContent>
             </Card>

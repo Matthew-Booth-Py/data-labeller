@@ -1,9 +1,12 @@
 """OpenAI embeddings for contextual retrieval."""
 
+import logging
 import os
 from typing import Sequence
 
-from openai import OpenAI
+from openai import OpenAI, AzureOpenAI
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIEmbedder:
@@ -12,6 +15,8 @@ class OpenAIEmbedder:
     
     Default model is text-embedding-3-small which offers good performance
     at lower cost. Use text-embedding-3-large for higher quality.
+    
+    Supports both OpenAI and Azure OpenAI.
     """
 
     def __init__(
@@ -22,7 +27,29 @@ class OpenAIEmbedder:
     ):
         self.model = model
         self.batch_size = batch_size
-        self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
+        
+        # Check if using Azure OpenAI or regular OpenAI
+        use_azure = os.getenv("USE_AZURE_OPENAI", "false").lower() == "true"
+        
+        if use_azure:
+            azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+            azure_api_key = api_key or os.getenv("AZURE_OPENAI_API_KEY")
+            azure_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+            
+            if not azure_endpoint or not azure_api_key:
+                raise ValueError(
+                    "Azure OpenAI enabled but missing AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_API_KEY"
+                )
+            
+            logger.info(f"Using Azure OpenAI for embeddings: {azure_endpoint}")
+            self.client = AzureOpenAI(
+                api_version=azure_api_version,
+                azure_endpoint=azure_endpoint,
+                api_key=azure_api_key,
+            )
+        else:
+            logger.info("Using OpenAI for embeddings")
+            self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
         
         self._dimensions = {
             "text-embedding-3-small": 1536,

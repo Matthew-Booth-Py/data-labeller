@@ -10,11 +10,12 @@ from typing import Any, Optional
 from uuid import uuid4
 from pathlib import Path
 
-from openai import OpenAI
+from django.utils import timezone
 
 from uu_backend.config import get_settings
 from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.llm.options import reasoning_options_for_model
+from uu_backend.llm.openai_client import get_openai_client
 from uu_backend.models.taxonomy import ExtractedField, ExtractionResult, SchemaField
 from uu_backend.repositories import get_repository
 from uu_backend.services.schema_generator import generate_pydantic_schema, schema_to_json_schema
@@ -33,7 +34,8 @@ class ExtractionService:
     """Service for extracting structured data from document annotations."""
 
     def __init__(self):
-        self.client = OpenAI()
+        openai_client = get_openai_client()
+        self.client = openai_client._client
         settings = get_settings()
         self.model = settings.openai_tagging_model or settings.openai_model
         self._raw_guardrails = (
@@ -215,7 +217,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
                 fields=extracted_fields,
                 schema_version_id=doc_type.schema_version_id,
                 prompt_version_id=prompt_version_id,
-                extracted_at=datetime.utcnow()
+                extracted_at=timezone.now()
             )
             
             # Save extraction result
@@ -238,6 +240,200 @@ Extract all fields accurately from the document. Pay special attention to:
 - Arrays: Include all items found in the document
 
 If a field cannot be found, return null. Do not make up data."""
+
+    def extract_structured_with_retrieval(
+        self,
+        document_id: str,
+        prompt_version_id: Optional[str] = None,
+        top_k_per_field: int = 5,
+    ) -> ExtractionResult:
+        """
+        Extract structured data using per-field retrieval from the contextual index.
+        
+        For each schema field:
+        1. Build a search query from field name + description + extraction_prompt
+        2. Retrieve top-k relevant chunks from the document's index
+        3. Use retrieved chunks as context for extraction
+        
+        Args:
+            document_id: The document to extract from
+            prompt_version_id: Optional prompt version to use
+            top_k_per_field: Number of chunks to retrieve per field
+            
+        Returns:
+            ExtractionResult with extracted field values
+        """
+        from uu_backend.services.contextual_retrieval import get_contextual_retrieval_service
+        
+        repository = get_repository()
+        document_repo = get_document_repository()
+        
+        # Get document
+        document = document_repo.get_document(document_id)
+        if not document:
+            raise ValueError(f"Document {document_id} not found")
+        
+        # Get classification
+        classification = repository.get_classification(document_id)
+        if not classification:
+            raise ValueError(f"Document {document_id} is not classified. Please classify first.")
+        
+        # Get document type with schema
+        doc_type = repository.get_document_type(classification.document_type_id)
+        if not doc_type:
+            raise ValueError(f"Document type {classification.document_type_id} not found")
+        
+        if not doc_type.schema_fields:
+            raise ValueError(f"Document type '{doc_type.name}' has no schema fields defined")
+
+        effective_schema_fields = self._apply_active_field_prompt_versions(
+            doc_type.id,
+            doc_type.schema_fields,
+        )
+        
+        # Generate Pydantic schema from field definitions
+        ExtractionModel = generate_pydantic_schema(
+            effective_schema_fields,
+            model_name=f"{doc_type.name.replace(' ', '')}Extraction"
+        )
+        
+        # Get retrieval service
+        retrieval_service = get_contextual_retrieval_service()
+        
+        # Build search queries for each field and retrieve relevant chunks
+        all_chunks = {}
+        for field in effective_schema_fields:
+            query = self._build_field_query(field)
+            results = retrieval_service.search(
+                query=query,
+                top_k=top_k_per_field,
+                filter_doc_id=document_id,
+                use_reranking=True,
+            )
+            all_chunks[field.name] = results
+        
+        # Deduplicate chunks and build context
+        seen_chunk_ids = set()
+        unique_chunks = []
+        for field_name, results in all_chunks.items():
+            for result in results:
+                chunk_id = f"{result.doc_id}_{result.chunk_index}"
+                if chunk_id not in seen_chunk_ids:
+                    seen_chunk_ids.add(chunk_id)
+                    unique_chunks.append(result)
+        
+        # Sort by score and take top chunks
+        unique_chunks.sort(key=lambda r: r.score, reverse=True)
+        top_chunks = unique_chunks[:20]  # Limit total context
+        
+        # Build context from retrieved chunks
+        context_parts = []
+        for i, chunk in enumerate(top_chunks):
+            context_parts.append(f"[Source {i+1}]\n{chunk.original_text}")
+        context = "\n\n".join(context_parts)
+        
+        # Get prompt
+        system_prompt = doc_type.system_prompt or self._get_default_extraction_prompt(doc_type)
+        system_prompt = f"{system_prompt}\n\n{self._raw_guardrails}"
+        model_name = doc_type.extraction_model or self.model
+
+        if prompt_version_id:
+            prompt_version = repository.get_prompt_version(prompt_version_id)
+            if prompt_version:
+                system_prompt = f"{prompt_version.system_prompt}\n\n{self._raw_guardrails}"
+        
+        user_prompt = f"""Extract structured data from the following document excerpts.
+
+Document Type: {doc_type.name}
+Filename: {document.filename}
+
+Relevant Document Excerpts:
+{context}
+
+Extract all fields according to the schema. Return null for fields that cannot be found in the excerpts."""
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        print(f"\n{'='*60}")
+        print("RETRIEVAL-AUGMENTED EXTRACTION")
+        print(f"{'='*60}")
+        print(f"Document: {document.filename}")
+        print(f"Type: {doc_type.name}")
+        print(f"Model: {model_name}")
+        print(f"Fields: {[f.name for f in effective_schema_fields]}")
+        print(f"Retrieved chunks: {len(top_chunks)}")
+        print(f"Context length: {len(context)} chars")
+        print(f"{'='*60}\n")
+        
+        logger.info(
+            f"Retrieval extraction started - Document: {document.filename}, "
+            f"Model: {model_name}, Chunks: {len(top_chunks)}"
+        )
+
+        try:
+            response = self.client.beta.chat.completions.parse(
+                model=model_name,
+                messages=messages,
+                response_format=ExtractionModel,
+            )
+            
+            extracted_data = response.choices[0].message.parsed
+            
+            print(f"Extracted: {extracted_data.model_dump()}")
+            
+            # Convert to ExtractedField objects
+            extracted_fields = []
+            for field in effective_schema_fields:
+                value = getattr(extracted_data, field.name, None)
+                if value is not None:
+                    if hasattr(value, 'model_dump'):
+                        value = value.model_dump()
+                    elif isinstance(value, list) and value and hasattr(value[0], 'model_dump'):
+                        value = [item.model_dump() for item in value]
+                    
+                    # Find source text from retrieved chunks for this field
+                    source_chunks = all_chunks.get(field.name, [])
+                    source_text = source_chunks[0].original_text[:200] if source_chunks else None
+                    
+                    extracted_fields.append(ExtractedField(
+                        field_name=field.name,
+                        value=value,
+                        confidence=0.90,  # Slightly lower than full-doc extraction
+                        source_text=source_text
+                    ))
+            
+            result = ExtractionResult(
+                document_id=document_id,
+                document_type_id=doc_type.id,
+                fields=extracted_fields,
+                schema_version_id=doc_type.schema_version_id,
+                prompt_version_id=prompt_version_id,
+                extracted_at=timezone.now()
+            )
+            
+            # Save extraction result
+            self._save_extraction(result)
+            
+            return result
+            
+        except Exception as e:
+            print(f"Retrieval extraction error: {e}")
+            raise ValueError(f"Extraction failed: {str(e)}")
+
+    def _build_field_query(self, field: SchemaField) -> str:
+        """Build a search query for a schema field."""
+        parts = [field.name]
+        
+        if field.description:
+            parts.append(field.description)
+        
+        if field.extraction_prompt:
+            parts.append(field.extraction_prompt)
+        
+        return " ".join(parts)
 
     def extract_structured_from_snapshot(
         self,

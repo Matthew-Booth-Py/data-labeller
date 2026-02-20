@@ -65,11 +65,17 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Fetch documents from API
+  // Fetch documents from API with polling when documents are being indexed
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["documents"],
     queryFn: () => api.listDocuments(),
     staleTime: 0, // Always refetch when invalidated to show latest classification
+    refetchInterval: (query) => {
+      // Poll every 3s while any document is being indexed
+      const docs = query.state.data?.documents;
+      const hasIndexing = docs?.some(doc => doc.retrieval_index_status === 'processing');
+      return hasIndexing ? 3000 : false;
+    },
   });
 
 
@@ -349,6 +355,27 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
     onError: (error: Error) => {
       toast({
         title: "Reindex failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Reindex Retrieval mutation
+  const reindexRetrievalMutation = useMutation({
+    mutationFn: async (documentId: string) => {
+      return api.reindexDocumentRetrieval(documentId);
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Retrieval indexing queued",
+        description: "Contextual retrieval indexing has been queued for this document.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Retrieval indexing failed",
         description: error.message,
         variant: "destructive",
       });
@@ -982,6 +1009,72 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                   </TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-2">
+                      {/* Retrieval status badge */}
+                      {doc.retrieval_index_status === 'completed' && doc.retrieval_chunks_count != null && (
+                        <Badge variant="secondary" className="text-xs gap-1">
+                          <Network className="h-3 w-3" />
+                          {doc.retrieval_chunks_count} chunks
+                        </Badge>
+                      )}
+                      {doc.retrieval_index_status === 'processing' && (
+                        <Badge variant="outline" className="text-xs gap-1.5 border-primary/50 bg-primary/10 px-2 py-1">
+                          {doc.retrieval_index_total && doc.retrieval_index_total > 0 ? (
+                            <>
+                              <div className="relative h-4 w-4 flex items-center justify-center">
+                                <svg className="h-4 w-4 -rotate-90">
+                                  <circle
+                                    cx="8"
+                                    cy="8"
+                                    r="6"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    className="text-primary/20"
+                                  />
+                                  <circle
+                                    cx="8"
+                                    cy="8"
+                                    r="6"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeDasharray={`${((doc.retrieval_index_progress || 0) / doc.retrieval_index_total) * 37.7} 37.7`}
+                                    className="text-primary transition-all duration-300"
+                                  />
+                                </svg>
+                              </div>
+                              <span className="text-primary font-medium">
+                                {doc.retrieval_index_progress}/{doc.retrieval_index_total}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                              <span className="text-primary">Starting...</span>
+                            </>
+                          )}
+                        </Badge>
+                      )}
+                      {doc.retrieval_index_status === 'failed' && (
+                        <Badge variant="destructive" className="text-xs gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          Index Failed
+                        </Badge>
+                      )}
+                      {/* Reindex retrieval button */}
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        className="h-8 gap-1 px-2"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          reindexRetrievalMutation.mutate(doc.id);
+                        }}
+                        disabled={reindexRetrievalMutation.isPending || doc.retrieval_index_status === 'processing'}
+                        title="Reindex for contextual retrieval"
+                      >
+                        <Network className="h-3 w-3" />
+                      </Button>
                       {/* Reindex Azure DI button for PDFs and images */}
                       {['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp'].includes(doc.file_type.toLowerCase()) && (
                         <Button 

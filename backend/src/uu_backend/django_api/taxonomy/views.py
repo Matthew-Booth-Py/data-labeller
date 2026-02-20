@@ -1,16 +1,17 @@
 """DRF views for taxonomy and extraction endpoints."""
 
 import json
+import os
 
 from asgiref.sync import async_to_sync
 from django.db import IntegrityError
-from openai import OpenAI
 from pydantic import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
 from uu_backend.llm.options import reasoning_options_for_model
+from uu_backend.llm.openai_client import get_openai_client
 from uu_backend.models.taxonomy import (
     ClassificationCreate,
     DocumentType,
@@ -220,8 +221,12 @@ class TaxonomyPrefixView(APIView):
             # Use document type's extraction model if available, otherwise fall back to global settings
             model = (doc_type.extraction_model if doc_type and doc_type.extraction_model else None) or settings.openai_tagging_model or settings.openai_model
             print(f"[Field Assistant] Model: {model} | DocType: {doc_type.name if doc_type else 'N/A'} | Input: {parsed.user_input[:50]}...")
+            print(f"[Field Assistant] USE_AZURE_OPENAI: {os.getenv('USE_AZURE_OPENAI')}")
+            print(f"[Field Assistant] AZURE_OPENAI_ENDPOINT: {os.getenv('AZURE_OPENAI_ENDPOINT')}")
             try:
-                response = OpenAI(api_key=settings.openai_api_key).chat.completions.create(
+                openai_client = get_openai_client()
+                print(f"[Field Assistant] Client type: {type(openai_client._client)}")
+                response = openai_client._client.chat.completions.create(
                     model=model,
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -496,10 +501,13 @@ class ExtractDocumentView(APIView):
     def post(self, request, document_id: str):
         use_llm = _bool_query_param(request.query_params.get("use_llm"), default=True)
         use_structured_output = _bool_query_param(request.query_params.get("use_structured_output"), default=False)
+        use_retrieval = _bool_query_param(request.query_params.get("use_retrieval"), default=False)
         service = get_extraction_service()
 
         try:
-            if use_structured_output:
+            if use_retrieval:
+                result = service.extract_structured_with_retrieval(document_id)
+            elif use_structured_output:
                 result = service.extract_structured(document_id)
             else:
                 result = service.extract_from_annotations(document_id, use_llm_refinement=use_llm)

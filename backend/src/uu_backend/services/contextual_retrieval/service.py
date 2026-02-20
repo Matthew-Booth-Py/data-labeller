@@ -45,6 +45,7 @@ class ContextualRetrievalService:
             chunk_overlap=chunk_overlap,
         )
         
+        context_model = os.getenv("CONTEXT_MODEL", context_model)
         self.contextualizer = ChunkContextualizer(model=context_model)
         
         self.embedder = OpenAIEmbedder(model=embedding_model)

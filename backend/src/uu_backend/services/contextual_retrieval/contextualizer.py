@@ -5,7 +5,7 @@ import logging
 import os
 from typing import Callable
 
-from openai import AsyncOpenAI, OpenAI, RateLimitError
+from openai import AsyncOpenAI, AsyncAzureOpenAI, OpenAI, AzureOpenAI, RateLimitError
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -53,18 +53,44 @@ class ChunkContextualizer:
         self,
         model: str = "gpt-5-mini",
         max_completion_tokens: int = 500,
-        max_context_chars: int = 50000,
-        max_concurrency: int = 5,
+        max_context_chars: int = 25_000,
+        max_concurrency: int = 40,  # Optimized for 500K TPM with 4K chunks (~34% utilization)
         api_key: str | None = None,
     ):
         self.model = model
         self.max_completion_tokens = max_completion_tokens
         self.max_context_chars = max_context_chars
-        self.max_concurrency = max_concurrency
+        self.max_concurrency = int(os.getenv("MAX_CONCURRENCY", str(max_concurrency)))
         
-        api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.client = OpenAI(api_key=api_key)
-        self.async_client = AsyncOpenAI(api_key=api_key)
+        # Check if using Azure OpenAI or regular OpenAI
+        use_azure = os.getenv("USE_AZURE_OPENAI", "false").lower() == "true"
+        
+        if use_azure:
+            azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+            azure_api_key = api_key or os.getenv("AZURE_OPENAI_API_KEY")
+            azure_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+            
+            if not azure_endpoint or not azure_api_key:
+                raise ValueError(
+                    "Azure OpenAI enabled but missing AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_API_KEY"
+                )
+            
+            logger.info(f"Using Azure OpenAI: {azure_endpoint}")
+            self.client = AzureOpenAI(
+                api_version=azure_api_version,
+                azure_endpoint=azure_endpoint,
+                api_key=azure_api_key,
+            )
+            self.async_client = AsyncAzureOpenAI(
+                api_version=azure_api_version,
+                azure_endpoint=azure_endpoint,
+                api_key=azure_api_key,
+            )
+        else:
+            logger.info("Using OpenAI")
+            api_key = api_key or os.getenv("OPENAI_API_KEY")
+            self.client = OpenAI(api_key=api_key)
+            self.async_client = AsyncOpenAI(api_key=api_key)
         
         self._cached_doc_excerpt: str | None = None
         self._cached_system_prompt: str | None = None

@@ -21,6 +21,8 @@ class DocumentModel(models.Model):
     # Contextual retrieval indexing status
     retrieval_index_status = models.CharField(max_length=20, default="pending")  # pending, processing, completed, failed
     retrieval_chunks_count = models.IntegerField(blank=True, null=True)
+    retrieval_index_progress = models.IntegerField(blank=True, null=True)  # Current chunk being processed
+    retrieval_index_total = models.IntegerField(blank=True, null=True)  # Total chunks to process
     
     # Metadata fields
     page_count = models.IntegerField(blank=True, null=True)
@@ -44,7 +46,6 @@ class DocumentTypeModel(models.Model):
     schema_fields = models.JSONField(default=list)
     system_prompt = models.TextField(blank=True, null=True)
     post_processing = models.TextField(blank=True, null=True)
-    extraction_model = models.CharField(max_length=128, blank=True, null=True)
     ocr_engine = models.CharField(max_length=128, blank=True, null=True)
     schema_version_id = models.CharField(max_length=64, blank=True, null=True)
     created_at = models.DateTimeField()
@@ -132,7 +133,6 @@ class SchemaVersionModel(models.Model):
     schema_fields = models.JSONField(default=list)
     system_prompt = models.TextField(blank=True, null=True)
     post_processing = models.TextField(blank=True, null=True)
-    extraction_model = models.TextField(blank=True, null=True)
     ocr_engine = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField()
     created_by = models.TextField(blank=True, null=True)
@@ -172,6 +172,7 @@ class DeploymentVersionModel(models.Model):
 class LLMProviderSettingsModel(models.Model):
     provider = models.TextField(primary_key=True)
     api_key_override = models.TextField(blank=True, null=True)
+    endpoint_override = models.TextField(blank=True, null=True)
     last_test_status = models.TextField(default="unknown")
     last_tested_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField()
@@ -205,7 +206,6 @@ class GlobalFieldModel(models.Model):
     type = models.TextField()
     prompt = models.TextField()
     description = models.TextField(blank=True, null=True)
-    extraction_model = models.TextField(blank=True, null=True)
     ocr_engine = models.TextField(blank=True, null=True)
     created_by = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField()

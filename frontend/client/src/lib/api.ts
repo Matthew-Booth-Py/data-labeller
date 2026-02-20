@@ -90,6 +90,8 @@ export interface DocumentSummary {
   chunk_count: number;
   token_count?: number;
   document_type?: DocumentType;
+  retrieval_index_status?: string;
+  retrieval_chunks_count?: number | null;
 }
 
 export interface IngestResponse {
@@ -162,49 +164,6 @@ export interface DeploymentExtractResponse {
   extracted_data: Record<string, unknown>;
 }
 
-export interface OpenAIProviderStatus {
-  provider: "openai";
-  masked_api_key: string;
-  source: "override" | "env" | "none";
-  has_key: boolean;
-  last_test_status: "unknown" | "connected" | "failed";
-  last_tested_at?: string | null;
-  connected: boolean;
-  model: string;
-}
-
-export interface OpenAIProviderUpdateRequest {
-  api_key?: string;
-}
-
-export interface OpenAIProviderTestRequest {
-  api_key?: string;
-}
-
-export interface OpenAIProviderTestResponse {
-  provider: "openai";
-  connected: boolean;
-  message: string;
-  masked_api_key: string;
-  tested_at: string;
-}
-
-export interface OpenAIProviderModel {
-  provider: "openai";
-  model_id: string;
-  display_name?: string | null;
-  is_enabled: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface OpenAIProviderModelTestResponse {
-  provider: "openai";
-  model_id: string;
-  connected: boolean;
-  message: string;
-  tested_at: string;
-}
 
 export type EntityType = 'Person' | 'Organization' | 'Location' | 'Event';
 
@@ -705,6 +664,10 @@ class ApiClient {
     return this.request(`${API_PREFIX}/documents/${id}/reindex-azure-di`, { method: 'POST' });
   }
 
+  async reindexDocumentRetrieval(id: string): Promise<{ status: string; document_id: string; message: string }> {
+    return this.request(`${API_PREFIX}/documents/${id}/reindex-retrieval`, { method: 'POST' });
+  }
+
   // Ingestion
   async ingestDocuments(files: File[]): Promise<IngestResponse> {
     const formData = new FormData();
@@ -951,57 +914,6 @@ class ApiClient {
   }
 
 
-  async getOpenAIProviderStatus(): Promise<OpenAIProviderStatus> {
-    return this.request(`${API_PREFIX}/providers/openai`);
-  }
-
-  async updateOpenAIProvider(data: OpenAIProviderUpdateRequest): Promise<OpenAIProviderStatus> {
-    return this.request(`${API_PREFIX}/providers/openai`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    });
-  }
-
-  async testOpenAIProvider(data?: OpenAIProviderTestRequest): Promise<OpenAIProviderTestResponse> {
-    return this.request(`${API_PREFIX}/providers/openai/test`, {
-      method: "POST",
-      body: JSON.stringify(data || {}),
-    });
-  }
-
-  async listOpenAIProviderModels(enabledOnly: boolean = false): Promise<{ models: OpenAIProviderModel[]; total: number }> {
-    const query = enabledOnly ? "?enabled_only=true" : "";
-    return this.request(`${API_PREFIX}/providers/openai/models${query}`);
-  }
-
-  async createOpenAIProviderModel(data: { model_id: string; display_name?: string; is_enabled?: boolean }): Promise<OpenAIProviderModel> {
-    return this.request(`${API_PREFIX}/providers/openai/models`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  }
-
-  async updateOpenAIProviderModel(
-    modelId: string,
-    data: { display_name?: string; is_enabled?: boolean }
-  ): Promise<OpenAIProviderModel> {
-    return this.request(`${API_PREFIX}/providers/openai/models/${encodeURIComponent(modelId)}`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    });
-  }
-
-  async deleteOpenAIProviderModel(modelId: string): Promise<{ status: string }> {
-    return this.request(`${API_PREFIX}/providers/openai/models/${encodeURIComponent(modelId)}`, {
-      method: "DELETE",
-    });
-  }
-
-  async testOpenAIProviderModel(modelId: string): Promise<OpenAIProviderModelTestResponse> {
-    return this.request(`${API_PREFIX}/providers/openai/models/${encodeURIComponent(modelId)}/test`, {
-      method: "POST",
-    });
-  }
 
   async listFieldPromptVersions(
     documentTypeId: string,

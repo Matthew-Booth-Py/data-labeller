@@ -3,11 +3,13 @@
 import json
 import base64
 import io
+import logging
+import os
 from pathlib import Path
 from typing import Optional, Literal
 
 from asgiref.sync import sync_to_async
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, AsyncAzureOpenAI
 from pydantic import BaseModel, Field, create_model
 
 from uu_backend.llm.options import reasoning_options_for_model
@@ -16,6 +18,8 @@ from uu_backend.models.taxonomy import Classification, DocumentType
 from uu_backend.repositories import get_repository
 from uu_backend.services.schema_generator import generate_pydantic_schema, schema_to_json_schema
 from uu_backend.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 try:
     from pdf2image import convert_from_path
@@ -29,7 +33,29 @@ class ClassificationService:
     """Service for auto-classifying documents using LLM."""
 
     def __init__(self):
-        self.client = AsyncOpenAI()
+        # Check if using Azure OpenAI or regular OpenAI
+        use_azure = os.getenv("USE_AZURE_OPENAI", "false").lower() == "true"
+        
+        if use_azure:
+            azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+            azure_api_key = os.getenv("AZURE_OPENAI_API_KEY")
+            azure_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+            
+            if not azure_endpoint or not azure_api_key:
+                raise ValueError(
+                    "Azure OpenAI enabled but missing AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_API_KEY"
+                )
+            
+            logger.info(f"Using Azure OpenAI for classification: {azure_endpoint}")
+            self.client = AsyncAzureOpenAI(
+                api_version=azure_api_version,
+                azure_endpoint=azure_endpoint,
+                api_key=azure_api_key,
+            )
+        else:
+            logger.info("Using OpenAI for classification")
+            self.client = AsyncOpenAI()
+        
         self.model = "gpt-5-mini"
 
     async def classify_document(

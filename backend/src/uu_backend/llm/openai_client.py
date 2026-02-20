@@ -1,9 +1,11 @@
 """OpenAI API client for LLM operations."""
 
 import json
+import logging
+import os
 from typing import Any
 
-from openai import OpenAI
+from openai import OpenAI, AzureOpenAI
 
 from uu_backend.config import get_settings
 from uu_backend.llm.options import (
@@ -11,15 +13,44 @@ from uu_backend.llm.options import (
     reasoning_options_for_model,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class OpenAIClient:
-    """Client for OpenAI API operations."""
+    """Client for OpenAI API operations. Supports both OpenAI and Azure OpenAI."""
 
     def __init__(self):
         """Initialize OpenAI client."""
         settings = get_settings()
-        self._client = OpenAI(api_key=settings.openai_api_key)
         self._model = settings.openai_model
+        
+        # Check if using Azure OpenAI or regular OpenAI
+        use_azure = os.getenv("USE_AZURE_OPENAI", "false").lower() == "true"
+        
+        logger.info(f"[OpenAIClient] USE_AZURE_OPENAI={use_azure}")
+        
+        if use_azure:
+            azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+            azure_api_key = os.getenv("AZURE_OPENAI_API_KEY")
+            azure_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+            
+            logger.info(f"[OpenAIClient] Azure endpoint: {azure_endpoint}")
+            logger.info(f"[OpenAIClient] Azure key present: {bool(azure_api_key)}")
+            
+            if not azure_endpoint or not azure_api_key:
+                raise ValueError(
+                    "Azure OpenAI enabled but missing AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_API_KEY"
+                )
+            
+            logger.info(f"[OpenAIClient] Using Azure OpenAI: {azure_endpoint}")
+            self._client = AzureOpenAI(
+                api_version=azure_api_version,
+                azure_endpoint=azure_endpoint,
+                api_key=azure_api_key,
+            )
+        else:
+            logger.info("[OpenAIClient] Using OpenAI")
+            self._client = OpenAI(api_key=settings.openai_api_key)
 
     def complete(
         self,
