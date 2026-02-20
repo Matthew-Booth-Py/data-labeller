@@ -463,6 +463,210 @@ Extract all fields according to the schema. Return null for fields that cannot b
         
         return " ".join(parts)
 
+    def extract_structured_with_retrieval_vision(
+        self,
+        document_id: str,
+        prompt_version_id: Optional[str] = None,
+        top_k_per_field: int = 3,
+        min_score: float = 0.0,
+    ) -> ExtractionResult:
+        """
+        Extract structured data using retrieval + vision API.
+        
+        Pipeline:
+        1. For each field, query the contextual retrieval index to find relevant page(s)
+        2. Collect unique page numbers across all fields
+        3. Render those PDF pages as images
+        4. Send images + schema to vision API for extraction
+        
+        This combines semantic search (finding the right pages) with vision understanding
+        (reading complex tables/layouts from rendered images).
+        
+        Args:
+            document_id: The document to extract from
+            prompt_version_id: Optional prompt version to use
+            top_k_per_field: Number of chunks to retrieve per field (to find page numbers)
+            min_score: Minimum retrieval score to consider a page relevant
+            
+        Returns:
+            ExtractionResult with extracted field values
+        """
+        from uu_backend.services.contextual_retrieval import get_contextual_retrieval_service
+        
+        repository = get_repository()
+        document_repo = get_document_repository()
+        
+        document = document_repo.get_document(document_id)
+        if not document:
+            raise ValueError(f"Document {document_id} not found")
+        
+        classification = repository.get_classification(document_id)
+        if not classification:
+            raise ValueError(f"Document {document_id} is not classified. Please classify first.")
+        
+        doc_type = repository.get_document_type(classification.document_type_id)
+        if not doc_type:
+            raise ValueError(f"Document type {classification.document_type_id} not found")
+        
+        if not doc_type.schema_fields:
+            raise ValueError(f"Document type '{doc_type.name}' has no schema fields defined")
+
+        effective_schema_fields = self._apply_active_field_prompt_versions(
+            doc_type.id,
+            doc_type.schema_fields,
+        )
+        
+        ExtractionModel = generate_pydantic_schema(
+            effective_schema_fields,
+            model_name=f"{doc_type.name.replace(' ', '')}Extraction"
+        )
+        
+        retrieval_service = get_contextual_retrieval_service()
+        
+        print(f"\n{'='*60}")
+        print("RETRIEVAL-VISION EXTRACTION")
+        print(f"{'='*60}")
+        print(f"Document: {document.filename}")
+        print(f"Type: {doc_type.name}")
+        
+        # Step 1: Retrieve chunks per field to identify relevant pages
+        all_page_numbers = set()
+        field_page_map = {}
+        
+        for field in effective_schema_fields:
+            query = self._build_field_query(field)
+            results = retrieval_service.search(
+                query=query,
+                top_k=top_k_per_field,
+                filter_doc_id=document_id,
+                use_reranking=True,
+            )
+            
+            field_pages = set()
+            for result in results:
+                if result.score >= min_score:
+                    page_num = result.metadata.get('page_number')
+                    if page_num:
+                        page_num_int = int(page_num) if isinstance(page_num, str) else page_num
+                        field_pages.add(page_num_int)
+                        all_page_numbers.add(page_num_int)
+            
+            field_page_map[field.name] = field_pages
+            print(f"  {field.name}: pages {sorted(field_pages) if field_pages else '(none)'}")
+        
+        if not all_page_numbers:
+            raise ValueError(
+                f"No relevant pages found via retrieval. "
+                f"Document may not be indexed or min_score={min_score} is too high."
+            )
+        
+        print(f"\nUnique pages to render: {sorted(all_page_numbers)}")
+        
+        # Step 2: Get file path and render pages
+        file_path = self._get_document_file_path(document)
+        if not file_path or not file_path.exists():
+            raise ValueError(f"Document file not found for {document_id}")
+        
+        file_type = document.file_type.lower() if document.file_type else ""
+        if file_type != 'pdf':
+            raise ValueError(
+                f"Retrieval-vision extraction only supports PDF documents, got {file_type}"
+            )
+        
+        print(f"Rendering {len(all_page_numbers)} page(s) from PDF...")
+        page_images = self._render_pdf_pages(file_path, sorted(all_page_numbers))
+        
+        if not page_images:
+            raise ValueError(f"Failed to render PDF pages {sorted(all_page_numbers)}")
+        
+        print(f"Rendered {len(page_images)} image(s)")
+        
+        # Step 3: Build vision API messages
+        system_prompt = doc_type.system_prompt or self._get_default_extraction_prompt(doc_type)
+        system_prompt = f"{system_prompt}\n\n{self._raw_guardrails}"
+        model_name = doc_type.extraction_model or self.model
+
+        if prompt_version_id:
+            prompt_version = repository.get_prompt_version(prompt_version_id)
+            if prompt_version:
+                system_prompt = f"{prompt_version.system_prompt}\n\n{self._raw_guardrails}"
+        
+        user_content = [
+            {
+                "type": "text",
+                "text": f"""Extract structured data from the document page(s) shown below.
+
+Document Type: {doc_type.name}
+Filename: {document.filename}
+
+Analyze the page image(s) and extract all fields according to the schema. Return null for fields that cannot be found."""
+            }
+        ]
+        
+        for i, img_b64 in enumerate(page_images, 1):
+            user_content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{img_b64}"
+                }
+            })
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ]
+        
+        print(f"Calling {model_name} with {len(page_images)} image(s)...")
+        
+        try:
+            response = self.client.beta.chat.completions.parse(
+                model=model_name,
+                messages=messages,
+                response_format=ExtractionModel,
+            )
+            
+            extracted_data = response.choices[0].message.parsed
+            
+            print(f"Extracted: {extracted_data.model_dump()}")
+            
+            extracted_fields = []
+            for field in effective_schema_fields:
+                value = getattr(extracted_data, field.name, None)
+                if value is not None:
+                    if hasattr(value, 'model_dump'):
+                        value = value.model_dump()
+                    elif isinstance(value, list) and value and hasattr(value[0], 'model_dump'):
+                        value = [item.model_dump() for item in value]
+                    
+                    pages_for_field = field_page_map.get(field.name, set())
+                    source_text = f"Pages: {sorted(pages_for_field)}" if pages_for_field else None
+                    
+                    extracted_fields.append(ExtractedField(
+                        field_name=field.name,
+                        value=value,
+                        confidence=0.95,
+                        source_text=source_text
+                    ))
+            
+            result = ExtractionResult(
+                document_id=document_id,
+                document_type_id=doc_type.id,
+                fields=extracted_fields,
+                schema_version_id=doc_type.schema_version_id,
+                prompt_version_id=prompt_version_id,
+                extracted_at=timezone.now()
+            )
+            
+            self._save_extraction(result)
+            
+            print(f"{'='*60}\n")
+            
+            return result
+            
+        except Exception as e:
+            print(f"Retrieval-vision extraction error: {e}")
+            raise ValueError(f"Extraction failed: {str(e)}")
+
     def extract_structured_from_snapshot(
         self,
         *,
@@ -540,36 +744,43 @@ Extract all fields according to the schema. Return null for fields that cannot b
         
         return None
     
-    def _prepare_visual_content(self, file_path: Path, file_type: str) -> Optional[str]:
+    def _prepare_visual_content(
+        self,
+        file_path: Path,
+        file_type: str,
+        page_number: Optional[int] = None
+    ) -> Optional[str]:
         """
         Prepare visual content (PDF, image, Word) for vision API.
         Returns base64-encoded PNG image data.
+        
+        Args:
+            file_path: Path to the file
+            file_type: File type (pdf, png, jpg, etc.)
+            page_number: For PDFs, specific page to render (1-indexed). If None, renders page 1.
         """
         try:
             if file_type == 'pdf':
-                # Convert PDF first page to image
                 if not PDF_SUPPORT:
                     logger.warning("pdf2image not available, cannot process PDF")
                     return None
                 
-                images = convert_from_path(str(file_path), first_page=1, last_page=1, dpi=150)
+                page = page_number or 1
+                images = convert_from_path(str(file_path), first_page=page, last_page=page, dpi=150)
                 if images:
                     img_byte_arr = io.BytesIO()
                     images[0].save(img_byte_arr, format='PNG')
                     image_bytes = img_byte_arr.getvalue()
                     return base64.b64encode(image_bytes).decode('utf-8')
                 else:
-                    logger.warning("Could not convert PDF to image")
+                    logger.warning(f"Could not convert PDF page {page} to image")
                     return None
             
             elif file_type in ['doc', 'docx']:
-                # For Word docs, we'd need python-docx or similar to extract text
-                # For now, skip vision API for Word docs (they should have text content)
                 logger.info("Word documents not yet supported for vision API")
                 return None
             
             elif file_type in ['png', 'jpg', 'jpeg', 'gif', 'webp']:
-                # Read image file directly
                 with open(file_path, 'rb') as f:
                     image_bytes = f.read()
                     return base64.b64encode(image_bytes).decode('utf-8')
@@ -579,6 +790,50 @@ Extract all fields according to the schema. Return null for fields that cannot b
         except Exception as e:
             logger.error(f"Error preparing visual content: {e}", exc_info=True)
             return None
+
+    def _render_pdf_pages(
+        self,
+        file_path: Path,
+        page_numbers: list[int],
+        dpi: int = 150
+    ) -> list[str]:
+        """
+        Render specific PDF pages to base64-encoded PNG images.
+        
+        Args:
+            file_path: Path to PDF file
+            page_numbers: List of page numbers to render (1-indexed)
+            dpi: Resolution for rendering
+            
+        Returns:
+            List of base64-encoded PNG image strings, one per page
+        """
+        if not PDF_SUPPORT:
+            logger.warning("pdf2image not available, cannot render PDF pages")
+            return []
+        
+        try:
+            images_b64 = []
+            for page_num in sorted(set(page_numbers)):
+                images = convert_from_path(
+                    str(file_path),
+                    first_page=page_num,
+                    last_page=page_num,
+                    dpi=dpi
+                )
+                if images:
+                    img_byte_arr = io.BytesIO()
+                    images[0].save(img_byte_arr, format='PNG')
+                    image_bytes = img_byte_arr.getvalue()
+                    images_b64.append(base64.b64encode(image_bytes).decode('utf-8'))
+                else:
+                    logger.warning(f"Could not render PDF page {page_num}")
+            
+            return images_b64
+            
+        except Exception as e:
+            logger.error(f"Error rendering PDF pages {page_numbers}: {e}", exc_info=True)
+            return []
 
     def _apply_active_field_prompt_versions(
         self, document_type_id: str, schema_fields: list[SchemaField]

@@ -77,6 +77,8 @@ services:
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
       - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2024-12-01-preview}
+      - CO_API_KEY=${CO_API_KEY}
+      - CO_RERANK_ENDPOINT=${CO_RERANK_ENDPOINT}
     volumes:
       - file_storage:/app/data/files
       - taxonomy_data:/app/data
@@ -108,6 +110,8 @@ services:
       - POSTGRES_DB=uu_django
       - POSTGRES_USER=uu
       - POSTGRES_PASSWORD=uu
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped

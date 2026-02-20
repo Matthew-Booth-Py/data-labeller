@@ -67,7 +67,7 @@ def index_document_for_retrieval(self, document_id: str):
                         for page in pdf.pages:
                             page_text = page.extract_text()
                             if page_text:
-                                pages_text.append(page_text)
+                                pages_text.append(f"## Page {page.page_number}\n\n{page_text}")
                         content = "\n\n".join(pages_text)
                         logger.info(f"Extracted {len(content)} chars from {len(pages_text)} pages using pdfplumber")
                 except Exception as e:

@@ -1,11 +1,14 @@
 """Azure Cohere reranker for contextual retrieval."""
 
+import logging
 import os
 from typing import Protocol
 
 import requests
 
 from .models import SearchResult
+
+logger = logging.getLogger(__name__)
 
 
 class Reranker(Protocol):
@@ -69,9 +72,15 @@ class AzureCohereReranker:
         if len(results) <= 1:
             return results
 
+        logger.info(f"[Reranker] Reranking {len(results)} candidates with Azure Cohere (top_n={top_n})")
+        
         documents = [r.text for r in results]
         
         reranked_indices = self._call_rerank_api(query, documents, top_n)
+        
+        logger.info(f"[Reranker] Received {len(reranked_indices)} reranked results")
+        if reranked_indices:
+            logger.info(f"[Reranker] Top relevance score: {reranked_indices[0]['relevance_score']:.4f}")
         
         reranked_results = []
         for item in reranked_indices:

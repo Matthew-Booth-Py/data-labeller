@@ -502,10 +502,13 @@ class ExtractDocumentView(APIView):
         use_llm = _bool_query_param(request.query_params.get("use_llm"), default=True)
         use_structured_output = _bool_query_param(request.query_params.get("use_structured_output"), default=False)
         use_retrieval = _bool_query_param(request.query_params.get("use_retrieval"), default=False)
+        use_retrieval_vision = _bool_query_param(request.query_params.get("use_retrieval_vision"), default=False)
         service = get_extraction_service()
 
         try:
-            if use_retrieval:
+            if use_retrieval_vision:
+                result = service.extract_structured_with_retrieval_vision(document_id)
+            elif use_retrieval:
                 result = service.extract_structured_with_retrieval(document_id)
             elif use_structured_output:
                 result = service.extract_structured(document_id)

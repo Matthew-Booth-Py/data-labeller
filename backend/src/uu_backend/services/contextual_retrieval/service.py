@@ -5,7 +5,7 @@ import os
 from typing import Callable
 
 from .bm25_index import BM25Index
-from .chunker import DocumentChunker
+from .chunker import DocumentChunker, PageAwareChunker
 from .contextualizer import ChunkContextualizer
 from .embedder import OpenAIEmbedder
 from .models import ContextualizedChunk, SearchResult
@@ -36,14 +36,25 @@ class ContextualRetrievalService:
         context_model: str = "gpt-5-mini",
         embedding_model: str = "text-embedding-3-small",
         use_reranking: bool = True,
+        chunking_strategy: str | None = None,
     ):
-        chunk_size = chunk_size or int(os.getenv("CHUNK_SIZE", "1000"))
-        chunk_overlap = chunk_overlap or int(os.getenv("CHUNK_OVERLAP", "200"))
-        
-        self.chunker = DocumentChunker(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-        )
+        chunking_strategy = chunking_strategy or os.getenv("CHUNKING_STRATEGY", "page")
+
+        if chunking_strategy == "page":
+            self.chunker = PageAwareChunker(
+                max_page_size=int(os.getenv("MAX_PAGE_SIZE", "8000")),
+                fallback_chunk_size=int(os.getenv("CHUNK_SIZE", "2000")),
+                fallback_chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "200")),
+            )
+            logger.info("Chunking strategy: page-aware")
+        else:
+            chunk_size = chunk_size or int(os.getenv("CHUNK_SIZE", "1000"))
+            chunk_overlap = chunk_overlap or int(os.getenv("CHUNK_OVERLAP", "200"))
+            self.chunker = DocumentChunker(
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+            )
+            logger.info(f"Chunking strategy: fixed-size ({chunk_size} chars)")
         
         context_model = os.getenv("CONTEXT_MODEL", context_model)
         self.contextualizer = ChunkContextualizer(model=context_model)
@@ -59,8 +70,10 @@ class ContextualRetrievalService:
         
         if use_reranking and os.getenv("CO_API_KEY"):
             self.reranker = AzureCohereReranker()
+            logger.info("✓ Reranker enabled: Azure Cohere")
         else:
             self.reranker = NoReranker()
+            logger.info("✗ Reranker disabled (no CO_API_KEY or use_reranking=False)")
         
         self.retriever = HybridRetriever(
             vector_store=self.vector_store,
