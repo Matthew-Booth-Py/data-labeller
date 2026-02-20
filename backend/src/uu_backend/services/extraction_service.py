@@ -300,17 +300,34 @@ If a field cannot be found, return null. Do not make up data."""
         # Get retrieval service
         retrieval_service = get_contextual_retrieval_service()
         
+        print(f"\n{'='*60}")
+        print("CONTEXTUAL RETRIEVAL - FIELD-BY-FIELD SEARCH")
+        print(f"{'='*60}")
+        
         # Build search queries for each field and retrieve relevant chunks
         all_chunks = {}
         for field in effective_schema_fields:
             query = self._build_field_query(field)
+            print(f"\n🔍 Field: {field.name}")
+            print(f"   Query: {query[:100]}...")
+            
             results = retrieval_service.search(
                 query=query,
                 top_k=top_k_per_field,
                 filter_doc_id=document_id,
                 use_reranking=True,
             )
+            
+            print(f"   Retrieved: {len(results)} chunks")
+            if results:
+                print(f"   Top score: {results[0].score:.4f}")
+                print(f"   Preview: {results[0].original_text[:80]}...")
+            
             all_chunks[field.name] = results
+        
+        print(f"\n{'='*60}")
+        print("DEDUPLICATION & CONTEXT BUILDING")
+        print(f"{'='*60}")
         
         # Deduplicate chunks and build context
         seen_chunk_ids = set()
@@ -322,15 +339,26 @@ If a field cannot be found, return null. Do not make up data."""
                     seen_chunk_ids.add(chunk_id)
                     unique_chunks.append(result)
         
+        print(f"Total chunks retrieved: {sum(len(r) for r in all_chunks.values())}")
+        print(f"Unique chunks after dedup: {len(unique_chunks)}")
+        
         # Sort by score and take top chunks
         unique_chunks.sort(key=lambda r: r.score, reverse=True)
         top_chunks = unique_chunks[:20]  # Limit total context
+        
+        print(f"Top chunks for context: {len(top_chunks)}")
+        print(f"\nTop 3 chunks by score:")
+        for i, chunk in enumerate(top_chunks[:3]):
+            print(f"  {i+1}. Score: {chunk.score:.4f}, Page: {chunk.metadata.get('page_number', 'N/A')}")
+            print(f"     Text: {chunk.original_text[:]}...")
         
         # Build context from retrieved chunks
         context_parts = []
         for i, chunk in enumerate(top_chunks):
             context_parts.append(f"[Source {i+1}]\n{chunk.original_text}")
         context = "\n\n".join(context_parts)
+        
+        print(f"\nTotal context length: {len(context)} chars")
         
         # Get prompt
         system_prompt = doc_type.system_prompt or self._get_default_extraction_prompt(doc_type)

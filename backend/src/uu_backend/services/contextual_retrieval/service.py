@@ -172,12 +172,17 @@ class ContextualRetrievalService:
         Returns:
             List of SearchResult objects
         """
-        return self.retriever.retrieve(
+        logger.info(f"Search query: '{query[:100]}...' | top_k={top_k} | doc_filter={filter_doc_id} | rerank={use_reranking}")
+        
+        results = self.retriever.retrieve(
             query=query,
             top_k_final=top_k,
             filter_doc_id=filter_doc_id,
             use_reranking=use_reranking,
         )
+        
+        logger.info(f"Search returned {len(results)} results")
+        return results
 
     def search_for_extraction(
         self,

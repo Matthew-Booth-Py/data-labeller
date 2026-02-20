@@ -1,10 +1,14 @@
 """Hybrid retriever combining vector search, BM25, and reranking."""
 
+import logging
+
 from .bm25_index import BM25Index
 from .embedder import OpenAIEmbedder
 from .models import SearchResult
 from .reranker import AzureCohereReranker, NoReranker
 from .vector_store import ChromaVectorStore
+
+logger = logging.getLogger(__name__)
 
 
 class HybridRetriever:
@@ -51,29 +55,40 @@ class HybridRetriever:
         Returns:
             List of SearchResult objects sorted by relevance
         """
+        logger.debug(f"[Retriever] Embedding query...")
         query_embedding = self.embedder.embed_query(query)
         
+        logger.debug(f"[Retriever] Vector search (top_k={top_k_initial})...")
         vector_results = self.vector_store.search(
             query_embedding,
             top_k=top_k_initial,
             filter_doc_id=filter_doc_id,
         )
+        logger.debug(f"[Retriever] Vector search returned {len(vector_results)} results")
         
+        logger.debug(f"[Retriever] BM25 search (top_k={top_k_initial})...")
         bm25_results = self.bm25_index.search(
             query,
             top_k=top_k_initial,
             filter_doc_id=filter_doc_id,
         )
+        logger.debug(f"[Retriever] BM25 search returned {len(bm25_results)} results")
         
+        logger.debug(f"[Retriever] Applying Reciprocal Rank Fusion...")
         fused_results = self._reciprocal_rank_fusion(
             vector_results,
             bm25_results,
         )
+        logger.debug(f"[Retriever] RRF produced {len(fused_results)} unique results")
         
         if use_reranking and len(fused_results) > 1:
             candidates = fused_results[:top_k_initial]
-            return self.reranker.rerank(query, candidates, top_n=top_k_final)
+            logger.debug(f"[Retriever] Reranking {len(candidates)} candidates to top {top_k_final}...")
+            reranked = self.reranker.rerank(query, candidates, top_n=top_k_final)
+            logger.debug(f"[Retriever] Reranking returned {len(reranked)} results")
+            return reranked
         
+        logger.debug(f"[Retriever] Returning top {top_k_final} fused results (no reranking)")
         return fused_results[:top_k_final]
 
     def retrieve_vector_only(

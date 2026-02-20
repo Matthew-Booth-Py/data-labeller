@@ -871,10 +871,11 @@ class ApiClient {
   async extractDocument(
     documentId: string,
     useLlm: boolean = true,
-    useStructuredOutput: boolean = false
+    useStructuredOutput: boolean = false,
+    useRetrieval: boolean = false
   ): Promise<ExtractionResult> {
     return this.request(
-      `${API_PREFIX}/documents/${documentId}/extract?use_llm=${useLlm}&use_structured_output=${useStructuredOutput}`,
+      `${API_PREFIX}/documents/${documentId}/extract?use_llm=${useLlm}&use_structured_output=${useStructuredOutput}&use_retrieval=${useRetrieval}`,
       {
       method: 'POST',
       }
