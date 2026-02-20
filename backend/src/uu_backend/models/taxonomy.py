@@ -18,6 +18,17 @@ class FieldType(str, Enum):
     ARRAY = "array"
 
 
+class VisualContentType(str, Enum):
+    """Detected content type from visual analysis."""
+    
+    TABLE = "table"
+    FORM = "form"
+    LIST = "list"
+    PARAGRAPH = "paragraph"
+    MIXED = "mixed"
+    UNKNOWN = "unknown"
+
+
 class SchemaField(BaseModel):
     """A field definition within a document type schema."""
 
@@ -39,6 +50,19 @@ class SchemaField(BaseModel):
     )
     template_field_id: Optional[str] = Field(
         None, description="Optional linked global field template ID"
+    )
+    # Visual analysis fields (auto-populated from reference image)
+    visual_content_type: Optional[VisualContentType] = Field(
+        None, description="Detected content type from reference image analysis"
+    )
+    visual_guidance: Optional[str] = Field(
+        None, description="Auto-generated extraction guidance from visual analysis"
+    )
+    visual_features: Optional[list[str]] = Field(
+        None, description="Distinguishing visual features for retrieval"
+    )
+    reference_image_hash: Optional[str] = Field(
+        None, description="Hash of the reference image used for analysis"
     )
 
 

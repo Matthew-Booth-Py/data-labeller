@@ -219,6 +219,8 @@ export interface EntityDetailResponse {
 
 export type FieldType = 'string' | 'number' | 'date' | 'boolean' | 'object' | 'array';
 
+export type VisualContentType = 'table' | 'form' | 'list' | 'paragraph' | 'mixed' | 'unknown';
+
 export interface SchemaField {
   name: string;
   type: FieldType;
@@ -228,6 +230,23 @@ export interface SchemaField {
   order?: number;
   properties?: Record<string, SchemaField>;
   items?: SchemaField;
+  // Visual analysis fields (auto-populated from reference image)
+  visual_content_type?: VisualContentType;
+  visual_guidance?: string;
+  visual_features?: string[];
+  reference_image_hash?: string;
+}
+
+export interface VisualAnalysisResponse {
+  visual_content_type: VisualContentType;
+  structure_description: string;
+  extraction_guidance: string;
+  distinguishing_features: string[];
+  column_headers?: string[];
+  row_labels?: string[];
+  data_types?: string[];
+  generated_extraction_prompt: string;
+  generated_retrieval_query: string;
 }
 
 export interface DocumentType {
@@ -828,6 +847,17 @@ class ApiClient {
 
   async suggestFieldDefinition(data: FieldAssistantRequest): Promise<FieldAssistantResponse> {
     return this.request(`${API_PREFIX}/taxonomy/field-assistant`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async analyzeImage(data: {
+    image_base64: string;
+    field_name?: string;
+    field_description?: string;
+  }): Promise<VisualAnalysisResponse> {
+    return this.request(`${API_PREFIX}/taxonomy/analyze-image`, {
       method: 'POST',
       body: JSON.stringify(data),
     });

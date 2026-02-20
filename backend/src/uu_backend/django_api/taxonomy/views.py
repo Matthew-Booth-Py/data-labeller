@@ -25,10 +25,12 @@ from uu_backend.models.taxonomy import (
     GlobalFieldCreate,
     GlobalFieldListResponse,
     GlobalFieldUpdate,
+    VisualContentType,
 )
 from uu_backend.repositories import get_repository
 from uu_backend.services.classification_service import get_classification_service
 from uu_backend.services.extraction_service import get_extraction_service
+from uu_backend.services.prompt_generator import get_prompt_generator
 
 
 def _jsonable(value):
@@ -307,6 +309,51 @@ class TaxonomyPrefixView(APIView):
                 return Response(suggestion.model_dump(mode="json"))
             except Exception as exc:
                 return Response({"detail": f"Invalid assistant response: {exc}"}, status=500)
+
+        if parts == ["analyze-image"]:
+            # Analyze a reference image to detect visual structure and generate extraction guidance
+            image_base64 = body.get("image_base64")
+            field_name = body.get("field_name", "")
+            field_description = body.get("field_description")
+            
+            if not image_base64:
+                return Response({"detail": "image_base64 is required"}, status=400)
+            
+            settings = get_settings()
+            if not settings.openai_api_key:
+                return Response({"detail": "OPENAI_API_KEY is not configured"}, status=400)
+            
+            try:
+                prompt_generator = get_prompt_generator()
+                
+                # Analyze the image
+                analysis = prompt_generator.analyze_image(image_base64)
+                
+                # Generate extraction prompt and retrieval query
+                extraction_prompt = prompt_generator.generate_extraction_prompt(
+                    analysis=analysis,
+                    field_name=field_name,
+                    field_description=field_description,
+                )
+                retrieval_query = prompt_generator.generate_retrieval_query(
+                    analysis=analysis,
+                    field_name=field_name,
+                    field_description=field_description,
+                )
+                
+                return Response({
+                    "visual_content_type": analysis.content_type.value,
+                    "structure_description": analysis.structure_description,
+                    "extraction_guidance": analysis.extraction_guidance,
+                    "distinguishing_features": analysis.distinguishing_features,
+                    "column_headers": analysis.column_headers,
+                    "row_labels": analysis.row_labels,
+                    "data_types": analysis.data_types,
+                    "generated_extraction_prompt": extraction_prompt,
+                    "generated_retrieval_query": retrieval_query,
+                })
+            except Exception as exc:
+                return Response({"detail": f"Image analysis failed: {exc}"}, status=500)
 
         if parts == ["fields"]:
             try:

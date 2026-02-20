@@ -47,6 +47,84 @@ class ExtractionService:
             "5) If not found, return null."
         )
 
+    def _should_use_vision_extraction(self, schema_fields: list[SchemaField], file_type: str) -> bool:
+        """Determine if vision-based extraction should be used.
+        
+        Uses vision extraction when:
+        1. Document is a PDF (can be rendered as images)
+        2. Any schema field has visual_content_type == 'table'
+        
+        This helps tables extraction where text-based retrieval often
+        matches explanatory prose instead of the actual tabular data.
+        """
+        if file_type.lower() != 'pdf':
+            return False
+        
+        for field in schema_fields:
+            content_type = getattr(field, 'visual_content_type', None)
+            if content_type:
+                # Handle both enum and string values
+                type_value = content_type.value if hasattr(content_type, 'value') else str(content_type)
+                if type_value == 'table':
+                    logger.info(f"Field '{field.name}' has visual_content_type='table', using vision extraction")
+                    return True
+        
+        return False
+
+    def extract_auto(
+        self,
+        document_id: str,
+        prompt_version_id: Optional[str] = None,
+        top_k_per_field: int = 3,
+    ) -> ExtractionResult:
+        """
+        Smart extraction that automatically selects the best extraction strategy.
+        
+        Routes to:
+        - extract_structured_with_retrieval_vision: when any field has visual_content_type='table' (PDF only)
+        - extract_structured: default fallback using full document vision/text
+        
+        Args:
+            document_id: The document to extract from
+            prompt_version_id: Optional prompt version to use
+            top_k_per_field: Number of chunks to retrieve per field (for retrieval methods)
+            
+        Returns:
+            ExtractionResult with extracted field values
+        """
+        repository = get_repository()
+        document_repo = get_document_repository()
+        
+        document = document_repo.get_document(document_id)
+        if not document:
+            raise ValueError(f"Document {document_id} not found")
+        
+        classification = repository.get_classification(document_id)
+        if not classification:
+            raise ValueError(f"Document {document_id} is not classified. Please classify first.")
+        
+        doc_type = repository.get_document_type(classification.document_type_id)
+        if not doc_type:
+            raise ValueError(f"Document type {classification.document_type_id} not found")
+        
+        file_type = document.file_type.lower() if document.file_type else ""
+        schema_fields = doc_type.schema_fields or []
+        
+        # Check if we should use vision-based extraction for tables
+        if self._should_use_vision_extraction(schema_fields, file_type):
+            print(f"\n🔍 Auto-routing to VISION extraction (table fields detected)")
+            return self.extract_structured_with_retrieval_vision(
+                document_id=document_id,
+                prompt_version_id=prompt_version_id,
+                top_k_per_field=top_k_per_field,
+            )
+        else:
+            print(f"\n📄 Auto-routing to STANDARD extraction")
+            return self.extract_structured(
+                document_id=document_id,
+                prompt_version_id=prompt_version_id,
+            )
+
     def extract_structured(
         self,
         document_id: str,
@@ -231,7 +309,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
 
     def _get_default_extraction_prompt(self, doc_type) -> str:
         """Get default extraction prompt for a document type."""
-        return f"""You are an expert at extracting structured data from {doc_type.name} documents.
+        base_prompt = f"""You are an expert at extracting structured data from {doc_type.name} documents.
 
 Extract all fields accurately from the document. Pay special attention to:
 - Tables: Extract all rows and columns
@@ -240,6 +318,18 @@ Extract all fields accurately from the document. Pay special attention to:
 - Arrays: Include all items found in the document
 
 If a field cannot be found, return null. Do not make up data."""
+        
+        # Add visual guidance from fields if available
+        visual_guidance_parts = []
+        for field in (doc_type.schema_fields or []):
+            if field.visual_guidance:
+                visual_guidance_parts.append(f"- {field.name}: {field.visual_guidance}")
+        
+        if visual_guidance_parts:
+            visual_section = "\n\nField-specific visual guidance:\n" + "\n".join(visual_guidance_parts)
+            return base_prompt + visual_section
+        
+        return base_prompt
 
     def extract_structured_with_retrieval(
         self,
@@ -452,14 +542,36 @@ Extract all fields according to the schema. Return null for fields that cannot b
             raise ValueError(f"Extraction failed: {str(e)}")
 
     def _build_field_query(self, field: SchemaField) -> str:
-        """Build a search query for a schema field."""
-        parts = [field.name]
+        """Build a search query for a schema field.
         
-        if field.description:
+        Uses visual analysis metadata when available to build more targeted queries
+        that are likely to match actual content rather than explanatory text.
+        """
+        parts = [field.name.replace("_", " ")]
+        
+        # If visual features are available from image analysis, use them
+        # These are more specific and likely to match actual table/form content
+        if field.visual_features:
+            parts.extend(field.visual_features[:5])  # Limit to top 5 features
+        
+        # Add content-type specific keywords
+        if field.visual_content_type:
+            content_type = field.visual_content_type.value if hasattr(field.visual_content_type, 'value') else str(field.visual_content_type)
+            if content_type == "table":
+                parts.append("table column row")
+            elif content_type == "form":
+                parts.append("form field label")
+        
+        # Visual guidance is more targeted than generic description
+        if field.visual_guidance:
+            parts.append(field.visual_guidance)
+        elif field.description:
             parts.append(field.description)
         
-        if field.extraction_prompt:
-            parts.append(field.extraction_prompt)
+        # Only include extraction_prompt if no visual guidance (it can be verbose)
+        if not field.visual_guidance and field.extraction_prompt:
+            # Take first 200 chars to avoid overly long queries
+            parts.append(field.extraction_prompt[:200])
         
         return " ".join(parts)
 
