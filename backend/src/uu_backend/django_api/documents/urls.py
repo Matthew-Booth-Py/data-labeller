@@ -7,6 +7,7 @@ from .views import (
     DocumentsListView,
     DocumentAzureDIStatusView,
     DocumentReindexAzureDIView,
+    DocumentReindexRetrievalView,
 )
 from .test_azure_di import TestAzureDIView
 
@@ -17,5 +18,6 @@ urlpatterns = [
     path("documents/<str:document_id>/reprocess", DocumentReprocessView.as_view(), name="documents-reprocess"),
     path("documents/<str:document_id>/azure-di-status", DocumentAzureDIStatusView.as_view(), name="documents-azure-di-status"),
     path("documents/<str:document_id>/reindex-azure-di", DocumentReindexAzureDIView.as_view(), name="documents-reindex-azure-di"),
+    path("documents/<str:document_id>/reindex-retrieval", DocumentReindexRetrievalView.as_view(), name="documents-reindex-retrieval"),
     path("documents/<str:document_id>/test-azure-di", TestAzureDIView.as_view(), name="documents-test-azure-di"),
 ]

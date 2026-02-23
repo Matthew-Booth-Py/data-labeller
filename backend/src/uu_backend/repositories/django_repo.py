@@ -71,7 +71,6 @@ class DjangoORMRepository:
             schema_fields=self._schema_fields_from_payload(model.schema_fields),
             system_prompt=model.system_prompt,
             post_processing=model.post_processing,
-            extraction_model=model.extraction_model,
             ocr_engine=model.ocr_engine,
             schema_version_id=model.schema_version_id,
             created_at=model.created_at,
@@ -104,7 +103,6 @@ class DjangoORMRepository:
             type=FieldType(model.type),
             prompt=model.prompt,
             description=model.description,
-            extraction_model=model.extraction_model,
             ocr_engine=model.ocr_engine,
             created_by=model.created_by,
             created_at=model.created_at,
@@ -197,7 +195,6 @@ class DjangoORMRepository:
             schema_fields=self._schema_fields_to_payload(data.schema_fields),
             system_prompt=data.system_prompt,
             post_processing=data.post_processing,
-            extraction_model=data.extraction_model or "gpt-5-mini",
             ocr_engine=data.ocr_engine or "azure-di-prebuilt",
             schema_version_id=schema_version_id,
             created_at=now,
@@ -210,7 +207,6 @@ class DjangoORMRepository:
             schema_fields=self._schema_fields_to_payload(data.schema_fields),
             system_prompt=data.system_prompt,
             post_processing=data.post_processing,
-            extraction_model=data.extraction_model or "gpt-5-mini",
             ocr_engine=data.ocr_engine or "azure-di-prebuilt",
             created_at=now,
             created_by=None,
@@ -229,9 +225,6 @@ class DjangoORMRepository:
     def list_document_types(self) -> list[DocumentType]:
         rows = orm.DocumentTypeModel.objects.order_by("name")
         types = [self._document_type_from_model(row) for row in rows]
-        # Debug log extraction models
-        for t in types:
-            print(f"[list_document_types] {t.name}: extraction_model={t.extraction_model}")
         return types
 
     @transaction.atomic
@@ -251,14 +244,12 @@ class DjangoORMRepository:
             updates["system_prompt"] = data.system_prompt
         if data.post_processing is not None:
             updates["post_processing"] = data.post_processing
-        if data.extraction_model is not None:
-            updates["extraction_model"] = data.extraction_model
         if data.ocr_engine is not None:
             updates["ocr_engine"] = data.ocr_engine
 
         requires_new_schema_version = any(
             key in updates
-            for key in ("schema_fields", "system_prompt", "post_processing", "extraction_model", "ocr_engine")
+            for key in ("schema_fields", "system_prompt", "post_processing", "ocr_engine")
         )
 
         if not updates:
@@ -274,7 +265,6 @@ class DjangoORMRepository:
             next_schema_fields = updates.get("schema_fields", existing.schema_fields or [])
             next_system_prompt = updates.get("system_prompt", existing.system_prompt)
             next_post_processing = updates.get("post_processing", existing.post_processing)
-            next_extraction_model = updates.get("extraction_model", existing.extraction_model)
             next_ocr_engine = updates.get("ocr_engine", existing.ocr_engine)
 
             orm.SchemaVersionModel.objects.create(
@@ -283,7 +273,6 @@ class DjangoORMRepository:
                 schema_fields=next_schema_fields,
                 system_prompt=next_system_prompt,
                 post_processing=next_post_processing,
-                extraction_model=next_extraction_model,
                 ocr_engine=next_ocr_engine,
                 created_at=now,
                 created_by=None,
@@ -292,14 +281,6 @@ class DjangoORMRepository:
         for key, value in updates.items():
             setattr(existing, key, value)
         existing.save(update_fields=list(updates.keys()))
-        
-        # Log extraction model updates for debugging
-        if "extraction_model" in updates:
-            print(f"[DocumentType Update] ID: {type_id}, extraction_model saved: {updates['extraction_model']}")
-        
-        # Verify the save by re-reading
-        refreshed = orm.DocumentTypeModel.objects.get(id=type_id)
-        print(f"[DocumentType Update] Verified extraction_model in DB: {refreshed.extraction_model}")
 
         return self._document_type_from_model(existing)
 
@@ -318,7 +299,6 @@ class DjangoORMRepository:
                 "schema_fields": row.schema_fields or [],
                 "system_prompt": row.system_prompt,
                 "post_processing": row.post_processing,
-                "extraction_model": row.extraction_model,
                 "ocr_engine": row.ocr_engine,
                 "created_at": self._iso(row.created_at),
                 "created_by": row.created_by,
@@ -371,7 +351,7 @@ class DjangoORMRepository:
             user_prompt_template=(prompt_version.user_prompt_template if prompt_version else None),
             schema_fields=snapshot_schema_fields,
             field_prompt_versions=active_field_prompt_versions,
-            model=doc_type.extraction_model or "gpt-5-mini",
+            model="gpt-5-mini",
             is_active=set_active,
             created_by=created_by,
             created_at=now,
@@ -417,6 +397,7 @@ class DjangoORMRepository:
         return {
             "provider": row.provider,
             "api_key_override": row.api_key_override,
+            "endpoint_override": getattr(row, "endpoint_override", None),
             "last_test_status": row.last_test_status,
             "last_tested_at": self._iso(row.last_tested_at),
             "updated_at": self._iso(row.updated_at),
@@ -434,6 +415,32 @@ class DjangoORMRepository:
         return self.get_llm_provider_settings(provider) or {
             "provider": provider,
             "api_key_override": api_key_override,
+            "last_test_status": "unknown",
+            "last_tested_at": None,
+            "updated_at": self._iso(now),
+        }
+
+    def upsert_llm_provider_settings(
+        self, 
+        provider: str, 
+        api_key_override: Optional[str] = None,
+        endpoint_override: Optional[str] = None,
+    ) -> dict[str, Any]:
+        now = timezone.now()
+        defaults = {"updated_at": now}
+        if api_key_override is not None:
+            defaults["api_key_override"] = api_key_override
+        if endpoint_override is not None:
+            defaults["endpoint_override"] = endpoint_override
+            
+        orm.LLMProviderSettingsModel.objects.update_or_create(
+            provider=provider,
+            defaults=defaults,
+        )
+        return self.get_llm_provider_settings(provider) or {
+            "provider": provider,
+            "api_key_override": api_key_override,
+            "endpoint_override": endpoint_override,
             "last_test_status": "unknown",
             "last_tested_at": None,
             "updated_at": self._iso(now),
@@ -554,7 +561,6 @@ class DjangoORMRepository:
             type=data.type.value,
             prompt=data.prompt,
             description=data.description,
-            extraction_model=data.extraction_model or "gpt-5-mini",
             ocr_engine=data.ocr_engine or "azure-di-prebuilt",
             created_by=data.created_by,
             created_at=now,
@@ -595,9 +601,6 @@ class DjangoORMRepository:
         if data.description is not None:
             row.description = data.description
             changed_fields.append("description")
-        if data.extraction_model is not None:
-            row.extraction_model = data.extraction_model
-            changed_fields.append("extraction_model")
         if data.ocr_engine is not None:
             row.ocr_engine = data.ocr_engine
             changed_fields.append("ocr_engine")

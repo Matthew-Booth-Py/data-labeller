@@ -27,22 +27,58 @@ class AzureDocumentIntelligenceService:
             credential=AzureKeyCredential(self.key)
         )
 
-    async def analyze_document(self, file_path: Path) -> dict[str, Any]:
+    async def analyze_document(self, file_path: Path, first_page_only: bool = False) -> dict[str, Any]:
         """
         Analyze a document and extract all text with bounding boxes.
         
         Args:
             file_path: Path to the document file (PDF or image)
+            first_page_only: If True, extract only the first page (for large PDFs)
             
         Returns:
             Dictionary containing pages with text and bounding box information
         """
-        with open(file_path, "rb") as f:
-            poller = self.client.begin_analyze_document(
-                "prebuilt-read",
-                document=f
-            )
-            result = poller.result()
+        # For large PDFs, extract first page only to avoid Azure DI size limits
+        if first_page_only and file_path.suffix.lower() == '.pdf':
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Extracting first page only from {file_path}")
+            
+            try:
+                from pypdf import PdfReader, PdfWriter
+                import io
+                
+                # Read the PDF and extract first page
+                reader = PdfReader(file_path)
+                writer = PdfWriter()
+                writer.add_page(reader.pages[0])
+                
+                # Write to bytes buffer
+                buffer = io.BytesIO()
+                writer.write(buffer)
+                buffer.seek(0)
+                
+                # Send first page to Azure DI
+                poller = self.client.begin_analyze_document(
+                    "prebuilt-read",
+                    document=buffer
+                )
+                result = poller.result()
+            except ImportError:
+                logger.warning("pypdf not available, sending full PDF")
+                with open(file_path, "rb") as f:
+                    poller = self.client.begin_analyze_document(
+                        "prebuilt-read",
+                        document=f
+                    )
+                    result = poller.result()
+        else:
+            with open(file_path, "rb") as f:
+                poller = self.client.begin_analyze_document(
+                    "prebuilt-read",
+                    document=f
+                )
+                result = poller.result()
 
         pages_data = []
         for page in result.pages:

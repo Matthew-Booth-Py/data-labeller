@@ -284,3 +284,49 @@ class DocumentReindexAzureDIView(APIView):
                 {"detail": f"Failed to queue analysis: {str(e)}"},
                 status=500
             )
+
+
+class DocumentReindexRetrievalView(APIView):
+    """Trigger contextual retrieval reindexing for a document."""
+
+    def post(self, request, document_id: str):
+        """Queue contextual retrieval indexing for a document."""
+        from uu_backend.tasks.contextual_retrieval_tasks import index_document_for_retrieval
+        from uu_backend.services.contextual_retrieval import get_contextual_retrieval_service
+        
+        document_repo = get_document_repository()
+        document = document_repo.get_document(document_id)
+
+        if not document:
+            return Response({"detail": "Document not found"}, status=404)
+
+        # Delete existing index for this document
+        try:
+            service = get_contextual_retrieval_service()
+            service.delete_document(document_id)
+        except Exception as e:
+            logger.warning(f"Failed to delete existing index for {document_id}: {e}")
+
+        # Reset status
+        from uu_backend.django_data.models import DocumentModel
+        doc_model = DocumentModel.objects.get(id=document_id)
+        doc_model.retrieval_index_status = "pending"
+        doc_model.retrieval_chunks_count = None
+        doc_model.save()
+
+        # Queue indexing
+        try:
+            index_document_for_retrieval.delay(document_id)
+            logger.info(f"Queued retrieval reindexing for document {document_id}")
+            
+            return Response({
+                "status": "queued",
+                "document_id": document_id,
+                "message": "Retrieval indexing queued successfully"
+            })
+        except Exception as e:
+            logger.error(f"Failed to queue retrieval indexing: {e}")
+            return Response(
+                {"detail": f"Failed to queue indexing: {str(e)}"},
+                status=500
+            )

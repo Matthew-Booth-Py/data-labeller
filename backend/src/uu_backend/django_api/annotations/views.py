@@ -292,7 +292,7 @@ class AnnotationSuggestionView(APIView):
             
             # Generate suggestions
             suggestion_service = get_annotation_suggestion_service()
-            suggestions = async_to_sync(suggestion_service.suggest_annotations)(
+            suggestions = suggestion_service.suggest_annotations(
                 document_id,
                 document_type
             )

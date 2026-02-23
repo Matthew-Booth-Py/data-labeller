@@ -19,7 +19,9 @@ from uu_backend.models.evaluation import (
     EvaluationRunResponse,
     EvaluationSummary,
 )
+from uu_backend.models.prompt import FieldPromptVersion
 from uu_backend.services.evaluation_service import get_evaluation_service
+from uu_backend.repositories.django_repo import DjangoORMRepository
 
 logger = logging.getLogger(__name__)
 
@@ -364,4 +366,128 @@ def delete_evaluation_run(request, evaluation_id: str):
         return JsonResponse({"error": "Evaluation run not found"}, status=404)
     except Exception as e:
         logger.error(f"Error deleting evaluation run: {e}", exc_info=True)
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+# Field Prompt Endpoints
+
+@require_http_methods(["GET"])
+def list_active_field_prompts_by_document_type(request):
+    """List active field prompts for a document type."""
+    try:
+        document_type_id = request.GET.get("document_type_id")
+        if not document_type_id:
+            return JsonResponse({"error": "document_type_id is required"}, status=400)
+        
+        repository = DjangoORMRepository()
+        
+        field_prompts = repository.list_active_field_prompt_versions(document_type_id)
+        field_versions = repository.list_active_field_prompt_version_names(document_type_id)
+        field_version_updated_at = repository.list_active_field_prompt_version_timestamps(document_type_id)
+        
+        return JsonResponse({
+            "field_prompts": field_prompts,
+            "field_versions": field_versions,
+            "field_version_updated_at": field_version_updated_at,
+            "total": len(field_prompts)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing active field prompts: {e}", exc_info=True)
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@require_http_methods(["GET"])
+def list_field_prompt_versions(request):
+    """List field prompt versions with optional filters."""
+    try:
+        document_type_id = request.GET.get("document_type_id")
+        field_name = request.GET.get("field_name")
+        
+        repository = DjangoORMRepository()
+        versions = repository.list_field_prompt_versions(
+            document_type_id=document_type_id,
+            field_name=field_name
+        )
+        
+        return JsonResponse({
+            "versions": [v.model_dump() for v in versions],
+            "total": len(versions)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing field prompt versions: {e}", exc_info=True)
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def create_field_prompt_version(request):
+    """Create a new field prompt version."""
+    try:
+        data = json.loads(request.body)
+        field_prompt = FieldPromptVersion(**data)
+        
+        repository = DjangoORMRepository()
+        version_id = repository.create_field_prompt_version(field_prompt)
+        
+        return JsonResponse({"id": version_id}, status=201)
+        
+    except Exception as e:
+        logger.error(f"Error creating field prompt version: {e}", exc_info=True)
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@require_http_methods(["GET"])
+def get_field_prompt_version(request, version_id: str):
+    """Get a specific field prompt version."""
+    try:
+        repository = DjangoORMRepository()
+        version = repository.get_field_prompt_version(version_id)
+        
+        if not version:
+            return JsonResponse({"error": "Field prompt version not found"}, status=404)
+        
+        return JsonResponse({"version": version.model_dump()})
+        
+    except Exception as e:
+        logger.error(f"Error getting field prompt version: {e}", exc_info=True)
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["PATCH"])
+def update_field_prompt_version(request, version_id: str):
+    """Update a field prompt version."""
+    try:
+        data = json.loads(request.body)
+        
+        repository = DjangoORMRepository()
+        success = repository.update_field_prompt_version(version_id, data)
+        
+        if not success:
+            return JsonResponse({"error": "Field prompt version not found"}, status=404)
+        
+        return JsonResponse({"status": "updated", "id": version_id})
+        
+    except Exception as e:
+        logger.error(f"Error updating field prompt version: {e}", exc_info=True)
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def delete_field_prompt_version(request, version_id: str):
+    """Delete a field prompt version."""
+    try:
+        repository = DjangoORMRepository()
+        success = repository.delete_field_prompt_version(version_id)
+        
+        if not success:
+            return JsonResponse({"error": "Field prompt version not found"}, status=404)
+        
+        return JsonResponse({"status": "deleted", "id": version_id})
+        
+    except Exception as e:
+        logger.error(f"Error deleting field prompt version: {e}", exc_info=True)
         return JsonResponse({"error": str(e)}, status=500)

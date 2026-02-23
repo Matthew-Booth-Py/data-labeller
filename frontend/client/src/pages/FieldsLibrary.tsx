@@ -28,11 +28,8 @@ export default function FieldsLibrary() {
   const [fieldType, setFieldType] = useState<FieldType>("string");
   const [fieldDescription, setFieldDescription] = useState("");
   const [fieldPrompt, setFieldPrompt] = useState("");
-  const [fieldModel, setFieldModel] = useState(DEFAULT_MODEL);
   const [ocrEngine, setOcrEngine] = useState(DEFAULT_OCR);
   const [aiFieldInput, setAiFieldInput] = useState("");
-
-  const [providerModels, setProviderModels] = useState<Array<{ model_id: string; display_name?: string | null }>>([]);
 
   const filteredFields = useMemo(
     () =>
@@ -50,7 +47,6 @@ export default function FieldsLibrary() {
     setFieldType("string");
     setFieldDescription("");
     setFieldPrompt("");
-    setFieldModel(DEFAULT_MODEL);
     setOcrEngine(DEFAULT_OCR);
     setAiFieldInput("");
   };
@@ -58,12 +54,8 @@ export default function FieldsLibrary() {
   const loadFields = async () => {
     setIsLoading(true);
     try {
-      const [fieldsResponse, models] = await Promise.all([
-        api.listGlobalFields(),
-        api.listOpenAIProviderModels(true),
-      ]);
+      const fieldsResponse = await api.listGlobalFields();
       setFields(fieldsResponse.fields || []);
-      setProviderModels(models.models || []);
     } catch (error: any) {
       toast({
         title: "Failed to load fields",
@@ -90,7 +82,6 @@ export default function FieldsLibrary() {
     setFieldType(field.type);
     setFieldDescription(field.description || "");
     setFieldPrompt(field.prompt);
-    setFieldModel(field.extraction_model || DEFAULT_MODEL);
     setOcrEngine(field.ocr_engine || DEFAULT_OCR);
     setAiFieldInput("");
     setEditingField(field);
@@ -144,7 +135,6 @@ export default function FieldsLibrary() {
         type: fieldType,
         description: fieldDescription.trim() || undefined,
         prompt: fieldPrompt.trim() || `Extract the ${normalizedName.replace(/_/g, " ")} from the document.`,
-        extraction_model: fieldModel,
         ocr_engine: ocrEngine,
       };
 
@@ -392,39 +382,17 @@ export default function FieldsLibrary() {
               </div>
               <div className="rounded-lg border p-3 space-y-3 bg-muted/10">
                 <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Extraction Engine Settings</div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Model Choice</label>
-                    <Select value={fieldModel} onValueChange={setFieldModel}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {!providerModels.length && <SelectItem value={fieldModel}>{fieldModel}</SelectItem>}
-                        {providerModels.length > 0 &&
-                          !providerModels.some((model) => model.model_id === fieldModel) && (
-                            <SelectItem value={fieldModel}>{fieldModel}</SelectItem>
-                          )}
-                        {providerModels.map((model) => (
-                          <SelectItem key={model.model_id} value={model.model_id}>
-                            {model.display_name || model.model_id}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">OCR Engine</label>
-                    <Select value={ocrEngine} onValueChange={setOcrEngine}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="azure-di-prebuilt">Azure DI Prebuilt</SelectItem>
-                        <SelectItem value="aws-textract">AWS Textract</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">OCR Engine</label>
+                  <Select value={ocrEngine} onValueChange={setOcrEngine}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="azure-di-prebuilt">Azure DI Prebuilt</SelectItem>
+                      <SelectItem value="aws-textract">AWS Textract</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </div>

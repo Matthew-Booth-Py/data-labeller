@@ -146,6 +146,10 @@ class DocumentRepository:
             file_path=doc.file_path,
             azure_di_analysis=doc.azure_di_analysis,
             azure_di_status=doc.azure_di_status,
+            retrieval_index_status=doc.retrieval_index_status,
+            retrieval_chunks_count=doc.retrieval_chunks_count,
+            retrieval_index_progress=doc.retrieval_index_progress,
+            retrieval_index_total=doc.retrieval_index_total,
         )
 
     def _model_to_summary(self, doc: DocumentModel) -> DocumentSummary:
@@ -156,6 +160,10 @@ class DocumentRepository:
             file_type=doc.file_type,
             date_extracted=doc.date_extracted,
             created_at=doc.created_at,
+            retrieval_index_status=doc.retrieval_index_status,
+            retrieval_chunks_count=doc.retrieval_chunks_count,
+            retrieval_index_progress=doc.retrieval_index_progress,
+            retrieval_index_total=doc.retrieval_index_total,
         )
     
     def update_ocr_status(

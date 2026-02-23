@@ -24,7 +24,7 @@ import { SchemaViewer } from "@/components/workspace/SchemaViewer";
 import { DeploymentView } from "@/components/workspace/DeploymentView";
 import { APIManagement } from "@/components/workspace/APIManagement";
 import { ExtractionRunner } from "@/components/workspace/ExtractionRunner";
-import { DataLabellerImproved as DataLabeller } from "@/components/workspace/DataLabellerImproved";
+import { DataLabellerV2 as DataLabeller } from "@/components/workspace/DataLabellerV2";
 import { LabelsView } from "@/components/workspace/LabelsView";
 import { EvaluateView } from "@/components/workspace/EvaluateView";
 
@@ -268,7 +268,7 @@ export default function ProjectWorkspace() {
             <TabsContent value="extraction" className="h-full m-0 p-6 overflow-auto">
               <ExtractionRunner projectId={id} />
             </TabsContent>
-            <TabsContent value="labeller" className="h-full m-0 p-6 overflow-hidden">
+            <TabsContent value="labeller" className="h-full m-0 p-0 overflow-hidden">
               <DataLabeller />
             </TabsContent>
             <TabsContent value="labels" className="h-full m-0 p-6 overflow-auto">

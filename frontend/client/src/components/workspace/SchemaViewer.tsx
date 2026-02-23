@@ -20,6 +20,8 @@ import {
   LabelSuggestion,
   LabelSuggestionResponse,
   FieldPromptVersion,
+  VisualAnalysisResponse,
+  VisualContentType,
 } from "@/lib/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tag } from "lucide-react";
@@ -428,7 +430,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   const [editedProperties, setEditedProperties] = useState<NestedProperty[]>([]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [postProcessing, setPostProcessing] = useState("");
-  const [extractionModel, setExtractionModel] = useState("gpt-5-mini");
   const [ocrEngine, setOcrEngine] = useState("azure-di-prebuilt");
   
   // State for adding field
@@ -441,6 +442,10 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   const [newFieldObjectProperties, setNewFieldObjectProperties] = useState<NestedProperty[]>([]);
   const [aiFieldInput, setAiFieldInput] = useState("");
   const [aiScreenshot, setAiScreenshot] = useState<string | null>(null);
+  
+  // Visual analysis state
+  const [visualAnalysis, setVisualAnalysis] = useState<VisualAnalysisResponse | null>(null);
+  const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
   
   // State for label suggestions
   const [labelSuggestions, setLabelSuggestions] = useState<LabelSuggestion[]>([]);
@@ -478,11 +483,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
         ? api.listFieldPromptVersions(selectedTypeId, editingField)
         : Promise.resolve({ field_prompt_versions: [], total: 0 }),
     enabled: !!selectedTypeId && !!editingField,
-  });
-
-  const { data: providerModelsData } = useQuery({
-    queryKey: ["provider-models", "openai", "enabled"],
-    queryFn: () => api.listOpenAIProviderModels(true),
   });
 
   useEffect(() => {
@@ -527,7 +527,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       if (currentType && currentType.schema_version_id !== lastSyncedSchemaVersionId) {
         setSystemPrompt(currentType.system_prompt || "");
         setPostProcessing(currentType.post_processing || "");
-        setExtractionModel(currentType.extraction_model || "gpt-5-mini");
         setOcrEngine(currentType.ocr_engine || "azure-di-prebuilt");
         setLastSyncedSchemaVersionId(currentType.schema_version_id || null);
       }
@@ -550,7 +549,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     const nextType = availableTypes.find((type) => type.id === nextTypeId);
     setSystemPrompt(nextType?.system_prompt || "");
     setPostProcessing(nextType?.post_processing || "");
-    setExtractionModel(nextType?.extraction_model || "gpt-5-mini");
     setOcrEngine(nextType?.ocr_engine || "azure-di-prebuilt");
     setLastSyncedSchemaVersionId(nextType?.schema_version_id || null);
   }, [typesData, selectedTypeId, selectedTypeStorageKey, lastSyncedSchemaVersionId]);
@@ -562,7 +560,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     if (type) {
       setSystemPrompt(type.system_prompt || "");
       setPostProcessing(type.post_processing || "");
-      setExtractionModel(type.extraction_model || "gpt-5-mini");
       setOcrEngine(type.ocr_engine || "azure-di-prebuilt");
       setLastSyncedSchemaVersionId(type.schema_version_id || null);
     }
@@ -577,7 +574,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       setSelectedType(result.type.id);
       setSystemPrompt(result.type.system_prompt || "");
       setPostProcessing(result.type.post_processing || "");
-      setExtractionModel(result.type.extraction_model || "gpt-5-mini");
       setOcrEngine(result.type.ocr_engine || "azure-di-prebuilt");
       setLastSyncedSchemaVersionId(result.type.schema_version_id || null);
       setIsCreating(false);
@@ -601,7 +597,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       if (result.type && result.type.id === selectedTypeId) {
         setSystemPrompt(result.type.system_prompt || "");
         setPostProcessing(result.type.post_processing || "");
-        setExtractionModel(result.type.extraction_model || "gpt-5-mini");
         setOcrEngine(result.type.ocr_engine || "azure-di-prebuilt");
         setLastSyncedSchemaVersionId(result.type.schema_version_id || null);
       }
@@ -724,6 +719,42 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       toast({ title: "AI suggestion failed", description: error.message, variant: "destructive" });
     },
   });
+
+  // Analyze image for visual structure
+  const analyzeImageMutation = useMutation({
+    mutationFn: (imageBase64: string) => {
+      return api.analyzeImage({
+        image_base64: imageBase64,
+        field_name: newFieldName || undefined,
+        field_description: newFieldDescription || undefined,
+      });
+    },
+    onSuccess: (analysis: VisualAnalysisResponse) => {
+      setVisualAnalysis(analysis);
+      // Auto-populate extraction prompt with generated prompt
+      if (analysis.generated_extraction_prompt && !newFieldPrompt) {
+        setNewFieldPrompt(analysis.generated_extraction_prompt);
+      }
+      toast({ 
+        title: "Image analyzed", 
+        description: `Detected ${analysis.visual_content_type} structure` 
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Image analysis failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Auto-analyze when screenshot is set
+  const handleScreenshotChange = (base64: string | null) => {
+    setAiScreenshot(base64);
+    setVisualAnalysis(null);
+    if (base64) {
+      setIsAnalyzingImage(true);
+      analyzeImageMutation.mutate(base64);
+      setIsAnalyzingImage(false);
+    }
+  };
   
   // Save schema changes
   const saveSchema = () => {
@@ -733,7 +764,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       data: {
         system_prompt: systemPrompt,
         post_processing: postProcessing,
-        extraction_model: extractionModel,
         ocr_engine: ocrEngine,
       },
     });
@@ -748,6 +778,10 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       type: newFieldType,
       description: newFieldDescription || undefined,
       extraction_prompt: newFieldPrompt.trim() || undefined,
+      // Include visual analysis data if available
+      visual_content_type: visualAnalysis?.visual_content_type,
+      visual_guidance: visualAnalysis?.extraction_guidance,
+      visual_features: visualAnalysis?.distinguishing_features,
     };
 
     // Handle object type with properties (supports nested objects)
@@ -789,6 +823,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     setNewFieldObjectProperties([]);
     setAiFieldInput("");
     setAiScreenshot(null);
+    setVisualAnalysis(null);
   };
   
   // Remove field from schema
@@ -1091,41 +1126,17 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] uppercase font-bold text-muted-foreground">Model Choice</label>
-                    <Select value={extractionModel} onValueChange={setExtractionModel}>
-                      <SelectTrigger className="h-8 text-xs bg-background">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {!providerModelsData?.models?.length && (
-                          <SelectItem value={extractionModel}>{extractionModel}</SelectItem>
-                        )}
-                        {providerModelsData?.models?.length &&
-                          !providerModelsData.models.some((model) => model.model_id === extractionModel) && (
-                            <SelectItem value={extractionModel}>{extractionModel}</SelectItem>
-                          )}
-                        {(providerModelsData?.models || []).map((model) => (
-                          <SelectItem key={model.model_id} value={model.model_id}>
-                            {model.display_name || model.model_id}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] uppercase font-bold text-muted-foreground">OCR Engine</label>
-                    <Select value={ocrEngine} onValueChange={setOcrEngine}>
-                      <SelectTrigger className="h-8 text-xs bg-background">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="azure-di-prebuilt">Azure DI Prebuilt</SelectItem>
-                        <SelectItem value="aws-textract">AWS Textract</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold text-muted-foreground">OCR Engine</label>
+                  <Select value={ocrEngine} onValueChange={setOcrEngine}>
+                    <SelectTrigger className="h-8 text-xs bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="azure-di-prebuilt">Azure DI Prebuilt</SelectItem>
+                      <SelectItem value="aws-textract">AWS Textract</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </CardContent>
             </Card>
@@ -1409,7 +1420,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                         const reader = new FileReader();
                         reader.onload = () => {
                           const base64 = (reader.result as string).split(",")[1];
-                          setAiScreenshot(base64);
+                          handleScreenshotChange(base64);
                         };
                         reader.readAsDataURL(file);
                       }
@@ -1433,7 +1444,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                       const reader = new FileReader();
                       reader.onload = () => {
                         const base64 = (reader.result as string).split(",")[1];
-                        setAiScreenshot(base64);
+                        handleScreenshotChange(base64);
                       };
                       reader.readAsDataURL(file);
                     }
@@ -1455,7 +1466,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => setAiScreenshot(null)}
+                    onClick={() => handleScreenshotChange(null)}
                     className="gap-2 text-destructive hover:text-destructive"
                   >
                     <X className="h-4 w-4" />
@@ -1478,6 +1489,56 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                     <Image className="h-3 w-3 text-muted-foreground" />
                     <span className="text-xs text-muted-foreground">Screenshot attached</span>
                   </div>
+                  {analyzeImageMutation.isPending && (
+                    <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
+                      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                      <span className="ml-2 text-sm">Analyzing structure...</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Visual Analysis Results */}
+              {visualAnalysis && (
+                <div className="p-3 border rounded-lg bg-accent/10 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="text-xs">
+                      {visualAnalysis.visual_content_type.toUpperCase()}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      Structure detected
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {visualAnalysis.structure_description}
+                  </p>
+                  {visualAnalysis.column_headers && visualAnalysis.column_headers.length > 0 && (
+                    <div className="text-xs">
+                      <span className="font-medium">Columns: </span>
+                      {visualAnalysis.column_headers.join(", ")}
+                    </div>
+                  )}
+                  {visualAnalysis.data_types && visualAnalysis.data_types.length > 0 && (
+                    <div className="flex gap-1 flex-wrap">
+                      {visualAnalysis.data_types.map((dt, i) => (
+                        <Badge key={i} variant="outline" className="text-[10px]">
+                          {dt}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => {
+                      setNewFieldPrompt(visualAnalysis.generated_extraction_prompt);
+                      toast({ title: "Extraction prompt updated with visual guidance" });
+                    }}
+                  >
+                    Apply Visual Guidance to Prompt
+                  </Button>
                 </div>
               )}
               
@@ -1610,6 +1671,7 @@ ${generateExampleOutput(newFieldObjectProperties, 3)}
               setNewFieldPrompt("");
               setAiFieldInput("");
               setAiScreenshot(null);
+              setVisualAnalysis(null);
             }}>Cancel</Button>
             <Button 
               onClick={addField}

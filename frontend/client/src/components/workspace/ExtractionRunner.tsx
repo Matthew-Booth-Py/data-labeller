@@ -18,6 +18,7 @@ type ExtractedField = {
 export function ExtractionRunner({ projectId }: { projectId?: string }) {
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
   const [useStructuredOutput, setUseStructuredOutput] = useState(true);
+  const [useRetrieval, setUseRetrieval] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [localStorageVersion, setLocalStorageVersion] = useState(0);
@@ -154,7 +155,8 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
       const data = await api.extractDocument(
         selectedDocumentId,
         !useStructuredOutput,
-        useStructuredOutput
+        useStructuredOutput,
+        useRetrieval
       );
       
       // Save to cache
@@ -203,6 +205,29 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
                 <Switch checked={useStructuredOutput} onCheckedChange={setUseStructuredOutput} />
                 <span className="text-sm">{useStructuredOutput ? "Structured output" : "Annotation refinement"}</span>
               </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Switch 
+                id="use-retrieval"
+                checked={useRetrieval} 
+                onCheckedChange={setUseRetrieval}
+                disabled={selectedDoc?.retrieval_index_status !== 'completed'}
+              />
+              <Label htmlFor="use-retrieval" className="text-sm cursor-pointer">
+                Use Contextual Retrieval
+              </Label>
+              {selectedDoc && selectedDoc.retrieval_index_status === 'completed' && selectedDoc.retrieval_chunks_count && (
+                <span className="text-xs text-muted-foreground">({selectedDoc.retrieval_chunks_count} chunks indexed)</span>
+              )}
+              {selectedDoc && selectedDoc.retrieval_index_status === 'processing' && (
+                <span className="text-xs text-muted-foreground">(indexing...)</span>
+              )}
+              {selectedDoc && selectedDoc.retrieval_index_status !== 'completed' && selectedDoc.retrieval_index_status !== 'processing' && (
+                <span className="text-xs text-muted-foreground">(not indexed)</span>
+              )}
             </div>
           </div>
 

@@ -90,6 +90,8 @@ export interface DocumentSummary {
   chunk_count: number;
   token_count?: number;
   document_type?: DocumentType;
+  retrieval_index_status?: string;
+  retrieval_chunks_count?: number | null;
 }
 
 export interface IngestResponse {
@@ -162,49 +164,6 @@ export interface DeploymentExtractResponse {
   extracted_data: Record<string, unknown>;
 }
 
-export interface OpenAIProviderStatus {
-  provider: "openai";
-  masked_api_key: string;
-  source: "override" | "env" | "none";
-  has_key: boolean;
-  last_test_status: "unknown" | "connected" | "failed";
-  last_tested_at?: string | null;
-  connected: boolean;
-  model: string;
-}
-
-export interface OpenAIProviderUpdateRequest {
-  api_key?: string;
-}
-
-export interface OpenAIProviderTestRequest {
-  api_key?: string;
-}
-
-export interface OpenAIProviderTestResponse {
-  provider: "openai";
-  connected: boolean;
-  message: string;
-  masked_api_key: string;
-  tested_at: string;
-}
-
-export interface OpenAIProviderModel {
-  provider: "openai";
-  model_id: string;
-  display_name?: string | null;
-  is_enabled: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface OpenAIProviderModelTestResponse {
-  provider: "openai";
-  model_id: string;
-  connected: boolean;
-  message: string;
-  tested_at: string;
-}
 
 export type EntityType = 'Person' | 'Organization' | 'Location' | 'Event';
 
@@ -260,6 +219,8 @@ export interface EntityDetailResponse {
 
 export type FieldType = 'string' | 'number' | 'date' | 'boolean' | 'object' | 'array';
 
+export type VisualContentType = 'table' | 'form' | 'list' | 'paragraph' | 'mixed' | 'unknown';
+
 export interface SchemaField {
   name: string;
   type: FieldType;
@@ -269,6 +230,23 @@ export interface SchemaField {
   order?: number;
   properties?: Record<string, SchemaField>;
   items?: SchemaField;
+  // Visual analysis fields (auto-populated from reference image)
+  visual_content_type?: VisualContentType;
+  visual_guidance?: string;
+  visual_features?: string[];
+  reference_image_hash?: string;
+}
+
+export interface VisualAnalysisResponse {
+  visual_content_type: VisualContentType;
+  structure_description: string;
+  extraction_guidance: string;
+  distinguishing_features: string[];
+  column_headers?: string[];
+  row_labels?: string[];
+  data_types?: string[];
+  generated_extraction_prompt: string;
+  generated_retrieval_query: string;
 }
 
 export interface DocumentType {
@@ -639,12 +617,12 @@ class ApiClient {
     const url = `${this.baseUrl}${endpoint}`;
     console.log('[API] request() called:', { url, method: options.method || 'GET' });
     
-    // Add timeout
+    // Add timeout (3 minutes for vision-based extraction)
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      console.log('[API] Request timeout after 60s');
+      console.log('[API] Request timeout after 180s');
       controller.abort();
-    }, 60000);
+    }, 180000);
     
     try {
       const response = await fetch(url, {
@@ -703,6 +681,10 @@ class ApiClient {
 
   async reindexDocumentAzureDI(id: string): Promise<{ status: string; document_id: string; message: string }> {
     return this.request(`${API_PREFIX}/documents/${id}/reindex-azure-di`, { method: 'POST' });
+  }
+
+  async reindexDocumentRetrieval(id: string): Promise<{ status: string; document_id: string; message: string }> {
+    return this.request(`${API_PREFIX}/documents/${id}/reindex-retrieval`, { method: 'POST' });
   }
 
   // Ingestion
@@ -870,6 +852,17 @@ class ApiClient {
     });
   }
 
+  async analyzeImage(data: {
+    image_base64: string;
+    field_name?: string;
+    field_description?: string;
+  }): Promise<VisualAnalysisResponse> {
+    return this.request(`${API_PREFIX}/taxonomy/analyze-image`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   async deleteGlobalField(id: string): Promise<{ status: string; message: string }> {
     return this.request(`${API_PREFIX}/taxonomy/fields/${id}`, {
       method: 'DELETE',
@@ -908,10 +901,12 @@ class ApiClient {
   async extractDocument(
     documentId: string,
     useLlm: boolean = true,
-    useStructuredOutput: boolean = false
+    useStructuredOutput: boolean = false,
+    useRetrieval: boolean = false,
+    useRetrievalVision: boolean = false
   ): Promise<ExtractionResult> {
     return this.request(
-      `${API_PREFIX}/documents/${documentId}/extract?use_llm=${useLlm}&use_structured_output=${useStructuredOutput}`,
+      `${API_PREFIX}/documents/${documentId}/extract?use_llm=${useLlm}&use_structured_output=${useStructuredOutput}&use_retrieval=${useRetrieval}&use_retrieval_vision=${useRetrievalVision}`,
       {
       method: 'POST',
       }
@@ -951,57 +946,6 @@ class ApiClient {
   }
 
 
-  async getOpenAIProviderStatus(): Promise<OpenAIProviderStatus> {
-    return this.request(`${API_PREFIX}/providers/openai`);
-  }
-
-  async updateOpenAIProvider(data: OpenAIProviderUpdateRequest): Promise<OpenAIProviderStatus> {
-    return this.request(`${API_PREFIX}/providers/openai`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    });
-  }
-
-  async testOpenAIProvider(data?: OpenAIProviderTestRequest): Promise<OpenAIProviderTestResponse> {
-    return this.request(`${API_PREFIX}/providers/openai/test`, {
-      method: "POST",
-      body: JSON.stringify(data || {}),
-    });
-  }
-
-  async listOpenAIProviderModels(enabledOnly: boolean = false): Promise<{ models: OpenAIProviderModel[]; total: number }> {
-    const query = enabledOnly ? "?enabled_only=true" : "";
-    return this.request(`${API_PREFIX}/providers/openai/models${query}`);
-  }
-
-  async createOpenAIProviderModel(data: { model_id: string; display_name?: string; is_enabled?: boolean }): Promise<OpenAIProviderModel> {
-    return this.request(`${API_PREFIX}/providers/openai/models`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  }
-
-  async updateOpenAIProviderModel(
-    modelId: string,
-    data: { display_name?: string; is_enabled?: boolean }
-  ): Promise<OpenAIProviderModel> {
-    return this.request(`${API_PREFIX}/providers/openai/models/${encodeURIComponent(modelId)}`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    });
-  }
-
-  async deleteOpenAIProviderModel(modelId: string): Promise<{ status: string }> {
-    return this.request(`${API_PREFIX}/providers/openai/models/${encodeURIComponent(modelId)}`, {
-      method: "DELETE",
-    });
-  }
-
-  async testOpenAIProviderModel(modelId: string): Promise<OpenAIProviderModelTestResponse> {
-    return this.request(`${API_PREFIX}/providers/openai/models/${encodeURIComponent(modelId)}/test`, {
-      method: "POST",
-    });
-  }
 
   async listFieldPromptVersions(
     documentTypeId: string,

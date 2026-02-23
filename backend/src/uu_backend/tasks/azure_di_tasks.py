@@ -63,6 +63,11 @@ def analyze_document_with_azure_di(self, document_id: str, file_path: str):
         
         logger.info(f"Azure DI analysis cached for document {document_id}")
         
+        # Trigger contextual retrieval indexing
+        from uu_backend.tasks.contextual_retrieval_tasks import index_document_for_retrieval
+        index_document_for_retrieval.delay(document_id)
+        logger.info(f"Queued contextual retrieval indexing for {document_id}")
+        
         return {
             "status": "completed",
             "pages": len(analysis['pages']),

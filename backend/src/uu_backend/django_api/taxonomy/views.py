@@ -1,16 +1,17 @@
 """DRF views for taxonomy and extraction endpoints."""
 
 import json
+import os
 
 from asgiref.sync import async_to_sync
 from django.db import IntegrityError
-from openai import OpenAI
 from pydantic import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
 from uu_backend.llm.options import reasoning_options_for_model
+from uu_backend.llm.openai_client import get_openai_client
 from uu_backend.models.taxonomy import (
     ClassificationCreate,
     DocumentType,
@@ -24,10 +25,12 @@ from uu_backend.models.taxonomy import (
     GlobalFieldCreate,
     GlobalFieldListResponse,
     GlobalFieldUpdate,
+    VisualContentType,
 )
 from uu_backend.repositories import get_repository
 from uu_backend.services.classification_service import get_classification_service
 from uu_backend.services.extraction_service import get_extraction_service
+from uu_backend.services.prompt_generator import get_prompt_generator
 
 
 def _jsonable(value):
@@ -220,8 +223,12 @@ class TaxonomyPrefixView(APIView):
             # Use document type's extraction model if available, otherwise fall back to global settings
             model = (doc_type.extraction_model if doc_type and doc_type.extraction_model else None) or settings.openai_tagging_model or settings.openai_model
             print(f"[Field Assistant] Model: {model} | DocType: {doc_type.name if doc_type else 'N/A'} | Input: {parsed.user_input[:50]}...")
+            print(f"[Field Assistant] USE_AZURE_OPENAI: {os.getenv('USE_AZURE_OPENAI')}")
+            print(f"[Field Assistant] AZURE_OPENAI_ENDPOINT: {os.getenv('AZURE_OPENAI_ENDPOINT')}")
             try:
-                response = OpenAI(api_key=settings.openai_api_key).chat.completions.create(
+                openai_client = get_openai_client()
+                print(f"[Field Assistant] Client type: {type(openai_client._client)}")
+                response = openai_client._client.chat.completions.create(
                     model=model,
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -302,6 +309,51 @@ class TaxonomyPrefixView(APIView):
                 return Response(suggestion.model_dump(mode="json"))
             except Exception as exc:
                 return Response({"detail": f"Invalid assistant response: {exc}"}, status=500)
+
+        if parts == ["analyze-image"]:
+            # Analyze a reference image to detect visual structure and generate extraction guidance
+            image_base64 = body.get("image_base64")
+            field_name = body.get("field_name", "")
+            field_description = body.get("field_description")
+            
+            if not image_base64:
+                return Response({"detail": "image_base64 is required"}, status=400)
+            
+            settings = get_settings()
+            if not settings.openai_api_key:
+                return Response({"detail": "OPENAI_API_KEY is not configured"}, status=400)
+            
+            try:
+                prompt_generator = get_prompt_generator()
+                
+                # Analyze the image
+                analysis = prompt_generator.analyze_image(image_base64)
+                
+                # Generate extraction prompt and retrieval query
+                extraction_prompt = prompt_generator.generate_extraction_prompt(
+                    analysis=analysis,
+                    field_name=field_name,
+                    field_description=field_description,
+                )
+                retrieval_query = prompt_generator.generate_retrieval_query(
+                    analysis=analysis,
+                    field_name=field_name,
+                    field_description=field_description,
+                )
+                
+                return Response({
+                    "visual_content_type": analysis.content_type.value,
+                    "structure_description": analysis.structure_description,
+                    "extraction_guidance": analysis.extraction_guidance,
+                    "distinguishing_features": analysis.distinguishing_features,
+                    "column_headers": analysis.column_headers,
+                    "row_labels": analysis.row_labels,
+                    "data_types": analysis.data_types,
+                    "generated_extraction_prompt": extraction_prompt,
+                    "generated_retrieval_query": retrieval_query,
+                })
+            except Exception as exc:
+                return Response({"detail": f"Image analysis failed: {exc}"}, status=500)
 
         if parts == ["fields"]:
             try:
@@ -496,10 +548,14 @@ class ExtractDocumentView(APIView):
     def post(self, request, document_id: str):
         use_llm = _bool_query_param(request.query_params.get("use_llm"), default=True)
         use_structured_output = _bool_query_param(request.query_params.get("use_structured_output"), default=False)
+        use_retrieval = _bool_query_param(request.query_params.get("use_retrieval"), default=False)
+        use_retrieval_vision = _bool_query_param(request.query_params.get("use_retrieval_vision"), default=False)
         service = get_extraction_service()
 
         try:
-            if use_structured_output:
+            if use_retrieval_vision or use_retrieval:
+                result = service.extract_structured_with_retrieval_vision(document_id)
+            elif use_structured_output:
                 result = service.extract_structured(document_id)
             else:
                 result = service.extract_from_annotations(document_id, use_llm_refinement=use_llm)

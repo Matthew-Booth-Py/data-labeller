@@ -23,6 +23,10 @@ services:
       - DJANGO_SETTINGS_MODULE=uu_backend.django_project.settings.local
       - AZURE_DI_ENDPOINT=${AZURE_DI_ENDPOINT}
       - AZURE_DI_KEY=${AZURE_DI_KEY}
+      - USE_AZURE_OPENAI=${USE_AZURE_OPENAI:-false}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2024-12-01-preview}
     depends_on:
       redis:
         condition: service_healthy
@@ -65,6 +69,16 @@ services:
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       - AZURE_DI_ENDPOINT=${AZURE_DI_ENDPOINT}
       - AZURE_DI_KEY=${AZURE_DI_KEY}
+      - CHUNK_SIZE=${CHUNK_SIZE:-4000}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-800}
+      - MAX_CONCURRENCY=${MAX_CONCURRENCY:-40}
+      - CONTEXT_MODEL=${CONTEXT_MODEL:-gpt-5-mini}
+      - USE_AZURE_OPENAI=${USE_AZURE_OPENAI:-false}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2024-12-01-preview}
+      - CO_API_KEY=${CO_API_KEY}
+      - CO_RERANK_ENDPOINT=${CO_RERANK_ENDPOINT}
     volumes:
       - file_storage:/app/data/files
       - taxonomy_data:/app/data
@@ -96,6 +110,8 @@ services:
       - POSTGRES_DB=uu_django
       - POSTGRES_USER=uu
       - POSTGRES_PASSWORD=uu
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
