@@ -1,14 +1,13 @@
 """Service for generating AI annotation suggestions."""
 
-import json
+import io
 import logging
 import re
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
-from asgiref.sync import sync_to_async
-
+from uu_backend.config import get_settings
 from uu_backend.models.annotation import AnnotationSuggestion, AnnotationType
 from uu_backend.models.taxonomy import DocumentType, SchemaField
 from uu_backend.repositories.document_repository import get_document_repository
@@ -27,7 +26,7 @@ class AnnotationSuggestionService:
         self.azure_di_service = get_azure_di_service()
         self.doc_repo = get_document_repository()
     
-    async def suggest_annotations(
+    def suggest_annotations(
         self,
         document_id: str,
         document_type: DocumentType
@@ -35,36 +34,34 @@ class AnnotationSuggestionService:
         """
         Generate AI annotation suggestions for a document.
         
-        Uses extraction to predict field values, then maps predictions
-        to bounding boxes using cached Azure DI analysis.
-        
-        Args:
-            document_id: Document ID
-            document_type: Document type with schema
-            
-        Returns:
-            List of annotation suggestions
+        Uses retrieval-vision extraction to get field values and the relevant
+        page numbers, then runs Azure DI on exactly those pages to get line-level
+        bounding boxes for positioning the suggestion overlays.
         """
         logger.info(f"Generating annotation suggestions for document {document_id}")
         
-        # Get document (wrap sync ORM call)
-        document = await sync_to_async(self.doc_repo.get_document)(document_id)
+        document = self.doc_repo.get_document(document_id)
         if not document:
             logger.error(f"Document not found: {document_id}")
             return []
         
-        # Run extraction to get field values
         try:
-            # Wrap sync extraction in sync_to_async
-            extraction_result = await sync_to_async(self.extraction_service.extract_structured)(
+            # Retrieval-vision finds the right pages, renders them, extracts values.
+            # source_page_numbers tells us which PDF pages were actually used.
+            extraction_result = self.extraction_service.extract_structured_with_retrieval_vision(
                 document_id=document_id
             )
             
             logger.info(f"Extraction returned {len(extraction_result.fields)} fields")
+            logger.info(f"Source pages from extraction: {extraction_result.source_page_numbers}")
             
-            # Get Azure DI analysis (prefer cached) - wrap sync ORM call
-            azure_di_lines = await sync_to_async(self._get_azure_di_lines)(document_id, document.file_type)
-            logger.info(f"Got {len(azure_di_lines)} lines from Azure DI")
+            # Run Azure DI on the same pages the LLM saw
+            azure_di_lines = self._get_azure_di_lines_for_pages(
+                document_id=document_id,
+                file_type=document.file_type,
+                page_numbers=extraction_result.source_page_numbers,
+            )
+            logger.info(f"Got {len(azure_di_lines)} lines from Azure DI on pages {extraction_result.source_page_numbers}")
             
             # Convert extraction results to suggestions with locations
             suggestions = []
@@ -101,48 +98,105 @@ class AnnotationSuggestionService:
             traceback.print_exc()
             return []
     
-    def _get_azure_di_lines(self, document_id: str, file_type: str) -> list[dict]:
-        """Get Azure DI lines from cached analysis or run fresh analysis.
-        
-        Azure DI returns coordinates in inches. We convert to pixels using 72 DPI
-        to match the PDF rendering coordinate system.
+    def _get_azure_di_lines_for_pages(
+        self,
+        document_id: str,
+        file_type: str,
+        page_numbers: list[int],
+    ) -> list[dict]:
         """
-        # Standard PDF DPI - Azure DI returns inches, we need pixels
-        DPI = 72.0
+        Run Azure DI on specific PDF pages and return lines with percentage coordinates.
+        
+        We extract just the requested pages from the PDF (to avoid sending the whole
+        document to Azure DI), analyze them, and convert inch coordinates to percentages
+        so they match the percentage-based overlay positioning in the frontend.
+        
+        Page numbers in the returned lines reflect the original PDF page numbers,
+        not the position within the extracted sub-document.
+        """
+        if not page_numbers or file_type.lower() != 'pdf':
+            return []
         
         try:
-            # Try to get cached analysis from database
-            doc_model = DocumentModel.objects.filter(id=document_id).first()
-            if doc_model and doc_model.azure_di_analysis:
-                lines = []
-                for page in doc_model.azure_di_analysis.get("pages", []):
-                    page_num = page.get("page_number", 1)
-                    for line in page.get("lines", []):
-                        polygon = line.get("bbox", [])
-                        if polygon:
-                            # Handle dict format from cache
-                            x_coords = [p["x"] if isinstance(p, dict) else p[0] for p in polygon]
-                            y_coords = [p["y"] if isinstance(p, dict) else p[1] for p in polygon]
-                            
-                            # Convert from inches to pixels (72 DPI standard)
-                            x_min = min(x_coords) * DPI
-                            y_min = min(y_coords) * DPI
-                            width = (max(x_coords) - min(x_coords)) * DPI
-                            height = (max(y_coords) - min(y_coords)) * DPI
-                            
-                            lines.append({
-                                "text": line.get("text", ""),
-                                "page": page_num,
-                                "x": x_min,
-                                "y": y_min,
-                                "width": width,
-                                "height": height
-                            })
-                return lines
+            settings = get_settings()
+            file_path = Path(f"{settings.file_storage_path}/{document_id}.{file_type.lower()}")
+            if not file_path.exists():
+                logger.error(f"PDF file not found: {file_path}")
+                return []
+            
+            from pypdf import PdfReader, PdfWriter
+            
+            reader = PdfReader(str(file_path))
+            total_pages = len(reader.pages)
+            
+            # Build a sub-PDF containing only the requested pages,
+            # keeping a map from sub-doc page index → original page number
+            writer = PdfWriter()
+            sub_page_to_original: dict[int, int] = {}  # 1-indexed sub page → original page num
+            
+            for orig_page_num in sorted(set(page_numbers)):
+                zero_idx = orig_page_num - 1
+                if 0 <= zero_idx < total_pages:
+                    writer.add_page(reader.pages[zero_idx])
+                    sub_idx = len(writer.pages)  # 1-indexed position just added
+                    sub_page_to_original[sub_idx] = orig_page_num
+            
+            if not sub_page_to_original:
+                logger.warning(f"None of the requested pages {page_numbers} exist in PDF ({total_pages} pages)")
+                return []
+            
+            # Write sub-PDF to a buffer and send to Azure DI
+            buffer = io.BytesIO()
+            writer.write(buffer)
+            buffer.seek(0)
+            
+            logger.info(f"Sending {len(sub_page_to_original)} pages to Azure DI: {sorted(sub_page_to_original.values())}")
+            
+            poller = self.azure_di_service.client.begin_analyze_document(
+                "prebuilt-read",
+                document=buffer,
+            )
+            result = poller.result()
+            
+            lines = []
+            for page in result.pages:
+                # Map sub-doc page number back to original PDF page number
+                orig_num = sub_page_to_original.get(page.page_number, page.page_number)
+                page_w = page.width or 0
+                page_h = page.height or 0
+                
+                if not page_w or not page_h:
+                    continue
+                
+                for line in page.lines:
+                    polygon = line.polygon or []
+                    if not polygon:
+                        continue
+                    
+                    x_coords = [p.x for p in polygon]
+                    y_coords = [p.y for p in polygon]
+                    
+                    # Convert from inches to percentage of page dimensions
+                    x_pct = (min(x_coords) / page_w) * 100
+                    y_pct = (min(y_coords) / page_h) * 100
+                    w_pct = ((max(x_coords) - min(x_coords)) / page_w) * 100
+                    h_pct = ((max(y_coords) - min(y_coords)) / page_h) * 100
+                    
+                    lines.append({
+                        "text": line.content,
+                        "page": orig_num,
+                        "x": x_pct,
+                        "y": y_pct,
+                        "width": w_pct,
+                        "height": h_pct,
+                    })
+            
+            logger.info(f"Azure DI returned {len(lines)} lines across {len(sub_page_to_original)} pages")
+            return lines
+            
         except Exception as e:
-            logger.error(f"Error getting cached Azure DI analysis: {e}")
-        
-        return []
+            logger.error(f"Error running Azure DI on pages {page_numbers}: {e}", exc_info=True)
+            return []
     
     def _flatten_extraction_fields(self, fields: list) -> list[tuple[str, Any, int]]:
         """

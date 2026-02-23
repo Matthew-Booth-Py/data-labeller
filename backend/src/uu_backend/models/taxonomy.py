@@ -186,6 +186,8 @@ class ExtractionResult(BaseModel):
     schema_version_id: Optional[str] = None
     prompt_version_id: Optional[str] = None
     extracted_at: datetime
+    # Pages that were actually used for extraction (populated by retrieval-vision path)
+    source_page_numbers: list[int] = Field(default_factory=list)
 
 
 class GlobalField(BaseModel):

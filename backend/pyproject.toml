@@ -41,6 +41,7 @@ dependencies = [
     "nest-asyncio>=1.6.0",
     "tenacity>=8.2.0",
     "cohere>=5.20.6",
+    "pypdf>=6.7.2",
 ]
 
 [project.optional-dependencies]

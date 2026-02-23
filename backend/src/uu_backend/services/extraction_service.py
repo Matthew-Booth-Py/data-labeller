@@ -774,7 +774,8 @@ Analyze the page image(s) and extract all fields according to the schema. Return
                 fields=extracted_fields,
                 schema_version_id=doc_type.schema_version_id,
                 prompt_version_id=prompt_version_id,
-                extracted_at=timezone.now()
+                extracted_at=timezone.now(),
+                source_page_numbers=sorted(all_page_numbers),
             )
             
             self._save_extraction(result)
