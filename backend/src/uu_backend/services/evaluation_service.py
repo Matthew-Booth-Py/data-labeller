@@ -931,14 +931,27 @@ Rules:
                 if gt_idx < len(gt_items) and pred_idx < len(pred_items):
                     gt_item = gt_items[gt_idx]
                     pred_item = pred_items[pred_idx]
+                    gt_value = gt_item["value"]
+                    pred_value = pred_item["value"]
+
+                    # Enforce empty-value equivalence regardless of LLM output.
+                    # Example: GT "-" and prediction null/empty should be correct.
+                    if self._is_empty_value(gt_value) and self._is_empty_value(pred_value):
+                        is_match = True
+                        confidence = max(confidence, 1.0)
+                        reason = reason or "Both values are empty/not-applicable"
                     
                     comparisons.append(FieldComparison(
                         field_name=field_name,
-                        ground_truth_value=gt_item["value"],
-                        predicted_value=pred_item["value"],
+                        ground_truth_value=gt_value,
+                        predicted_value=pred_value,
                         match_result=MatchResult(
                             is_match=is_match,
-                            match_type=MatchType.SEMANTIC if is_match else MatchType.NO_MATCH,
+                            match_type=(
+                                MatchType.EXACT
+                                if is_match and self._is_empty_value(gt_value) and self._is_empty_value(pred_value)
+                                else (MatchType.SEMANTIC if is_match else MatchType.NO_MATCH)
+                            ),
                             confidence=confidence,
                             reason=reason
                         ),
@@ -951,15 +964,21 @@ Rules:
             for gt_idx in missing_indices:
                 if gt_idx < len(gt_items) and gt_idx not in matched_gt:
                     gt_item = gt_items[gt_idx]
+                    gt_value = gt_item["value"]
+                    gt_is_empty = self._is_empty_value(gt_value)
                     comparisons.append(FieldComparison(
                         field_name=field_name,
-                        ground_truth_value=gt_item["value"],
+                        ground_truth_value=gt_value,
                         predicted_value=None,
                         match_result=MatchResult(
-                            is_match=False,
-                            match_type=MatchType.NO_MATCH,
-                            confidence=0.0,
-                            reason="Missing prediction"
+                            is_match=gt_is_empty,
+                            match_type=MatchType.EXACT if gt_is_empty else MatchType.NO_MATCH,
+                            confidence=1.0 if gt_is_empty else 0.0,
+                            reason=(
+                                "Ground truth empty value matches null prediction"
+                                if gt_is_empty
+                                else "Missing prediction"
+                            )
                         ),
                         instance_num=gt_item.get("instance")
                     ))
@@ -984,15 +1003,21 @@ Rules:
             # Handle unprocessed items (if eval_results was incomplete)
             for gt_idx, gt_item in enumerate(gt_items):
                 if gt_idx not in matched_gt and gt_idx not in missing_indices:
+                    gt_value = gt_item["value"]
+                    gt_is_empty = self._is_empty_value(gt_value)
                     comparisons.append(FieldComparison(
                         field_name=field_name,
-                        ground_truth_value=gt_item["value"],
+                        ground_truth_value=gt_value,
                         predicted_value=None,
                         match_result=MatchResult(
-                            is_match=False,
-                            match_type=MatchType.NO_MATCH,
-                            confidence=0.0,
-                            reason="Unprocessed GT"
+                            is_match=gt_is_empty,
+                            match_type=MatchType.EXACT if gt_is_empty else MatchType.NO_MATCH,
+                            confidence=1.0 if gt_is_empty else 0.0,
+                            reason=(
+                                "Ground truth empty value matches null prediction"
+                                if gt_is_empty
+                                else "Unprocessed GT"
+                            )
                         ),
                         instance_num=gt_item.get("instance")
                     ))
@@ -1070,11 +1095,22 @@ Rules:
             instance_metrics=instance_metrics,
             field_metrics=field_metrics
         )
+
+    def _counts_as_predicted(self, comparison: FieldComparison) -> bool:
+        """
+        Count a comparison as a prediction for precision denominators.
+
+        Null predictions can be legitimate/correct for empty GT markers (for example "-"),
+        so include those matched-null cases as predicted.
+        """
+        return comparison.predicted_value is not None or (
+            comparison.predicted_value is None and comparison.is_correct
+        )
     
     def _calculate_flattened_metrics(self, comparisons: list[FieldComparison]) -> FlattenedMetrics:
         """Calculate flattened metrics."""
         total_gt = sum(1 for c in comparisons if c.ground_truth_value is not None)
-        total_pred = sum(1 for c in comparisons if c.predicted_value is not None)
+        total_pred = sum(1 for c in comparisons if self._counts_as_predicted(c))
         correct = sum(1 for c in comparisons if c.is_correct)
         incorrect = sum(1 for c in comparisons if not c.is_correct and not c.is_missing and not c.is_extra)
         missing = sum(1 for c in comparisons if c.is_missing)
@@ -1116,7 +1152,7 @@ Rules:
             
             # Calculate GT vs predicted instance counts
             gt_instances = len([i for i in instances if any(c.ground_truth_value is not None for c in i.field_comparisons)])
-            pred_instances = len([i for i in instances if any(c.predicted_value is not None for c in i.field_comparisons)])
+            pred_instances = len([i for i in instances if any(self._counts_as_predicted(c) for c in i.field_comparisons)])
             
             missing_instances = gt_instances - matched_instances
             extra_instances = pred_instances - matched_instances
@@ -1158,7 +1194,7 @@ Rules:
         field_metrics = {}
         for field_name, comps in field_groups.items():
             total_gt = sum(1 for c in comps if c.ground_truth_value is not None)
-            total_pred = sum(1 for c in comps if c.predicted_value is not None)
+            total_pred = sum(1 for c in comps if self._counts_as_predicted(c))
             correct = sum(1 for c in comps if c.is_correct)
             incorrect = sum(1 for c in comps if not c.is_correct and not c.is_missing and not c.is_extra)
             missing = sum(1 for c in comps if c.is_missing)

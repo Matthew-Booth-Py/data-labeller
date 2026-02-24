@@ -916,3 +916,75 @@ class TestEmptyValueMatching:
         
         matches = result["table.value"]["matches"]
         assert len(matches) == 0, f"Expected 0 matches, got {len(matches)}"
+
+    def test_build_field_comparisons_treats_dash_and_missing_prediction_as_match(self):
+        """GT '-' with missing/null prediction should be marked correct."""
+        from uu_backend.services.evaluation_service import EvaluationService
+
+        with patch('uu_backend.services.evaluation_service.get_extraction_service'), \
+             patch('uu_backend.services.evaluation_service.get_document_repository'), \
+             patch('uu_backend.services.evaluation_service.get_openai_client'):
+            service = EvaluationService()
+
+        comparison_schema = {
+            "table.value": {
+                "ground_truth": [{"value": "-", "instance": 1}],
+                "predicted": [],
+            }
+        }
+        eval_results = {
+            "table.value": {
+                "matches": [],
+                "missing_gt_indices": [0],
+                "extra_pred_indices": [],
+            }
+        }
+
+        comparisons = service._build_field_comparisons(comparison_schema, eval_results)
+        assert len(comparisons) == 1
+        comparison = comparisons[0]
+        assert comparison.is_correct is True
+        assert comparison.match_result.match_type.value == "exact"
+        assert comparison.predicted_value is None
+        assert comparison.is_missing is False
+
+    def test_matched_null_counts_in_precision_denominator(self):
+        """Correct null matches should not allow precision > 1.0."""
+        from uu_backend.services.evaluation_service import EvaluationService
+        from uu_backend.models.evaluation import FieldComparison, MatchResult, MatchType
+
+        with patch('uu_backend.services.evaluation_service.get_extraction_service'), \
+             patch('uu_backend.services.evaluation_service.get_document_repository'), \
+             patch('uu_backend.services.evaluation_service.get_openai_client'):
+            service = EvaluationService()
+
+        comparisons = [
+            FieldComparison(
+                field_name="table.value",
+                ground_truth_value="-",
+                predicted_value=None,
+                match_result=MatchResult(
+                    is_match=True,
+                    match_type=MatchType.EXACT,
+                    confidence=1.0,
+                    reason="Ground truth empty value matches null prediction",
+                ),
+                instance_num=1,
+            ),
+            FieldComparison(
+                field_name="table.value",
+                ground_truth_value="$10.0",
+                predicted_value="$10.0",
+                match_result=MatchResult(
+                    is_match=True,
+                    match_type=MatchType.EXACT,
+                    confidence=1.0,
+                    reason="Exact match",
+                ),
+                instance_num=2,
+            ),
+        ]
+
+        flattened = service._calculate_flattened_metrics(comparisons)
+        assert flattened.precision == 1.0
+        assert flattened.correct_fields == 2
