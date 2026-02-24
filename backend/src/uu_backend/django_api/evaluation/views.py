@@ -2,11 +2,7 @@
 
 import json
 import logging
-from datetime import datetime
-from typing import Optional
-from uuid import uuid4
 
-from asgiref.sync import async_to_sync, sync_to_async
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -20,18 +16,9 @@ from uu_backend.models.evaluation import (
     EvaluationSummary,
 )
 from uu_backend.models.prompt import FieldPromptVersion
-from uu_backend.services.evaluation_service import get_evaluation_service
 from uu_backend.repositories.django_repo import DjangoORMRepository
 
 logger = logging.getLogger(__name__)
-
-
-@csrf_exempt
-def test_endpoint(request):
-    """Simple test endpoint."""
-    logger.info("=== TEST ENDPOINT HIT ===")
-    print("=== TEST ENDPOINT HIT ===")
-    return JsonResponse({"status": "ok", "message": "Test endpoint working"})
 
 
 @csrf_exempt

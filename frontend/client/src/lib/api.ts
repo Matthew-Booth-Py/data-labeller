@@ -22,38 +22,6 @@ export interface HealthResponse {
 }
 
 
-export interface GraphIndexDocumentsResult {
-  requested_documents: number;
-  valid_documents: number;
-  missing_documents: number;
-  already_indexed_documents: number;
-  enqueued_documents: number;
-  enqueued_task_ids: string[];
-  missing_document_ids: string[];
-  already_indexed_document_ids: string[];
-}
-
-export interface GraphDeleteDbResult {
-  deleted: boolean;
-  stats_before: GraphStats;
-  stats_after: GraphStats;
-  total_documents: number;
-  indexed_documents: number;
-  pending_documents: number;
-}
-
-export interface GraphRemoveResult {
-  requested_id: string;
-  resolved_document_id: string;
-  resolved_document_ids: string[];
-  removed: boolean;
-  removed_documents: number;
-  removed_document_ids: string[];
-  total_documents: number;
-  indexed_documents: number;
-  pending_documents: number;
-}
-
 export interface DocumentMetadata {
   filename: string;
   file_type: string;
@@ -792,10 +760,6 @@ class ApiClient {
     return this.request(`${API_PREFIX}/taxonomy/types`);
   }
 
-  async getDocumentType(id: string): Promise<{ type: DocumentType }> {
-    return this.request(`${API_PREFIX}/taxonomy/types/${id}`);
-  }
-
   async createDocumentType(data: DocumentTypeCreate): Promise<{ type: DocumentType }> {
     return this.request(`${API_PREFIX}/taxonomy/types`, {
       method: 'POST',
@@ -814,10 +778,6 @@ class ApiClient {
     return this.request(`${API_PREFIX}/taxonomy/types/${id}`, {
       method: 'DELETE',
     });
-  }
-
-  async getDocumentsByType(typeId: string): Promise<{ document_type: string; document_ids: string[]; total: number }> {
-    return this.request(`${API_PREFIX}/taxonomy/types/${typeId}/documents`);
   }
 
   async listGlobalFields(search?: string): Promise<{ fields: GlobalField[]; total: number }> {
@@ -881,12 +841,6 @@ class ApiClient {
     return this.request(`${API_PREFIX}/documents/${documentId}/classification`);
   }
 
-  async deleteDocumentClassification(documentId: string): Promise<{ status: string }> {
-    return this.request(`${API_PREFIX}/documents/${documentId}/classification`, {
-      method: 'DELETE',
-    });
-  }
-
   async autoClassifyDocument(documentId: string, save: boolean = false): Promise<AutoClassificationResult> {
     return this.request(`${API_PREFIX}/documents/${documentId}/auto-classify?save=${save}`, {
       method: 'POST',
@@ -911,12 +865,6 @@ class ApiClient {
 
   async getDocumentExtraction(documentId: string): Promise<ExtractionResult> {
     return this.request(`${API_PREFIX}/documents/${documentId}/extraction`);
-  }
-
-  async deleteDocumentExtraction(documentId: string): Promise<{ status: string }> {
-    return this.request(`${API_PREFIX}/documents/${documentId}/extraction`, {
-      method: 'DELETE',
-    });
   }
 
 
@@ -1003,10 +951,6 @@ class ApiClient {
 
   async listDeploymentVersions(projectId: string): Promise<{ versions: DeploymentVersion[]; total: number }> {
     return this.request(`${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/versions`);
-  }
-
-  async getActiveDeploymentVersion(projectId: string): Promise<{ version: DeploymentVersion }> {
-    return this.request(`${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/active`);
   }
 
   async activateDeploymentVersion(projectId: string, versionId: string): Promise<{ status: string; active_version: DeploymentVersion }> {

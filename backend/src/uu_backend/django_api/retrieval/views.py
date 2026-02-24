@@ -3,22 +3,14 @@
 import logging
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.services.contextual_retrieval import get_contextual_retrieval_service
-from uu_backend.tasks.contextual_retrieval_tasks import (
-    delete_document_from_retrieval_index,
-    index_document_for_retrieval,
-)
 
 from .serializers import (
-    IndexDocumentResponseSerializer,
-    RetrievalStatsSerializer,
     SearchQuerySerializer,
     SearchResponseSerializer,
-    SearchResultSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -98,104 +90,4 @@ class SearchView(APIView):
             "results": result_data,
             "total": len(result_data),
             "query": query,
-        })
-
-
-class IndexDocumentView(APIView):
-    """Index a document for contextual retrieval."""
-
-    @extend_schema(
-        operation_id="index_document",
-        summary="Index document for retrieval",
-        description=(
-            "Trigger async indexing of a document for contextual retrieval. "
-            "This will chunk the document, generate context, create embeddings, "
-            "and store in the vector and BM25 indexes."
-        ),
-        responses={202: IndexDocumentResponseSerializer},
-        tags=["Retrieval"],
-    )
-    def post(self, request, document_id):
-        """Start async indexing of a document."""
-        task = index_document_for_retrieval.delay(document_id)
-        
-        return Response(
-            {
-                "status": "indexing_started",
-                "document_id": document_id,
-                "task_id": task.id,
-            },
-            status=status.HTTP_202_ACCEPTED,
-        )
-
-    @extend_schema(
-        operation_id="delete_document_index",
-        summary="Delete document from retrieval index",
-        description="Remove a document from the contextual retrieval index.",
-        responses={202: IndexDocumentResponseSerializer},
-        tags=["Retrieval"],
-    )
-    def delete(self, request, document_id):
-        """Delete a document from the index."""
-        task = delete_document_from_retrieval_index.delay(document_id)
-        
-        return Response(
-            {
-                "status": "deletion_started",
-                "document_id": document_id,
-                "task_id": task.id,
-            },
-            status=status.HTTP_202_ACCEPTED,
-        )
-
-
-class RetrievalStatsView(APIView):
-    """Get statistics about the retrieval index."""
-
-    @extend_schema(
-        operation_id="retrieval_stats",
-        summary="Get retrieval index stats",
-        description="Get statistics about the contextual retrieval index.",
-        responses={200: RetrievalStatsSerializer},
-        tags=["Retrieval"],
-    )
-    def get(self, request):
-        """Get index statistics."""
-        service = get_contextual_retrieval_service()
-        stats = service.get_stats()
-        
-        return Response(stats)
-
-
-class DocumentChunksView(APIView):
-    """Get indexed chunks for a document."""
-
-    @extend_schema(
-        operation_id="get_document_chunks",
-        summary="Get document chunks",
-        description="Get all indexed chunks for a specific document.",
-        responses={200: SearchResultSerializer(many=True)},
-        tags=["Retrieval"],
-    )
-    def get(self, request, document_id):
-        """Get chunks for a document."""
-        service = get_contextual_retrieval_service()
-        chunks = service.get_document_chunks(document_id)
-        
-        chunk_data = [
-            {
-                "doc_id": c.doc_id,
-                "chunk_index": c.index,
-                "text": c.contextualized_text,
-                "original_text": c.original_text,
-                "context": c.context,
-                "score": 0.0,
-            }
-            for c in chunks
-        ]
-        
-        return Response({
-            "document_id": document_id,
-            "chunks": chunk_data,
-            "total": len(chunk_data),
         })

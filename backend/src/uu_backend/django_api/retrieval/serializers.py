@@ -44,28 +44,3 @@ class SearchResponseSerializer(serializers.Serializer):
     results = SearchResultSerializer(many=True)
     total = serializers.IntegerField()
     query = serializers.CharField()
-
-
-class IndexDocumentRequestSerializer(serializers.Serializer):
-    """Request serializer for index document endpoint."""
-
-    document_id = serializers.CharField(
-        help_text="Document ID to index",
-        required=True,
-    )
-
-
-class IndexDocumentResponseSerializer(serializers.Serializer):
-    """Response serializer for index document endpoint."""
-
-    status = serializers.CharField()
-    document_id = serializers.CharField()
-    task_id = serializers.CharField(required=False, allow_null=True)
-
-
-class RetrievalStatsSerializer(serializers.Serializer):
-    """Serializer for retrieval index statistics."""
-
-    vector_store_count = serializers.IntegerField()
-    bm25_index_count = serializers.IntegerField()
-    reranker_type = serializers.CharField()

@@ -8,9 +8,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
-from uu_backend.repositories.document_repository import get_document_repository
-from uu_backend.ingestion.converter import get_converter
 from uu_backend.models.document import DocumentListResponse, DocumentResponse
+from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.repositories import get_repository
 
 logger = logging.getLogger(__name__)
@@ -171,42 +170,6 @@ class DocumentFileView(APIView):
         )
         response["Content-Disposition"] = content_disposition
         return response
-
-
-class DocumentReprocessView(APIView):
-    authentication_classes: list = []
-    permission_classes: list = []
-
-    def post(self, request, document_id: str):
-        document_repo = get_document_repository()
-        document = document_repo.get_document(document_id)
-
-        if not document:
-            return Response({"detail": "Document not found"}, status=404)
-
-        file_path = get_original_file_path(document_id, document.file_type)
-        if not file_path:
-            return Response({"detail": "Original file not found"}, status=404)
-
-        try:
-            converter = get_converter()
-            with open(file_path, "rb") as file_obj:
-                result = converter.convert(file_obj, document.filename)
-
-            if not result.success:
-                return Response({"detail": f"Conversion failed: {result.error}"}, status=500)
-
-            document_repo.update_document_content(document_id, result.content)
-            return Response(
-                {
-                    "status": "reprocessed",
-                    "document_id": document_id,
-                    "content_length": len(result.content),
-                    "message": "Document reprocessed successfully. Note: Existing annotations may have invalid offsets.",
-                }
-            )
-        except Exception as exc:
-            return Response({"detail": f"Reprocessing failed: {exc}"}, status=500)
 
 
 class DocumentReindexRetrievalView(APIView):
