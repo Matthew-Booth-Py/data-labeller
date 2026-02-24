@@ -67,6 +67,9 @@ def run_evaluation_task(self, document_id: str, project_id: str = None, run_extr
         logger.info(f"[CELERY] Evaluation saved with ID {evaluation_id}")
         return evaluation_id
         
+    except ValueError as e:
+        logger.error(f"[CELERY] Evaluation failed with non-retriable validation error: {e}", exc_info=True)
+        raise
     except Exception as e:
         logger.error(f"[CELERY] Evaluation failed: {e}", exc_info=True)
         raise self.retry(exc=e, countdown=60)

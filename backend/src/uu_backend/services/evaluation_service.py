@@ -146,9 +146,6 @@ class EvaluationService:
         For array fields (tables), intelligently groups GT annotations into rows
         by matching field values, not relying on instance_num.
         
-        Handles cross-format comparison: old-style (category/subcategory/line_item) 
-        GT labels vs new-style (hierarchy_path) predictions.
-        
         Returns:
             {
                 "field_name": {
@@ -177,20 +174,15 @@ class EvaluationService:
             for gt in ground_truth
         )
         
-        # Second pass: transform and normalize if there's a format mismatch
-        if pred_uses_hierarchy_path and not gt_uses_hierarchy_path:
-            # Predictions use new format, GT uses old format
-            # Transform old-style GT to hierarchy_path format
-            gt_transformed = self._transform_gt_for_hierarchy_path(ground_truth, schema)
-            gt_with_instances = self._assign_gt_instances(gt_transformed, schema)
-        elif gt_uses_hierarchy_path and not pred_uses_hierarchy_path:
-            # GT uses new format, predictions use old format
-            # Synthesize hierarchy_path entries from normalized predictions
-            self._synthesize_prediction_hierarchy_paths(schema)
-            gt_with_instances = self._assign_gt_instances(ground_truth, schema)
-        else:
-            # Both use same format (or both have hierarchy_path)
-            gt_with_instances = self._assign_gt_instances(ground_truth, schema)
+        # Enforce schema contract: GT and predictions must use the same hierarchy schema.
+        if pred_uses_hierarchy_path != gt_uses_hierarchy_path:
+            raise ValueError(
+                "Hierarchy schema mismatch: ground truth and predictions must use the same schema "
+                f"(gt_uses_hierarchy_path={gt_uses_hierarchy_path}, "
+                f"pred_uses_hierarchy_path={pred_uses_hierarchy_path})."
+            )
+
+        gt_with_instances = self._assign_gt_instances(ground_truth, schema)
         
         # Add ground truth values with assigned instances
         for gt in gt_with_instances:
@@ -201,113 +193,6 @@ class EvaluationService:
             })
         
         return dict(schema)
-    
-    def _detect_hierarchy_fields(self, gt_list: list[dict], parent: str) -> list[str]:
-        """
-        Dynamically detect which fields are hierarchy fields based on their values.
-        
-        Uses content analysis, NOT hardcoded field name patterns.
-        """
-        # Collect field names with sample values
-        field_samples: dict[str, list[any]] = defaultdict(list)
-        for gt in gt_list:
-            field_key = gt["field_name"].replace(f"{parent}.", "")
-            if field_key != "hierarchy_path" and not "_header" in field_key:
-                field_samples[field_key].append(gt["value"])
-        
-        # Analyze each field to determine if it's hierarchy or data
-        detected = []
-        for field_name, values in field_samples.items():
-            # Analyze the values to determine field type
-            is_hierarchy = True
-            
-            for value in values:
-                if value is None or str(value).strip() == "":
-                    continue
-                
-                # Use value-based detection
-                if not self._is_hierarchy_field(field_name, value):
-                    is_hierarchy = False
-                    break
-            
-            if is_hierarchy:
-                detected.append(field_name)
-        
-        return detected
-    
-    def _transform_gt_for_hierarchy_path(
-        self,
-        ground_truth: list[dict],
-        schema: dict
-    ) -> list[dict]:
-        """
-        Transform old-style GT (category/subcategory/line_item) to new-style (hierarchy_path).
-        
-        Dynamically detects hierarchy fields instead of using hardcoded list.
-        Groups related GT annotations and converts them to hierarchy_path format
-        for proper comparison against new extraction format.
-        """
-        # Group GT by parent field
-        gt_by_parent: dict[str, list[dict]] = defaultdict(list)
-        for gt in ground_truth:
-            parts = gt["field_name"].split(".")
-            if len(parts) > 1:
-                parent = parts[0]
-                gt_by_parent[parent].append(gt)
-            else:
-                gt_by_parent[gt["field_name"]].append(gt)
-        
-        transformed = []
-        
-        for parent, gt_list in gt_by_parent.items():
-            # Check if this parent has hierarchy_path in predictions
-            has_hierarchy_path = f"{parent}.hierarchy_path" in schema
-            
-            if not has_hierarchy_path:
-                # No hierarchy_path in predictions, keep GT as-is
-                transformed.extend(gt_list)
-                continue
-            
-            # Dynamically detect hierarchy fields from GT
-            hierarchy_fields = self._detect_hierarchy_fields(gt_list, parent)
-            
-            if not hierarchy_fields:
-                # No hierarchy fields detected, keep as-is
-                transformed.extend(gt_list)
-                continue
-            
-            # Group GT by rows
-            gt_groups = self._group_gt_by_similarity(gt_list, parent)
-            
-            # Convert each group to hierarchy_path format
-            for group in gt_groups:
-                # Extract hierarchy values from this group in consistent order
-                hierarchy_parts = []
-                other_fields = []
-                
-                for gt in group:
-                    field_key = gt["field_name"].replace(f"{parent}.", "")
-                    
-                    if field_key in hierarchy_fields:
-                        value = gt["value"]
-                        if value and str(value).strip():
-                            hierarchy_parts.append(str(value).strip())
-                    else:
-                        # Keep non-hierarchy fields as-is
-                        other_fields.append(gt)
-                
-                # Add a synthetic hierarchy_path GT entry
-                if hierarchy_parts:
-                    transformed.append({
-                        "field_name": f"{parent}.hierarchy_path",
-                        "value": hierarchy_parts,
-                        "instance_num": group[0].get("instance_num")
-                    })
-                
-                # Add other fields
-                transformed.extend(other_fields)
-        
-        return transformed
     
     def _assign_gt_instances(
         self,
@@ -410,7 +295,7 @@ class EvaluationService:
         normalized = fields.copy()
         normalized["_normalized_hierarchy_path"] = hierarchy_values if hierarchy_values else []
         return normalized
-    
+
     def _match_gt_to_predicted_rows(
         self,
         gt_list: list[dict],

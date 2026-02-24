@@ -279,6 +279,7 @@ export function PdfTextAnnotator({
       return (
         <div
           key={ann.id}
+          data-annotation-id={ann.id}
           className="absolute pointer-events-auto cursor-pointer transition-all hover:brightness-125"
           style={{
             left: `${bbox.x}%`,

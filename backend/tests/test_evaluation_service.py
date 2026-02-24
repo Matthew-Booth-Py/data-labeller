@@ -1,9 +1,9 @@
 """Tests for the evaluation service and annotation suggestion service.
 
 This test suite covers:
-1. Hierarchy_path matching between different formats (string vs array)
+1. Strict schema enforcement between GT and predictions
 2. Proper flattening of extraction results (keeping leaf arrays atomic)
-3. Schema compatibility between predictions and ground truth
+3. Hierarchy_path comparison behavior
 
 The goal is to ensure predictions and ground truth use the EXACT SAME SCHEMA
 so evaluation compares apples to apples.
@@ -447,6 +447,42 @@ class TestComparisonSchemaBuilding:
         pred_values = schema[hp_key]["predicted"]
         assert len(pred_values) == 1
         assert pred_values[0]["value"] == ["GAAP additions", "Proceeds from capital-related"]
+
+    def test_build_schema_rejects_legacy_prediction_hierarchy_fields(self, service):
+        """Schema mismatch should fail when GT uses hierarchy_path and predictions do not."""
+        from uu_backend.models.taxonomy import ExtractedField
+
+        extraction = MagicMock()
+        extraction.fields = [
+            ExtractedField(
+                field_name="forward_looking_estimates_table",
+                value=[
+                    {
+                        "category": "GAAP additions",
+                        "line_item": "Proceeds from capital-related",
+                        "period_1_value": "(1.0)",
+                    }
+                ],
+                confidence=0.95,
+                source_text=None,
+            )
+        ]
+
+        ground_truth = [
+            {
+                "field_name": "forward_looking_estimates_table.hierarchy_path",
+                "value": "Proceeds from capital-related",
+                "instance_num": 1,
+            },
+            {
+                "field_name": "forward_looking_estimates_table.period_1_value",
+                "value": "(1.0)",
+                "instance_num": 1,
+            },
+        ]
+
+        with pytest.raises(ValueError, match="Hierarchy schema mismatch"):
+            service._build_comparison_schema(ground_truth, extraction)
 
 
 class TestEndToEndScenario:
