@@ -18,6 +18,7 @@ import { Separator } from "@/components/ui/separator";
 import { Loader2, Sparkles, ThumbsUp, ThumbsDown, Trash2, Eye, EyeOff, Plus, ChevronDown, ChevronRight, Pencil, Check, X, XCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { formatAnnotationValue } from "@/lib/utils";
 import { PdfBboxAnnotator } from "@/components/labeller/PdfBboxAnnotator";
 import { ImageAnnotator } from "@/components/labeller/ImageAnnotator";
 import { TextAnnotator } from "@/components/labeller/TextAnnotator";
@@ -865,7 +866,7 @@ export function DataLabellerImproved() {
                     <div key={suggestion.id} className="p-2 border rounded-md space-y-2 text-xs">
                       <div>
                         <span className="font-medium">{suggestion.field_name}:</span>{" "}
-                        {String(suggestion.value).substring(0, 30)}...
+                        {formatAnnotationValue(suggestion.value, 30)}
                       </div>
                       <div className="flex gap-1">
                         <Button

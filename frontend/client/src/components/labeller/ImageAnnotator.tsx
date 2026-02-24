@@ -6,6 +6,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { GroundTruthAnnotation } from "@/lib/api";
+import { formatAnnotationValue } from "@/lib/utils";
 
 interface ImageAnnotatorProps {
   imageUrl: string;
@@ -62,8 +63,7 @@ export function ImageAnnotator({
                   className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground"
                   onClick={() => onAnnotationDelete(annotation.id)}
                 >
-                  {annotation.field_name}: {String(annotation.value).substring(0, 30)}
-                  {String(annotation.value).length > 30 && "..."}
+                  {annotation.field_name}: {formatAnnotationValue(annotation.value, 30)}
                 </Badge>
               ))}
             </div>

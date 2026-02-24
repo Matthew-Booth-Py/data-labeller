@@ -15,6 +15,7 @@ import { PdfTextAnnotator } from "@/components/labeller/PdfTextAnnotator";
 import { ImageBboxAnnotator } from "@/components/labeller/ImageBboxAnnotator";
 import { toast } from "sonner";
 import { Loader2, FileText, Image, Copy, ChevronDown, Sparkles, Trash2 } from "lucide-react";
+import { formatAnnotationValue } from "@/lib/utils";
 
 // Color palette for entity types
 const ENTITY_COLORS = [
@@ -774,7 +775,7 @@ export function DataLabellerV2() {
                 {annotations.map(ann => {
                   const et = entityTypes.find(e => e.name === ann.field_name);
                   const color = et?.color || '#8b949e';
-                  const preview = (ann.value || '').substring(0, 30);
+                  const preview = formatAnnotationValue(ann.value, 30);
                   const instanceNum = (ann.annotation_data as any)?.instance_num;
                   
                   return (
