@@ -567,7 +567,6 @@ class TestAnnotationSuggestionServiceFlattening:
     def service(self):
         """Create suggestion service with mocked dependencies."""
         with patch('uu_backend.services.annotation_suggestion_service.get_extraction_service'), \
-             patch('uu_backend.services.annotation_suggestion_service.get_azure_di_service'), \
              patch('uu_backend.services.annotation_suggestion_service.get_document_repository'):
             from uu_backend.services.annotation_suggestion_service import AnnotationSuggestionService
             return AnnotationSuggestionService()

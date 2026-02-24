@@ -1,6 +1,5 @@
 """Service for generating AI annotation suggestions."""
 
-import io
 import logging
 import re
 from pathlib import Path
@@ -9,11 +8,9 @@ from uuid import uuid4
 
 from uu_backend.config import get_settings
 from uu_backend.models.annotation import AnnotationSuggestion, AnnotationType
-from uu_backend.models.taxonomy import DocumentType, SchemaField
+from uu_backend.models.taxonomy import DocumentType
 from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.services.extraction_service import get_extraction_service
-from uu_backend.services.azure_di_service import get_azure_di_service
-from uu_backend.django_data.models import DocumentModel
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +20,6 @@ class AnnotationSuggestionService:
     
     def __init__(self):
         self.extraction_service = get_extraction_service()
-        self.azure_di_service = get_azure_di_service()
         self.doc_repo = get_document_repository()
     
     def suggest_annotations(
@@ -35,7 +31,7 @@ class AnnotationSuggestionService:
         Generate AI annotation suggestions for a document.
         
         Uses retrieval-vision extraction to get field values and the relevant
-        page numbers, then runs Azure DI on exactly those pages to get line-level
+        page numbers, then uses pdfplumber on those pages to get word-level
         bounding boxes for positioning the suggestion overlays.
         """
         logger.info(f"Generating annotation suggestions for document {document_id}")
@@ -55,13 +51,13 @@ class AnnotationSuggestionService:
             logger.info(f"Extraction returned {len(extraction_result.fields)} fields")
             logger.info(f"Source pages from extraction: {extraction_result.source_page_numbers}")
             
-            # Run Azure DI on the same pages the LLM saw
-            azure_di_lines = self._get_azure_di_lines_for_pages(
+            # Extract positioned words on the same pages the LLM saw.
+            positioned_words = self._get_pdf_words_for_pages(
                 document_id=document_id,
                 file_type=document.file_type,
                 page_numbers=extraction_result.source_page_numbers,
             )
-            logger.info(f"Got {len(azure_di_lines)} lines from Azure DI on pages {extraction_result.source_page_numbers}")
+            logger.info(f"Got {len(positioned_words)} positioned words on pages {extraction_result.source_page_numbers}")
             
             # Convert extraction results to suggestions with locations
             suggestions = []
@@ -85,7 +81,7 @@ class AnnotationSuggestionService:
                     field_name=field_name,
                     value=value,  # Keep original type (string or array)
                     instance_num=instance_num,
-                    azure_di_lines=azure_di_lines,
+                    positioned_words=positioned_words,
                     used_line_indices=used_line_indices
                 )
                 
@@ -104,20 +100,14 @@ class AnnotationSuggestionService:
             traceback.print_exc()
             return []
     
-    def _get_azure_di_lines_for_pages(
+    def _get_pdf_words_for_pages(
         self,
         document_id: str,
         file_type: str,
         page_numbers: list[int],
     ) -> list[dict]:
         """
-        Extract text and bounding boxes from PDF pages.
-        
-        Strategy:
-        1. Try pdfplumber first (fast, free, works for selectable text)
-        2. Fall back to Azure DI if pdfplumber returns insufficient results
-        
-        Returns lines with percentage coordinates for overlay positioning.
+        Extract word-level text and bounding boxes from selected PDF pages.
         """
         if not page_numbers or file_type.lower() != 'pdf':
             return []
@@ -129,19 +119,9 @@ class AnnotationSuggestionService:
                 logger.error(f"PDF file not found: {file_path}")
                 return []
             
-            # Try pdfplumber first
-            pdfplumber_words = self._extract_with_pdfplumber(file_path, page_numbers)
-            
-            # Check if we got good results (at least 20 words per page on average)
-            if len(pdfplumber_words) >= len(page_numbers) * 20:
-                print(f"✅ Using pdfplumber: {len(pdfplumber_words)} words from {len(page_numbers)} pages")
-                logger.info(f"Using pdfplumber results: {len(pdfplumber_words)} words from {len(page_numbers)} pages")
-                return pdfplumber_words
-            
-            # Fall back to Azure DI for scanned/image-based content
-            print(f"⚠️  pdfplumber insufficient ({len(pdfplumber_words)} words), falling back to Azure Document Intelligence")
-            logger.info(f"pdfplumber found insufficient text ({len(pdfplumber_words)} words), falling back to Azure DI")
-            return self._extract_with_azure_di(file_path, page_numbers)
+            words = self._extract_with_pdfplumber(file_path, page_numbers)
+            logger.info(f"Using pdfplumber results: {len(words)} words from {len(page_numbers)} pages")
+            return words
             
         except Exception as e:
             logger.error(f"Error extracting text from pages {page_numbers}: {e}", exc_info=True)
@@ -188,80 +168,6 @@ class AnnotationSuggestionService:
         
         logger.debug(f"pdfplumber extracted {len(all_words)} words from {len(page_numbers)} pages")
         return all_words
-    
-    def _extract_with_azure_di(self, file_path: Path, page_numbers: list[int]) -> list[dict]:
-        """Extract text + bounding boxes using Azure DI (for scanned/image-based PDFs)."""
-        from pypdf import PdfReader, PdfWriter
-        
-        reader = PdfReader(str(file_path))
-        total_pages = len(reader.pages)
-        
-        # Process each page SEPARATELY to avoid Azure DI dropping pages
-        all_lines = []
-        logger.info(f"Sending {len(page_numbers)} pages to Azure DI (individually): {sorted(set(page_numbers))}")
-        
-        for orig_page_num in sorted(set(page_numbers)):
-            zero_idx = orig_page_num - 1
-            if not (0 <= zero_idx < total_pages):
-                logger.warning(f"Page {orig_page_num} does not exist in PDF ({total_pages} pages)")
-                continue
-            
-            # Create a single-page PDF
-            writer = PdfWriter()
-            writer.add_page(reader.pages[zero_idx])
-            
-            buffer = io.BytesIO()
-            writer.write(buffer)
-            buffer.seek(0)
-            
-            logger.debug(f"Sending page {orig_page_num} to Azure DI ({len(buffer.getvalue())} bytes)")
-            
-            # Send this single page to Azure DI
-            poller = self.azure_di_service.client.begin_analyze_document(
-                "prebuilt-read",
-                document=buffer,
-            )
-            result = poller.result()
-            
-            if not result.pages:
-                logger.warning(f"Azure DI returned no results for page {orig_page_num}")
-                continue
-            
-            # Should only have 1 page in response (since we sent 1 page)
-            page = result.pages[0]
-            page_w = page.width or 0
-            page_h = page.height or 0
-            
-            logger.debug(f"Page {orig_page_num}: got {len(page.lines) if page.lines else 0} lines")
-            
-            if not page_w or not page_h:
-                continue
-            
-            for line in page.lines:
-                polygon = line.polygon or []
-                if not polygon:
-                    continue
-                
-                x_coords = [p.x for p in polygon]
-                y_coords = [p.y for p in polygon]
-                
-                # Convert from inches to percentage of page dimensions
-                x_pct = (min(x_coords) / page_w) * 100
-                y_pct = (min(y_coords) / page_h) * 100
-                w_pct = ((max(x_coords) - min(x_coords)) / page_w) * 100
-                h_pct = ((max(y_coords) - min(y_coords)) / page_h) * 100
-                
-                all_lines.append({
-                    "text": line.content,
-                    "page": orig_page_num,  # Use original page number
-                    "x": x_pct,
-                    "y": y_pct,
-                    "width": w_pct,
-                    "height": h_pct,
-                })
-        
-        logger.info(f"Azure DI returned {len(all_lines)} total lines across {len(page_numbers)} pages")
-        return all_lines
     
     def _flatten_extraction_fields(self, fields: list) -> list[tuple[str, Any, int]]:
         """
@@ -346,11 +252,11 @@ class AnnotationSuggestionService:
         field_name: str,
         value: Any,  # Can be string or list (for hierarchy_path etc.)
         instance_num: int,
-        azure_di_lines: list[dict],
+        positioned_words: list[dict],
         used_line_indices: set[int]
     ) -> Optional[AnnotationSuggestion]:
         """
-        Create an annotation suggestion by finding the value in Azure DI lines.
+        Create an annotation suggestion by finding the value in positioned words.
         
         For array values (like hierarchy_path), uses the LEAF element (last in array)
         to find the bounding box, but stores the FULL array as the annotation value.
@@ -371,7 +277,7 @@ class AnnotationSuggestionService:
                 text_snippet = str(value)
             
             # Find bounding box for the search text, avoiding already-used lines
-            bbox, line_idx = self._find_text_bbox(search_text, azure_di_lines, used_line_indices)
+            bbox, line_idx = self._find_text_bbox(search_text, positioned_words, used_line_indices)
             
             if not bbox:
                 logger.debug(f"Could not find bbox for '{search_text}' in field {field_name}")

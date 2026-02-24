@@ -28,8 +28,6 @@ class Document(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     metadata: DocumentMetadata
     file_path: Optional[str] = None  # Path to original file for vision API
-    azure_di_analysis: Optional[dict[str, Any]] = None  # Cached Azure DI analysis results
-    azure_di_status: str = "pending"  # pending, processing, completed, failed
     retrieval_index_status: str = "pending"  # pending, processing, completed, failed
     retrieval_chunks_count: Optional[int] = None
     retrieval_index_progress: Optional[int] = None  # Current chunk being processed

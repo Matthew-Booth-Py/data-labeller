@@ -17,11 +17,10 @@ def index_document_for_retrieval(self, document_id: str):
     
     This task:
     1. Loads the document content from the database
-    2. Uses Azure DI content if available (better quality)
-    3. Chunks the document
-    4. Generates context for each chunk using LLM
-    5. Generates embeddings
-    6. Stores in vector DB and BM25 index
+    2. Chunks the document
+    3. Generates context for each chunk using LLM
+    4. Generates embeddings
+    5. Stores in vector DB and BM25 index
     
     Args:
         document_id: Document ID to index
@@ -72,13 +71,6 @@ def index_document_for_retrieval(self, document_id: str):
                         logger.info(f"Extracted {len(content)} chars from {len(pages_text)} pages using pdfplumber")
                 except Exception as e:
                     logger.warning(f"Failed to extract with pdfplumber: {e}")
-        
-        # Fall back to Azure DI content if available
-        if not content or not content.strip():
-            if doc_model.azure_di_analysis and doc_model.azure_di_status == "completed":
-                content = doc_model.azure_di_analysis.get("content", "")
-                if content:
-                    logger.info(f"Using Azure DI content for {document_id} ({len(content)} chars)")
         
         # Fall back to standard document content
         if not content or not content.strip():

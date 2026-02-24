@@ -15,7 +15,7 @@ A general-purpose document extraction and data labelling platform that enables t
 - Dark-themed labelling UI with a three-panel layout (document list, viewer, output panel)
 - **PDF annotation**: renders raw PDF with text layer selection — highlight text directly on the rendered page to create annotations
 - **Image annotation**: bounding box drawing for image documents
-- **AI Suggest**: generates annotation suggestions using the same contextual retrieval-vision pipeline as extraction — finds the right pages via semantic search, runs Azure Document Intelligence on those pages to get bounding box positions, and overlays suggestions directly on the document
+- **AI Suggest**: generates annotation suggestions using the same contextual retrieval-vision pipeline as extraction — finds the right pages via semantic search, uses pdfplumber to get bounding box positions on those pages, and overlays suggestions directly on the document
 - Approve or reject individual AI suggestions inline
 - Output panel displays current annotations as JSON
 
@@ -46,7 +46,7 @@ flowchart LR
     REDIS --> CELERY[Celery Workers]
     DJ --> LLM[LLM Provider API]
     DJ --> CHROMA[(ChromaDB)]
-    DJ --> AZDI[Azure Document Intelligence]
+    DJ --> PDFTXT[pdfplumber]
 ```
 
 - Frontend (`frontend/client`): schema builder, document management, data labeller, extraction runner, deployment manager.
@@ -55,7 +55,7 @@ flowchart LR
   - Postgres: schemas, classifications, extractions, annotations, versions, deployment snapshots.
   - File storage: uploaded source documents.
   - ChromaDB: contextual retrieval index (chunks + embeddings for per-field semantic search).
-- Azure Document Intelligence: bounding box extraction for PDF/image annotation and AI suggestion positioning.
+- pdfplumber: bounding box extraction for text PDFs and AI suggestion positioning.
 
 ### Runtime Routing (Wave Status)
 - All `/api/v1` route groups are served by Django/DRF.
@@ -72,7 +72,7 @@ flowchart TD
     E --> F1[Label Manually in Data Labeller]
     E --> F2[AI Suggest Annotations]
     F2 --> F2a[Retrieval finds relevant pages]
-    F2a --> F2b[Azure DI extracts line bboxes]
+    F2a --> F2b[pdfplumber extracts word bboxes]
     F2b --> F2c[Overlay suggestions on document]
     F1 --> G[Ground Truth Annotations]
     F2c --> G
@@ -84,7 +84,7 @@ flowchart TD
 
 - Documents are classified by type (manual or AI-assisted)
 - Annotations can be created manually (text selection on PDFs, bounding boxes on images) or via AI Suggest
-- AI Suggest uses contextual retrieval to find which pages contain the data, runs Azure DI on those pages for bounding box coordinates, and overlays results on the document
+- AI Suggest uses contextual retrieval to find which pages contain the data, runs pdfplumber on those pages for bounding box coordinates, and overlays results on the document
 - Extraction uses schema fields and prompts to generate structured output; supports standard vision, contextual retrieval, and retrieval-vision modes
 - Deployment versions freeze schema + prompts for production use
 
@@ -123,7 +123,6 @@ Runtime request ownership is served directly by Django via `uu_backend.asgi_disp
 - ChromaDB available for contextual retrieval (chunk/embedding index)
 - Redis + Celery worker available for background indexing tasks
 - LLM credentials/config present in `.env`
-- Azure Document Intelligence credentials for PDF/image bbox extraction and AI annotation suggestions
 
 ### Route Group Dependency Map
 
@@ -133,8 +132,8 @@ Runtime request ownership is served directly by Django via `uu_backend.asgi_disp
 | Documents/Ingestion | `/api/v1/ingest`, `/api/v1/documents*` | File storage, converter/chunker, ChromaDB, Postgres metadata, Celery |
 | Taxonomy/Schema | `/api/v1/taxonomy/*` | Postgres |
 | Classification/Suggestions | `/api/v1/documents/{id}/classify`, `/api/v1/documents/{id}/suggest*` | Postgres, document content, LLM |
-| Annotations | `/api/v1/documents/{id}/ground-truth*`, `/api/v1/annotations*` | Postgres, Azure DI (bbox text extraction) |
-| AI Annotation Suggestions | `/api/v1/documents/{id}/suggest-annotations` | Postgres, ChromaDB (retrieval), Azure DI (bbox), LLM (extraction) |
+| Annotations | `/api/v1/documents/{id}/ground-truth*`, `/api/v1/annotations*` | Postgres |
+| AI Annotation Suggestions | `/api/v1/documents/{id}/suggest-annotations` | Postgres, ChromaDB (retrieval), pdfplumber (PDF word boxes), LLM (extraction) |
 | Extraction | `/api/v1/documents/{id}/extract`, `/api/v1/documents/{id}/extraction` | Postgres schema/prompts, document content, LLM, ChromaDB (retrieval modes) |
 | Evaluation | `/api/v1/evaluation*` | Postgres evaluations + annotations + schema metadata, extraction pipeline, LLM (when enabled) |
 | Deployments | `/api/v1/deployments*` | Postgres deployment snapshots, extraction service, active/pinned version resolution, LLM |
@@ -170,7 +169,7 @@ Runtime request ownership is served directly by Django via `uu_backend.asgi_disp
   - Docker Compose
 - AI/LLM
   - OpenAI-compatible API (structured output, vision)
-  - Azure Document Intelligence (text + bounding box extraction)
+  - pdfplumber (text PDF word-level box extraction for annotation overlay)
   - Cohere (optional reranking for retrieval)
 
 ## Run Locally (Docker)
@@ -190,7 +189,6 @@ Backend API: `http://localhost:8000`
 Use your `.env` file. Important keys include:
 - `OPENAI_API_KEY` — LLM for extraction, classification, and AI suggestions
 - `OPENAI_MODEL` — model used for extraction (default: `gpt-4o-mini`)
-- `AZURE_DI_ENDPOINT` / `AZURE_DI_KEY` — Azure Document Intelligence for bounding box extraction and AI annotation suggestions
 - `AZURE_OPENAI_*` — optional Azure OpenAI endpoint/key/version if using Azure-hosted models
 - `CO_API_KEY` / `CO_RERANK_ENDPOINT` — optional Cohere reranking for contextual retrieval
 - `DJANGO_DATABASE_URL` — Postgres connection string
@@ -208,5 +206,5 @@ Use your `.env` file. Important keys include:
 - Tutorial sample PDFs in `backend/sample_docs/` are example documents demonstrating the platform's capabilities
 - The platform is domain-agnostic and works with any document type
 - Use projects to organize different extraction use cases
-- **AI Suggest** requires the document to be indexed for contextual retrieval (ChromaDB) and Azure DI credentials configured; it automatically identifies which pages contain the relevant data before running bounding box analysis
+- **AI Suggest** requires the document to be indexed for contextual retrieval (ChromaDB); it automatically identifies which pages contain the relevant data before running pdfplumber bounding box analysis
 - **Extraction modes**: standard (full-doc vision), contextual retrieval (per-field semantic search + text context), retrieval-vision (semantic search to find pages, then vision on rendered page images) — the labeller's AI Suggest uses retrieval-vision

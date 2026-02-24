@@ -679,10 +679,6 @@ class ApiClient {
     return this.request(`${API_PREFIX}/documents/${id}`, { method: 'DELETE' });
   }
 
-  async reindexDocumentAzureDI(id: string): Promise<{ status: string; document_id: string; message: string }> {
-    return this.request(`${API_PREFIX}/documents/${id}/reindex-azure-di`, { method: 'POST' });
-  }
-
   async reindexDocumentRetrieval(id: string): Promise<{ status: string; document_id: string; message: string }> {
     return this.request(`${API_PREFIX}/documents/${id}/reindex-retrieval`, { method: 'POST' });
   }

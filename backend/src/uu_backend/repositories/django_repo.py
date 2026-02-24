@@ -195,7 +195,7 @@ class DjangoORMRepository:
             schema_fields=self._schema_fields_to_payload(data.schema_fields),
             system_prompt=data.system_prompt,
             post_processing=data.post_processing,
-            ocr_engine=data.ocr_engine or "azure-di-prebuilt",
+            ocr_engine=data.ocr_engine or "native-text",
             schema_version_id=schema_version_id,
             created_at=now,
             updated_at=now,
@@ -207,7 +207,7 @@ class DjangoORMRepository:
             schema_fields=self._schema_fields_to_payload(data.schema_fields),
             system_prompt=data.system_prompt,
             post_processing=data.post_processing,
-            ocr_engine=data.ocr_engine or "azure-di-prebuilt",
+            ocr_engine=data.ocr_engine or "native-text",
             created_at=now,
             created_by=None,
         )
@@ -561,7 +561,7 @@ class DjangoORMRepository:
             type=data.type.value,
             prompt=data.prompt,
             description=data.description,
-            ocr_engine=data.ocr_engine or "azure-di-prebuilt",
+            ocr_engine=data.ocr_engine or "native-text",
             created_by=data.created_by,
             created_at=now,
             updated_at=now,
@@ -1040,4 +1040,3 @@ class DjangoORMRepository:
         
         model.save(update_fields=update_fields)
         return True
-

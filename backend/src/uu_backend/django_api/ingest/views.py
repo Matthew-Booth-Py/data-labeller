@@ -13,7 +13,6 @@ from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.ingestion.converter import get_converter
 from uu_backend.ingestion.dates import extract_date
 from uu_backend.models.document import Document, IngestResponse
-from uu_backend.tasks.azure_di_tasks import analyze_document_with_azure_di
 
 logger = logging.getLogger(__name__)
 
@@ -81,14 +80,15 @@ class IngestView(APIView):
                     )
                     continue
 
-                # Trigger Azure DI analysis for PDF and image documents
-                if file_ext.lower() in ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp']:
-                    try:
-                        analyze_document_with_azure_di.delay(doc_id, str(original_file_path))
-                        logger.info(f"Queued Azure DI analysis for {filename}")
-                    except Exception as azure_error:
-                        logger.error(f"Failed to queue Azure DI analysis for {filename}: {azure_error}")
-                        # Don't fail the upload, just log the error
+                # Queue contextual retrieval indexing for uploaded documents.
+                try:
+                    from uu_backend.tasks.contextual_retrieval_tasks import index_document_for_retrieval
+
+                    index_document_for_retrieval.delay(doc_id)
+                    logger.info(f"Queued retrieval indexing for {filename}")
+                except Exception as index_error:
+                    logger.error(f"Failed to queue retrieval indexing for {filename}: {index_error}")
+                    # Don't fail the upload, just log the error
 
                 documents_processed += 1
                 document_ids.append(doc_id)

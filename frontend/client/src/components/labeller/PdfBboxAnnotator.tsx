@@ -1,6 +1,6 @@
 /**
  * PdfBboxAnnotator - Component for annotating PDFs with drawable bounding boxes
- * Uses Azure Document Intelligence to extract text from drawn boxes
+ * Keeps bbox annotations as user-provided coordinates.
  */
 
 import { useState, useEffect, useRef, useLayoutEffect } from "react";
@@ -182,10 +182,10 @@ export function PdfBboxAnnotator({
         y,
         width,
         height,
-        text: "", // Will be filled by backend via Azure DI
+        text: "",
       };
 
-      // Call backend to extract text and create annotation
+      // Create annotation from user-drawn bbox.
       onAnnotationCreate(selectedField, "", bbox);
     }
 
