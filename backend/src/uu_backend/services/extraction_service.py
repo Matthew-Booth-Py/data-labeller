@@ -40,10 +40,10 @@ class ExtractionService:
         self.model = settings.openai_tagging_model or settings.openai_model
         self._raw_guardrails = (
             "Critical extraction rules:\n"
-            "1) Extract values exactly as they appear in the document (RAW).\n"
+            "1) Extract values EXACTLY as they appear in the document (RAW).\n"
             "2) Do NOT normalize, reformat, infer, or interpret values.\n"
             "3) For dates, return the exact source string (for example, keep 'February 3, 2024' if shown).\n"
-            "4) Preserve punctuation, currency symbols, and separators exactly when present.\n"
+            "4) Preserve ALL spacing, punctuation, currency symbols, and separators exactly when present.\n"
             "5) If not found, return null."
         )
 
@@ -312,12 +312,28 @@ Extract all fields according to the schema. Return null for fields that cannot b
         base_prompt = f"""You are an expert at extracting structured data from {doc_type.name} documents.
 
 Extract all fields accurately from the document. Pay special attention to:
-- Tables: Extract all rows and columns
-- Numbers: Keep exact source formatting from the document
-- Dates: Keep exact source formatting from the document (no ISO conversion)
-- Arrays: Include all items found in the document
+- Tables: Extract ONLY table data (skip titles, disclaimers, footnotes, surrounding text)
+- Numbers: Keep exact source formatting including currency symbols (e.g., '$ 25.0', '$20.0 - $23.0')
+- Dates: Keep exact source formatting (no ISO conversion)
+- Arrays: Include all table rows, exclude non-table text
+- Empty cells: Return null for genuinely empty cells, do not guess or fill in
+- Hierarchy paths: For tables with nested/indented rows, extract the full path from root to leaf as an array
 
-If a field cannot be found, return null. Do not make up data."""
+HIERARCHICAL TABLES (if schema has 'hierarchy_path' field):
+- For each row, identify its complete hierarchical path from the table structure
+- Detect hierarchy using: indentation, font weight (bold/normal), visual grouping
+- Top-level rows: ["Main Category"]
+- Indented sub-rows: ["Main Category", "Sub Item"]
+- Deeper nesting: ["Level 1", "Level 2", "Level 3", "Level 4", ...]
+- Extract the row label at each level EXACTLY as it appears (preserve spacing/formatting)
+
+CRITICAL: Only extract data that appears IN the table structure. Do not extract:
+- Table titles or section headers above the table
+- Explanatory paragraphs or disclaimers
+- Footnotes or references below the table
+
+EMPTY CELLS: If a table cell is empty or a field cannot be found, return null (not empty string ""). 
+Do not make up data or use empty strings for missing values."""
         
         # Add visual guidance from fields if available
         visual_guidance_parts = []
@@ -546,13 +562,23 @@ Extract all fields according to the schema. Return null for fields that cannot b
     def _build_field_query(self, field: SchemaField) -> str:
         """Build a search query for a schema field.
         
-        Uses only semantic content (field name + description) to match
-        page summaries, avoiding extraction instructions.
+        Uses semantic content to match page summaries. Prioritizes:
+        1. Field description (user-provided context, often from table name)
+        2. Field name
+        3. Visual features (if available from reference image analysis)
         """
-        parts = [field.name.replace("_", " ")]
+        parts = []
         
+        # Start with description (most specific, user-provided context)
         if field.description:
             parts.append(field.description)
+        
+        # Add field name
+        parts.append(field.name.replace("_", " "))
+        
+        # Add visual features if available (from screenshot analysis)
+        if field.visual_features:
+            parts.extend(field.visual_features[:3])  # Top 3 features
         
         query = " ".join(parts)
         logger.info(f"Retrieval query for field '{field.name}': {query}")
@@ -705,14 +731,34 @@ Extract all fields according to the schema. Return null for fields that cannot b
 Document Type: {doc_type.name}
 Filename: {document.filename}
 
-CRITICAL INSTRUCTION: Transcribe all text values EXACTLY character-for-character as shown in the images.
-- Include ALL symbols: $, parentheses, dashes, spaces
-- Do NOT normalize, reformat, or interpret
-- If you see "$ 19.0", extract "$ 19.0" (not "19.0")
-- If you see "(0.1)", extract "(0.1)" (not "-0.1")
-- If you see "—", extract "—" (not "N/A")
+CRITICAL INSTRUCTIONS for table extraction:
 
-Analyze the page image(s) and extract all fields according to the schema. Return null for fields that cannot be found."""
+1. BOUNDARY DETECTION: Extract ONLY from the table structure
+   - Skip: titles, disclaimers, paragraphs, footnotes above/below the table
+   - Extract: only table headers, row labels, and data cells
+   - If unsure whether text is part of the table, look for alignment and grid structure
+
+2. HIERARCHICAL ROW LABELS (for hierarchy_path fields):
+   - If the schema has a 'hierarchy_path' field, extract the complete path from root to leaf
+   - For a top-level row (e.g., "GAAP R&D and MG&A"), return: ["GAAP R&D and MG&A"]
+   - For an indented sub-item (e.g., "  Acquisition-related adjustments" under "GAAP R&D and MG&A"), 
+     return: ["GAAP R&D and MG&A", "Acquisition-related adjustments"]
+   - For deeper nesting, include all parent levels: ["Level 1", "Level 2", "Level 3", "Level 4"]
+   - Detect hierarchy from: indentation, font weight (bold vs normal), visual grouping
+   - The array length will vary by row based on its depth in the hierarchy
+
+3. VALUE EXTRACTION: Transcribe all cell values EXACTLY as shown
+   - Include ALL symbols: $, parentheses, dashes, spaces (including multiple spaces)
+   - Preserve exact spacing as it appears visually
+   - Examples: "$               25.0" (keep all spaces), "(0.1)", "$20.0 - $23.0"
+   - Do NOT normalize, reformat, or interpret
+
+4. EMPTY CELLS: Return null for empty cells (not empty string "")
+   - If a table cell is genuinely empty, use null
+   - Do not use "" (empty string) - always use null for missing values
+   - Do not guess or fill in values
+
+Analyze the page image(s) and extract according to the schema. Use null (not "") for fields not found in the table."""
             }
         ]
         

@@ -274,6 +274,12 @@ export function ImageBboxAnnotator({
       const color = getAnnotationColor(annotation.field_name);
       const isEditing = editingAnnotationId === annotation.id;
 
+      // Build tooltip with row number if available
+      const instanceNum = bbox.instance_num;
+      const tooltipText = instanceNum 
+        ? `Row ${instanceNum} | ${annotation.field_name}\nClick to delete`
+        : `${annotation.field_name}\nClick to delete`;
+
       return (
         <div
           key={annotation.id}
@@ -294,7 +300,7 @@ export function ImageBboxAnnotator({
               onAnnotationDelete(annotation.id);
             }
           }}
-          title={`${annotation.field_name}\nClick to delete`}
+          title={tooltipText}
         >
           {/* Label */}
           <div

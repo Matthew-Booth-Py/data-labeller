@@ -299,6 +299,12 @@ export function TextSpanAnnotator({
       const color = entityType?.color || '#8b949e';
       const bgColor = color + '30';
 
+      // Build tooltip with row number if available
+      const instanceNum = (ann.annotation_data as any)?.instance_num;
+      const tooltipText = instanceNum 
+        ? `Row ${instanceNum} | ${ann.field_name}: ${ann.value}`
+        : `${ann.field_name}: ${ann.value}`;
+
       // Add annotation span
       segments.push(
         <span
@@ -310,7 +316,7 @@ export function TextSpanAnnotator({
             color: color,
           }}
           data-annotation-id={ann.id}
-          title={`${ann.field_name}: ${ann.value}`}
+          title={tooltipText}
         >
           {text.substring(data.start, data.end)}
           <span

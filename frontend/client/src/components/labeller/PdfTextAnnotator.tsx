@@ -270,6 +270,12 @@ export function PdfTextAnnotator({
       const bbox = ann.annotation_data as BoundingBoxData;
       const color = getEntityColor(ann.field_name);
 
+      // Build tooltip with row number if available
+      const instanceNum = bbox.instance_num;
+      const tooltipText = instanceNum 
+        ? `Row ${instanceNum} | ${ann.field_name}: "${bbox.text || ann.value}"\nClick to delete`
+        : `${ann.field_name}: "${bbox.text || ann.value}"\nClick to delete`;
+
       return (
         <div
           key={ann.id}
@@ -284,7 +290,7 @@ export function PdfTextAnnotator({
             borderRadius: '2px',
           }}
           onClick={() => onAnnotationDelete(ann.id)}
-          title={`${ann.field_name}: "${bbox.text || ann.value}"\nClick to delete`}
+          title={tooltipText}
         />
       );
     });

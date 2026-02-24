@@ -27,6 +27,19 @@ class ContentType(str, Enum):
     UNKNOWN = "unknown"
 
 
+class RowHierarchy(BaseModel):
+    """Detected row hierarchy structure in tables."""
+    
+    has_hierarchy: bool = Field(..., description="Whether table has nested row structure")
+    depth: Optional[int] = Field(None, description="Maximum nesting depth (2-5)")
+    example_paths: Optional[list[list[str]]] = Field(
+        None, description="Sample hierarchical paths from table"
+    )
+    structure_description: Optional[str] = Field(
+        None, description="How hierarchy is visually indicated"
+    )
+
+
 class VisualAnalysis(BaseModel):
     """Result of visual structure analysis."""
     
@@ -46,6 +59,9 @@ class VisualAnalysis(BaseModel):
     data_types: Optional[list[str]] = Field(
         None, description="Types of data observed (currency, percentage, dates, etc.)"
     )
+    row_hierarchy: Optional[RowHierarchy] = Field(
+        None, description="Detected row hierarchy for nested tables"
+    )
 
 
 class ImageAwarePromptGenerator:
@@ -63,6 +79,10 @@ For TABLES specifically:
 - List the column headers if visible
 - Note sample row labels from the leftmost column
 - Describe the data format in cells (e.g., "$1,234", "(45.6)%", "Sep 28, 2024")
+- **HIERARCHY DETECTION**: Does the table have nested/indented row labels indicating a category hierarchy?
+  - If yes: How many hierarchy levels? (count the maximum depth)
+  - Provide 2-3 example row hierarchies showing the full path from top level to bottom level
+  - Describe how indentation/formatting indicates hierarchy (indent spaces, bold headers, different font sizes, etc.)
 
 Return a JSON object with these exact keys:
 {
@@ -72,7 +92,16 @@ Return a JSON object with these exact keys:
   "distinguishing_features": ["feature1", "feature2", ...],
   "column_headers": ["header1", "header2", ...] or null,
   "row_labels": ["sample_label1", "sample_label2", ...] or null,
-  "data_types": ["currency", "percentage", "date", ...] or null
+  "data_types": ["currency", "percentage", "date", ...] or null,
+  "row_hierarchy": {
+    "has_hierarchy": true/false,
+    "depth": 2-5 (max nesting levels, only if has_hierarchy is true),
+    "example_paths": [
+      ["level1", "level2", "level3", "metric"],
+      ["level1", "level2", "metric"]
+    ] (only if has_hierarchy is true),
+    "structure_description": "Description of how hierarchy is visually indicated" (only if has_hierarchy is true)
+  } or null (if not a table or no hierarchy detected)
 }
 
 Be specific and practical - the extraction_guidance will be used directly in prompts."""
@@ -128,6 +157,20 @@ Be specific and practical - the extraction_guidance will be used directly in pro
             
             logger.info(f"Visual analysis complete: content_type={payload.get('content_type')}")
             
+            # Parse row_hierarchy if present
+            row_hierarchy = None
+            hierarchy_data = payload.get("row_hierarchy")
+            if hierarchy_data and isinstance(hierarchy_data, dict):
+                has_hierarchy = hierarchy_data.get("has_hierarchy", False)
+                if has_hierarchy:
+                    row_hierarchy = RowHierarchy(
+                        has_hierarchy=has_hierarchy,
+                        depth=hierarchy_data.get("depth"),
+                        example_paths=hierarchy_data.get("example_paths"),
+                        structure_description=hierarchy_data.get("structure_description")
+                    )
+                    logger.info(f"Detected hierarchical table: depth={row_hierarchy.depth}, examples={len(row_hierarchy.example_paths or [])}")
+            
             return VisualAnalysis(
                 content_type=ContentType(payload.get("content_type", "unknown").lower()),
                 structure_description=payload.get("structure_description", ""),
@@ -136,6 +179,7 @@ Be specific and practical - the extraction_guidance will be used directly in pro
                 column_headers=payload.get("column_headers"),
                 row_labels=payload.get("row_labels"),
                 data_types=payload.get("data_types"),
+                row_hierarchy=row_hierarchy,
             )
             
         except Exception as e:
@@ -266,42 +310,50 @@ Be specific and practical - the extraction_guidance will be used directly in pro
         This generates a query for semantic search that is more likely to
         match the actual content rather than explanatory text.
         
+        Uses the field name/description as PRIMARY context, then adds visual cues.
+        
         Args:
             analysis: VisualAnalysis from analyze_image
-            field_name: Name of the schema field
-            field_description: Optional field description
+            field_name: Name of the schema field (e.g., "forward_looking_estimates")
+            field_description: Optional field description (e.g., "Forward Looking Estimates table")
             
         Returns:
             Query string for retrieval
         """
-        query_parts = [field_name.replace("_", " ")]
+        query_parts = []
+        
+        # Start with field name and description (primary context from user)
+        if field_description:
+            query_parts.append(field_description)
+        query_parts.append(field_name.replace("_", " "))
         
         if analysis.content_type == ContentType.TABLE:
+            # Add structure description for context
+            if analysis.structure_description:
+                query_parts.append(analysis.structure_description)
+            
             # For tables, include column headers and sample row labels
             # These are more likely to appear in the actual table than in prose
             if analysis.column_headers:
-                query_parts.extend(analysis.column_headers)
+                query_parts.extend(analysis.column_headers[:3])  # Limit to top 3
             
             if analysis.row_labels:
-                query_parts.extend(analysis.row_labels[:5])  # Limit to 5 samples
+                query_parts.extend(analysis.row_labels[:3])  # Limit to 3 samples
             
             # Add data type indicators
             if analysis.data_types:
                 for dt in analysis.data_types:
                     if dt == "currency":
-                        query_parts.append("$ dollar amount")
+                        query_parts.append("financial data amounts")
                     elif dt == "percentage":
-                        query_parts.append("% percent")
+                        query_parts.append("percentage rates")
                     elif dt == "date":
-                        query_parts.append("date period")
+                        query_parts.append("time period dates")
         
         elif analysis.content_type == ContentType.FORM:
             # For forms, the field labels are good search terms
             if analysis.distinguishing_features:
                 query_parts.extend(analysis.distinguishing_features[:3])
-        
-        if field_description:
-            query_parts.append(field_description)
         
         return " ".join(query_parts)
 

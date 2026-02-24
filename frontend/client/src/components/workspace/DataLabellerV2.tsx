@@ -30,15 +30,39 @@ const ENTITY_COLORS = [
 
 export function DataLabellerV2() {
   const queryClient = useQueryClient();
-  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
-  const [activeEntityTypeId, setActiveEntityTypeId] = useState<string | null>(null);
+  const projectId = localStorage.getItem("selected-project") || "all";
+  
+  // Persist state in sessionStorage (survives tab switches, cleared when browser closes)
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem(`labeller-selected-doc-${projectId}`) || null;
+    } catch {
+      return null;
+    }
+  });
+  
+  const [activeEntityTypeId, setActiveEntityTypeId] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem(`labeller-active-entity-${projectId}`) || null;
+    } catch {
+      return null;
+    }
+  });
+  
+  const [activeInstanceNum, setActiveInstanceNum] = useState<number>(() => {
+    try {
+      const stored = sessionStorage.getItem(`labeller-active-row-${projectId}`);
+      return stored ? parseInt(stored, 10) : 1;
+    } catch {
+      return 1;
+    }
+  });
+  
   const [exportMenuVisible, setExportMenuVisible] = useState(false);
   const [localStorageVersion, setLocalStorageVersion] = useState(0);
   const [suggestions, setSuggestions] = useState<AnnotationSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-
-  const projectId = localStorage.getItem("selected-project") || "all";
 
   // Fetch documents
   const { data: documentsData } = useQuery({
@@ -67,6 +91,29 @@ export function DataLabellerV2() {
       return [];
     }
   }, [documentsData, projectId, localStorageVersion]);
+
+  // Persist selected document
+  useEffect(() => {
+    if (selectedDocId) {
+      sessionStorage.setItem(`labeller-selected-doc-${projectId}`, selectedDocId);
+    } else {
+      sessionStorage.removeItem(`labeller-selected-doc-${projectId}`);
+    }
+  }, [selectedDocId, projectId]);
+
+  // Persist active entity type
+  useEffect(() => {
+    if (activeEntityTypeId) {
+      sessionStorage.setItem(`labeller-active-entity-${projectId}`, activeEntityTypeId);
+    } else {
+      sessionStorage.removeItem(`labeller-active-entity-${projectId}`);
+    }
+  }, [activeEntityTypeId, projectId]);
+
+  // Persist active row number
+  useEffect(() => {
+    sessionStorage.setItem(`labeller-active-row-${projectId}`, String(activeInstanceNum));
+  }, [activeInstanceNum, projectId]);
 
   // Listen for localStorage changes
   useEffect(() => {
@@ -144,6 +191,25 @@ export function DataLabellerV2() {
     setExpandedGroups(new Set(allGroups));
   }, [groupedEntityTypes]);
 
+  // Keyboard shortcuts for row number control
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl/Cmd + Arrow Up: increment row number
+      if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveInstanceNum(prev => Math.min(prev + 1, 20));
+      }
+      // Ctrl/Cmd + Arrow Down: decrement row number
+      if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActiveInstanceNum(prev => Math.max(prev - 1, 1));
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // Fetch annotations for selected document
   const { data: annotationsData, refetch: refetchAnnotations } = useQuery({
     queryKey: ["annotations", selectedDocId],
@@ -194,8 +260,17 @@ export function DataLabellerV2() {
   // Handle annotation creation
   const handleAnnotationCreate = useCallback((fieldName: string, value: string, data: TextSpanData | BoundingBoxData) => {
     const annotationType = 'start' in data ? 'text_span' : 'bbox';
-    createAnnotationMutation.mutate({ fieldName, value, annotationData: data, annotationType });
-  }, [createAnnotationMutation]);
+    
+    // Check if this is an array field (contains dot notation like "field.property")
+    const isArrayField = fieldName.includes('.');
+    
+    // Add instance_num to annotation_data if it's an array field
+    const annotationData = isArrayField 
+      ? { ...data, instance_num: activeInstanceNum }
+      : data;
+    
+    createAnnotationMutation.mutate({ fieldName, value, annotationData, annotationType });
+  }, [createAnnotationMutation, activeInstanceNum]);
 
   // Handle annotation deletion
   const handleAnnotationDelete = useCallback((annotationId: string) => {
@@ -542,6 +617,54 @@ export function DataLabellerV2() {
           </div>
         </div>
 
+        {/* Row Number Selector for Array Fields */}
+        <div className="dl-sidebar-section" style={{ borderBottom: '1px solid #21262d', paddingBottom: '12px' }}>
+          <div className="dl-section-title">
+            Table Row Number
+            <span style={{ fontSize: '11px', color: '#484f58', textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
+              for array fields
+            </span>
+          </div>
+          <div className="dl-section-content">
+            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+                <button
+                  key={num}
+                  onClick={() => setActiveInstanceNum(num)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '4px',
+                    border: activeInstanceNum === num ? '2px solid #58a6ff' : '1px solid #30363d',
+                    background: activeInstanceNum === num ? 'rgba(88, 166, 255, 0.15)' : '#21262d',
+                    color: activeInstanceNum === num ? '#58a6ff' : '#c9d1d9',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    fontWeight: activeInstanceNum === num ? '600' : '400',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (activeInstanceNum !== num) {
+                      e.currentTarget.style.borderColor = '#58a6ff';
+                      e.currentTarget.style.background = 'rgba(88, 166, 255, 0.05)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (activeInstanceNum !== num) {
+                      e.currentTarget.style.borderColor = '#30363d';
+                      e.currentTarget.style.background = '#21262d';
+                    }
+                  }}
+                >
+                  {num}
+                </button>
+              ))}
+            </div>
+            <div style={{ marginTop: '8px', fontSize: '12px', color: '#8b949e' }}>
+              Current row: <strong style={{ color: '#58a6ff' }}>{activeInstanceNum}</strong>
+            </div>
+          </div>
+        </div>
+
         {/* Entity Types section */}
         <div className="dl-sidebar-section">
           <div className="dl-section-title">
@@ -629,7 +752,7 @@ export function DataLabellerV2() {
             )}
           </div>
           <div className="dl-shortcut-hint">
-            <span className="dl-kbd">1</span>-<span className="dl-kbd">9</span> activate type · <span className="dl-kbd">Esc</span> deselect · <span className="dl-kbd">Del</span> remove last
+            <span className="dl-kbd">1</span>-<span className="dl-kbd">9</span> activate type · <span className="dl-kbd">Esc</span> deselect · <span className="dl-kbd">Del</span> remove last · <span className="dl-kbd">Ctrl</span>+<span className="dl-kbd">↑</span>/<span className="dl-kbd">↓</span> row
           </div>
         </div>
 
@@ -652,6 +775,7 @@ export function DataLabellerV2() {
                   const et = entityTypes.find(e => e.name === ann.field_name);
                   const color = et?.color || '#8b949e';
                   const preview = (ann.value || '').substring(0, 30);
+                  const instanceNum = (ann.annotation_data as any)?.instance_num;
                   
                   return (
                     <div
@@ -659,6 +783,20 @@ export function DataLabellerV2() {
                       className="dl-annotation-item"
                       onClick={() => TextSpanAnnotator.scrollToAnnotation(ann.id)}
                     >
+                      {instanceNum && (
+                        <span
+                          className="dl-annotation-label-chip"
+                          style={{ 
+                            background: '#30363d', 
+                            color: '#8b949e',
+                            fontSize: '10px',
+                            padding: '2px 6px',
+                            fontWeight: 600
+                          }}
+                        >
+                          {instanceNum}
+                        </span>
+                      )}
                       <span
                         className="dl-annotation-label-chip"
                         style={{ background: `${color}30`, color }}
@@ -758,6 +896,11 @@ export function DataLabellerV2() {
             <div className="dl-active-label-indicator">
               <div className="dl-active-label-dot" style={{ background: activeEntityType.color }} />
               <span>{activeEntityType.name}</span>
+              {activeEntityType.name.includes('.') && (
+                <span style={{ marginLeft: '8px', padding: '2px 6px', background: 'rgba(88, 166, 255, 0.15)', borderRadius: '3px', fontSize: '11px', color: '#58a6ff', fontWeight: 600 }}>
+                  Row {activeInstanceNum}
+                </span>
+              )}
             </div>
           )}
         </div>
