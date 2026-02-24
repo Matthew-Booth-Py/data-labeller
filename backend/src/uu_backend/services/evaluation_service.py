@@ -553,7 +553,9 @@ class EvaluationService:
         total_fields = 0
         
         # Build GT hierarchy path and field map
+        # Track whether GT originally had hierarchy_path as a string (leaf-only label)
         gt_hierarchy = []
+        gt_hierarchy_was_string = False
         gt_fields_map = {}
         
         for gt in gt_group:
@@ -567,17 +569,20 @@ class EvaluationService:
                     gt_hierarchy = value
                 elif value:
                     # GT has hierarchy_path as string (user labeled it as single string)
+                    gt_hierarchy_was_string = True
                     gt_hierarchy = [str(value)]
             elif self._is_hierarchy_field(field_key, value) and value and str(value).strip():
                 gt_hierarchy.append(str(value).strip())
         
         # Get predicted hierarchy
         pred_hierarchy = []
+        pred_hierarchy_was_string = False
         if "hierarchy_path" in pred_row["fields"]:
             pred_value = pred_row["fields"]["hierarchy_path"]
             if isinstance(pred_value, list):
                 pred_hierarchy = pred_value
             elif pred_value:
+                pred_hierarchy_was_string = True
                 pred_hierarchy = [str(pred_value)]
         elif "_normalized_hierarchy_path" in pred_row["fields"]:
             pred_hierarchy = pred_row["fields"]["_normalized_hierarchy_path"] or []
@@ -589,38 +594,37 @@ class EvaluationService:
         
         # Compare hierarchy paths
         if gt_hierarchy or pred_hierarchy:
-            # Normalize: ensure both are lists
-            gt_hierarchy_orig = gt_hierarchy
-            pred_hierarchy_orig = pred_hierarchy
+            gt_path_lower = [str(x).strip().lower() for x in gt_hierarchy]
+            pred_path_lower = [str(x).strip().lower() for x in pred_hierarchy]
             
-            if isinstance(gt_hierarchy, str):
-                gt_hierarchy = [gt_hierarchy]
-            if isinstance(pred_hierarchy, str):
-                pred_hierarchy = [pred_hierarchy]
-            
-            gt_path_lower = [str(x).strip().lower() for x in (gt_hierarchy if isinstance(gt_hierarchy, list) else [])]
-            pred_path_lower = [str(x).strip().lower() for x in (pred_hierarchy if isinstance(pred_hierarchy, list) else [])]
-            
-            # Check if paths match
+            # Check if paths match exactly
             if gt_path_lower == pred_path_lower:
                 score += 2.0  # Exact hierarchy match
                 total_fields += 1
-            # Special case: GT is single string (leaf node) and appears in pred array (full path)
-            elif isinstance(gt_hierarchy_orig, str) and isinstance(pred_hierarchy_orig, list):
-                if self._hierarchy_matches_string(pred_hierarchy_orig, gt_hierarchy_orig):
-                    score += 2.0  # Leaf node match in full path
+            # GT is single-element (leaf-only label), pred is full path - check leaf match
+            elif gt_hierarchy_was_string and len(gt_path_lower) == 1 and len(pred_path_lower) >= 1:
+                gt_leaf = gt_path_lower[0]
+                pred_leaf = pred_path_lower[-1]
+                if gt_leaf == pred_leaf:
+                    score += 2.0  # Leaf node match
+                    total_fields += 1
+                elif len(pred_path_lower) == 1 and gt_leaf == pred_path_lower[0]:
+                    # Single element exact match
+                    score += 2.0
                     total_fields += 1
                 else:
                     total_fields += 1
-            # Special case: GT is array (full path) and pred is string (leaf node)
-            elif isinstance(gt_hierarchy_orig, list) and isinstance(pred_hierarchy_orig, str):
-                if self._hierarchy_matches_string(gt_hierarchy_orig, pred_hierarchy_orig):
-                    score += 2.0  # Leaf node match in full path
+            # Pred is single-element (leaf-only), GT is full path - check leaf match
+            elif pred_hierarchy_was_string and len(pred_path_lower) == 1 and len(gt_path_lower) >= 1:
+                pred_leaf = pred_path_lower[0]
+                gt_leaf = gt_path_lower[-1]
+                if pred_leaf == gt_leaf:
+                    score += 2.0  # Leaf node match
                     total_fields += 1
                 else:
                     total_fields += 1
+            # Both are arrays - check for subset/partial match
             else:
-                # Check if one is a subset of the other (partial match)
                 gt_path_str = " > ".join(gt_path_lower) if gt_path_lower else ""
                 pred_path_str = " > ".join(pred_path_lower) if pred_path_lower else ""
                 
@@ -850,18 +854,11 @@ Rules:
                     
                     if is_hierarchy_path:
                         # Special handling for hierarchy_path comparisons
-                        # GT might be a string (leaf node), pred might be array (full path)
-                        if isinstance(gt_val, str) and isinstance(pred_val, list):
-                            # Check if GT string matches pred array (exact or leaf match)
-                            is_match = self._hierarchy_matches_string(pred_val, gt_val)
-                        elif isinstance(gt_val, list) and isinstance(pred_val, str):
-                            # Check if pred string matches GT array (exact or leaf match)
-                            is_match = self._hierarchy_matches_string(gt_val, pred_val)
-                        else:
-                            # Both same type, normalize and compare
-                            gt_normalized = self._normalize_value_for_comparison(gt_val).lower()
-                            pred_normalized = self._normalize_value_for_comparison(pred_val).lower()
-                            is_match = gt_normalized == pred_normalized
+                        # Handles multiple formats for backwards compatibility:
+                        # 1. GT string (leaf only) vs pred array (full path)
+                        # 2. GT comma-separated string vs pred array (old stringified format)
+                        # 3. GT array vs pred array (new correct format)
+                        is_match = self._compare_hierarchy_values(gt_val, pred_val)
                     else:
                         # Regular field comparison
                         gt_normalized = self._normalize_value_for_comparison(gt_val).lower()
@@ -887,6 +884,82 @@ Rules:
             }
         
         return evaluations
+    
+    def _compare_hierarchy_values(self, gt_val: Any, pred_val: Any) -> bool:
+        """
+        Compare hierarchy_path values with backwards compatibility.
+        
+        Handles multiple GT formats:
+        1. String (leaf only): "Child" matches ["Parent", "Child"]
+        2. Comma-separated string: "Parent,Child" matches ["Parent", "Child"]
+        3. Array: ["Parent", "Child"] matches ["Parent", "Child"]
+        """
+        # Normalize both values to arrays for comparison
+        gt_array = self._normalize_hierarchy_to_array(gt_val)
+        pred_array = self._normalize_hierarchy_to_array(pred_val)
+        
+        if not gt_array or not pred_array:
+            return False
+        
+        # Normalize for case-insensitive comparison
+        gt_lower = [s.strip().lower() for s in gt_array]
+        pred_lower = [s.strip().lower() for s in pred_array]
+        
+        # Exact match (arrays are identical)
+        if gt_lower == pred_lower:
+            return True
+        
+        # Leaf match: GT has single element that matches pred's last element
+        if len(gt_lower) == 1 and gt_lower[0] == pred_lower[-1]:
+            return True
+        
+        # Leaf match reverse: pred has single element that matches GT's last element
+        if len(pred_lower) == 1 and pred_lower[0] == gt_lower[-1]:
+            return True
+        
+        return False
+    
+    def _normalize_hierarchy_to_array(self, value: Any) -> list[str]:
+        """
+        Normalize a hierarchy_path value to an array of strings.
+        
+        Handles:
+        - Array: ["A", "B"] -> ["A", "B"]
+        - Comma-separated string (no space after comma): "A,B" -> ["A", "B"]
+        - Single string: "A" -> ["A"]
+        - Text with comma (space after): "Partner contributions, net" -> ["Partner contributions, net"]
+        - None/empty: -> []
+        
+        The key distinction: separator commas have NO space after them (e.g., "A,B"),
+        while commas that are part of text have a space (e.g., "A, B").
+        """
+        import re
+        
+        if value is None:
+            return []
+        
+        if isinstance(value, list):
+            return [str(v) for v in value if v]
+        
+        if isinstance(value, str):
+            if not value.strip():
+                return []
+            
+            # Check if it's a comma-separated string (old stringified array format)
+            # Pattern: comma NOT followed by a space indicates a separator
+            # "A,B,C" -> split on commas
+            # "A, B, C" or "Partner contributions, net" -> treat as single string
+            
+            # Look for pattern: comma followed by non-space (separator pattern)
+            if re.search(r',[^\s]', value):
+                # Split only on commas that are NOT followed by space
+                parts = re.split(r',(?!\s)', value)
+                return [s.strip() for s in parts if s.strip()]
+            
+            # Single string (may contain commas that are part of text)
+            return [value.strip()]
+        
+        return [str(value)]
     
     def _build_field_comparisons(
         self,

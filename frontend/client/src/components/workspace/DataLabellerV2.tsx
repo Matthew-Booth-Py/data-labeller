@@ -320,7 +320,7 @@ export function DataLabellerV2() {
       return api.createGroundTruthAnnotation(selectedDocId, {
         document_id: selectedDocId,
         field_name: suggestion.field_name,
-        value: String(suggestion.value),
+        value: suggestion.value,  // Keep original type (string or array) - don't stringify
         annotation_type: suggestion.annotation_type,
         annotation_data: suggestion.annotation_data,
         labeled_by: "ai_approved",

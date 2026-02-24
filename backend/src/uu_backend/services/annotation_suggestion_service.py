@@ -76,11 +76,14 @@ class AnnotationSuggestionService:
             for field_name, value, instance_num in flat_fields:
                 if value is None or value == "":
                     continue
+                # Skip empty arrays
+                if isinstance(value, list) and len(value) == 0:
+                    continue
                     
                 suggestion = self._create_suggestion(
                     document=document,
                     field_name=field_name,
-                    value=str(value),
+                    value=value,  # Keep original type (string or array)
                     instance_num=instance_num,
                     azure_di_lines=azure_di_lines,
                     used_line_indices=used_line_indices
@@ -285,27 +288,54 @@ class AnnotationSuggestionService:
         prefix: str, 
         value: Any, 
         instance_num: int, 
-        result: list[tuple[str, Any, int]]
+        result: list[tuple[str, Any, int]],
+        is_row_item: bool = False
     ) -> None:
-        """Recursively flatten a value into field tuples."""
+        """
+        Recursively flatten a value into field tuples.
+        
+        Key distinction:
+        - "Row arrays" (array of objects/dicts): Each item is a row, flatten into separate instances
+        - "Leaf arrays" (array of primitives within a row): Keep as atomic value (e.g., hierarchy_path)
+        
+        Args:
+            prefix: Field name prefix (e.g., "table.field")
+            value: The value to flatten
+            instance_num: Current instance/row number
+            result: Output list of (field_name, value, instance_num) tuples
+            is_row_item: True if we're processing fields within a row (changes array handling)
+        """
         if value is None or value == "":
             return
             
         if isinstance(value, list):
-            # Array - iterate with instance numbers
-            for idx, item in enumerate(value):
-                item_instance = idx + 1
-                if isinstance(item, dict):
-                    # Array of objects - flatten each property
+            if not value:
+                return
+                
+            # Check if this is an array of objects (row array) vs array of primitives (leaf array)
+            first_item = value[0]
+            is_row_array = isinstance(first_item, dict)
+            
+            if is_row_array:
+                # Array of objects - each item is a row, flatten with instance numbers
+                for idx, item in enumerate(value):
+                    item_instance = idx + 1
                     for key, val in item.items():
-                        self._flatten_value(f"{prefix}.{key}", val, item_instance, result)
-                else:
-                    # Array of primitives
-                    result.append((prefix, str(item), item_instance))
+                        # Process row fields with is_row_item=True so nested arrays are kept atomic
+                        self._flatten_value(f"{prefix}.{key}", val, item_instance, result, is_row_item=True)
+            elif is_row_item:
+                # Leaf array within a row (e.g., hierarchy_path: ["Parent", "Child"])
+                # Keep as atomic value - this is a single field value, not multiple rows
+                result.append((prefix, value, instance_num))
+            else:
+                # Top-level array of primitives (rare case) - flatten as separate values
+                for idx, item in enumerate(value):
+                    result.append((prefix, str(item), idx + 1))
+                    
         elif isinstance(value, dict):
             # Object - flatten each property
             for key, val in value.items():
-                self._flatten_value(f"{prefix}.{key}", val, instance_num, result)
+                self._flatten_value(f"{prefix}.{key}", val, instance_num, result, is_row_item=is_row_item)
         else:
             # Simple value - add to result
             result.append((prefix, str(value), instance_num))
@@ -314,18 +344,37 @@ class AnnotationSuggestionService:
         self,
         document: Any,
         field_name: str,
-        value: str,
+        value: Any,  # Can be string or list (for hierarchy_path etc.)
         instance_num: int,
         azure_di_lines: list[dict],
         used_line_indices: set[int]
     ) -> Optional[AnnotationSuggestion]:
-        """Create an annotation suggestion by finding the value in Azure DI lines."""
+        """
+        Create an annotation suggestion by finding the value in Azure DI lines.
+        
+        For array values (like hierarchy_path), uses the LEAF element (last in array)
+        to find the bounding box, but stores the FULL array as the annotation value.
+        This ensures ground truth matches the extraction schema exactly.
+        """
         try:
-            # Find bounding box for this value, avoiding already-used lines
-            bbox, line_idx = self._find_text_bbox(value, azure_di_lines, used_line_indices)
+            # Determine search text and stored value
+            # For arrays, search using leaf element but store full array
+            if isinstance(value, list):
+                if not value:
+                    return None
+                search_text = str(value[-1])  # Use leaf (last element) for bbox search
+                stored_value = value  # Store the full array
+                text_snippet = " > ".join(str(v) for v in value)  # Display as path
+            else:
+                search_text = str(value)
+                stored_value = value
+                text_snippet = str(value)
+            
+            # Find bounding box for the search text, avoiding already-used lines
+            bbox, line_idx = self._find_text_bbox(search_text, azure_di_lines, used_line_indices)
             
             if not bbox:
-                logger.debug(f"Could not find bbox for '{value}' in field {field_name}")
+                logger.debug(f"Could not find bbox for '{search_text}' in field {field_name}")
                 return None
             
             # Mark this line as used so it won't match again
@@ -342,11 +391,11 @@ class AnnotationSuggestionService:
                 id=str(uuid4()),
                 document_id=document.id,
                 field_name=field_name,
-                value=value,
+                value=stored_value,  # Store original type (string or array)
                 annotation_type=AnnotationType.BBOX,
                 annotation_data=annotation_data,
                 confidence=0.8,
-                text_snippet=value
+                text_snippet=text_snippet
             )
             
         except Exception as e:
