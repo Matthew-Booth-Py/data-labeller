@@ -739,3 +739,145 @@ class TestSchemaConsistency:
         
         assert len(matches) == 1, f"Expected 1 match, got {len(matches)}"
         assert matches[0]["is_match"] is True
+
+
+class TestEmptyValueMatching:
+    """Test that empty values (-, null, N/A, etc.) are treated as equivalent."""
+    
+    def test_is_empty_value_recognizes_dash(self):
+        """Test that '-' is recognized as empty."""
+        from uu_backend.services.evaluation_service import EvaluationService
+        
+        with patch('uu_backend.services.evaluation_service.get_extraction_service'), \
+             patch('uu_backend.services.evaluation_service.get_document_repository'), \
+             patch('uu_backend.services.evaluation_service.get_openai_client'):
+            service = EvaluationService()
+        
+        assert service._is_empty_value("-") is True
+        assert service._is_empty_value("--") is True
+        assert service._is_empty_value("—") is True  # em-dash
+        assert service._is_empty_value("–") is True  # en-dash
+    
+    def test_is_empty_value_recognizes_null_none(self):
+        """Test that null/None variants are recognized as empty."""
+        from uu_backend.services.evaluation_service import EvaluationService
+        
+        with patch('uu_backend.services.evaluation_service.get_extraction_service'), \
+             patch('uu_backend.services.evaluation_service.get_document_repository'), \
+             patch('uu_backend.services.evaluation_service.get_openai_client'):
+            service = EvaluationService()
+        
+        assert service._is_empty_value(None) is True
+        assert service._is_empty_value("null") is True
+        assert service._is_empty_value("NULL") is True
+        assert service._is_empty_value("None") is True
+        assert service._is_empty_value("none") is True
+        assert service._is_empty_value("nil") is True
+    
+    def test_is_empty_value_recognizes_na(self):
+        """Test that N/A variants are recognized as empty."""
+        from uu_backend.services.evaluation_service import EvaluationService
+        
+        with patch('uu_backend.services.evaluation_service.get_extraction_service'), \
+             patch('uu_backend.services.evaluation_service.get_document_repository'), \
+             patch('uu_backend.services.evaluation_service.get_openai_client'):
+            service = EvaluationService()
+        
+        assert service._is_empty_value("N/A") is True
+        assert service._is_empty_value("n/a") is True
+        assert service._is_empty_value("NA") is True
+        assert service._is_empty_value("na") is True
+        assert service._is_empty_value("not applicable") is True
+    
+    def test_is_empty_value_empty_string(self):
+        """Test that empty/whitespace strings are recognized as empty."""
+        from uu_backend.services.evaluation_service import EvaluationService
+        
+        with patch('uu_backend.services.evaluation_service.get_extraction_service'), \
+             patch('uu_backend.services.evaluation_service.get_document_repository'), \
+             patch('uu_backend.services.evaluation_service.get_openai_client'):
+            service = EvaluationService()
+        
+        assert service._is_empty_value("") is True
+        assert service._is_empty_value("   ") is True
+        assert service._is_empty_value([]) is True
+    
+    def test_is_empty_value_real_values(self):
+        """Test that real values are NOT recognized as empty."""
+        from uu_backend.services.evaluation_service import EvaluationService
+        
+        with patch('uu_backend.services.evaluation_service.get_extraction_service'), \
+             patch('uu_backend.services.evaluation_service.get_document_repository'), \
+             patch('uu_backend.services.evaluation_service.get_openai_client'):
+            service = EvaluationService()
+        
+        assert service._is_empty_value("123") is False
+        assert service._is_empty_value("(2.4)") is False
+        assert service._is_empty_value("$100") is False
+        assert service._is_empty_value("Revenue") is False
+        assert service._is_empty_value(["Item1"]) is False
+    
+    def test_dash_matches_null_in_fallback(self):
+        """Test that '-' in GT matches 'null' in prediction."""
+        from uu_backend.services.evaluation_service import EvaluationService
+        
+        with patch('uu_backend.services.evaluation_service.get_extraction_service'), \
+             patch('uu_backend.services.evaluation_service.get_document_repository'), \
+             patch('uu_backend.services.evaluation_service.get_openai_client'):
+            service = EvaluationService()
+        
+        comparison_schema = {
+            "table.value": {
+                "ground_truth": [{"value": "-", "instance": 1}],
+                "predicted": [{"value": None, "instance": 1}]
+            }
+        }
+        
+        result = service._fallback_exact_match(comparison_schema)
+        
+        matches = result["table.value"]["matches"]
+        assert len(matches) == 1, f"Expected 1 match, got {len(matches)}"
+        assert matches[0]["is_match"] is True
+    
+    def test_null_matches_na_in_fallback(self):
+        """Test that null in GT matches 'N/A' in prediction."""
+        from uu_backend.services.evaluation_service import EvaluationService
+        
+        with patch('uu_backend.services.evaluation_service.get_extraction_service'), \
+             patch('uu_backend.services.evaluation_service.get_document_repository'), \
+             patch('uu_backend.services.evaluation_service.get_openai_client'):
+            service = EvaluationService()
+        
+        comparison_schema = {
+            "table.value": {
+                "ground_truth": [{"value": None, "instance": 1}],
+                "predicted": [{"value": "N/A", "instance": 1}]
+            }
+        }
+        
+        result = service._fallback_exact_match(comparison_schema)
+        
+        matches = result["table.value"]["matches"]
+        assert len(matches) == 1, f"Expected 1 match, got {len(matches)}"
+        assert matches[0]["is_match"] is True
+    
+    def test_empty_does_not_match_real_value(self):
+        """Test that empty values don't match real values."""
+        from uu_backend.services.evaluation_service import EvaluationService
+        
+        with patch('uu_backend.services.evaluation_service.get_extraction_service'), \
+             patch('uu_backend.services.evaluation_service.get_document_repository'), \
+             patch('uu_backend.services.evaluation_service.get_openai_client'):
+            service = EvaluationService()
+        
+        comparison_schema = {
+            "table.value": {
+                "ground_truth": [{"value": "-", "instance": 1}],
+                "predicted": [{"value": "123", "instance": 1}]
+            }
+        }
+        
+        result = service._fallback_exact_match(comparison_schema)
+        
+        matches = result["table.value"]["matches"]
+        assert len(matches) == 0, f"Expected 0 matches, got {len(matches)}"

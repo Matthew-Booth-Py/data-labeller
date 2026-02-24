@@ -645,13 +645,25 @@ class EvaluationService:
             if self._is_hierarchy_field(field_key, value) or field_key == "hierarchy_path" or "_header" in field_key:
                 continue
             
-            gt_value = str(gt["value"]).strip().lower() if gt["value"] else ""
+            gt_raw = gt["value"]
+            gt_value = str(gt_raw).strip().lower() if gt_raw else ""
             
             if field_key in pred_row["fields"]:
-                pred_value = str(pred_row["fields"][field_key]).strip().lower() if pred_row["fields"][field_key] else ""
+                pred_raw = pred_row["fields"][field_key]
+                pred_value = str(pred_raw).strip().lower() if pred_raw else ""
                 
+                # Check if both are "empty" values (null, -, N/A, etc.)
+                gt_is_empty = self._is_empty_value(gt_raw)
+                pred_is_empty = self._is_empty_value(pred_raw)
+                
+                if gt_is_empty and pred_is_empty:
+                    # Both are empty values - treat as match
+                    score += 1.0
+                elif gt_is_empty or pred_is_empty:
+                    # One is empty, one is not - no match (don't add to score)
+                    pass
                 # Exact match
-                if gt_value and pred_value and gt_value == pred_value:
+                elif gt_value and pred_value and gt_value == pred_value:
                     score += 1.0
                 # Partial match (substring)
                 elif gt_value and pred_value and (gt_value in pred_value or pred_value in gt_value):
@@ -801,6 +813,37 @@ Rules:
 
         return prompt
     
+    def _is_empty_value(self, value: Any) -> bool:
+        """
+        Check if a value represents "no value" / "not applicable".
+        
+        Treats the following as empty:
+        - None
+        - Empty string or whitespace-only string
+        - "-" (dash, commonly used for "no value")
+        - "null" (string representation)
+        - "N/A", "n/a", "NA", "na"
+        - "None" (string representation)
+        - Empty list
+        """
+        if value is None:
+            return True
+        
+        if isinstance(value, list):
+            return len(value) == 0
+        
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            empty_indicators = {
+                "", "-", "--", "—", "–",  # dashes (regular, em-dash, en-dash)
+                "null", "none", "nil",
+                "n/a", "na", "not applicable", "not available",
+                "(blank)", "blank", "empty"
+            }
+            return normalized in empty_indicators
+        
+        return False
+    
     def _normalize_value_for_comparison(self, value: any) -> str:
         """Normalize a value for comparison (handles arrays, strings, etc.)."""
         if value is None:
@@ -852,7 +895,17 @@ Rules:
                     
                     is_match = False
                     
-                    if is_hierarchy_path:
+                    # Check if both values are "empty" (null, -, N/A, etc.)
+                    gt_is_empty = self._is_empty_value(gt_val)
+                    pred_is_empty = self._is_empty_value(pred_val)
+                    
+                    if gt_is_empty and pred_is_empty:
+                        # Both are empty values - treat as match
+                        is_match = True
+                    elif gt_is_empty or pred_is_empty:
+                        # One is empty, one is not - not a match
+                        is_match = False
+                    elif is_hierarchy_path:
                         # Special handling for hierarchy_path comparisons
                         # Handles multiple formats for backwards compatibility:
                         # 1. GT string (leaf only) vs pred array (full path)
