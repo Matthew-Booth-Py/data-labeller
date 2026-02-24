@@ -1,6 +1,7 @@
 """DRF views for taxonomy and extraction endpoints."""
 
 import json
+import logging
 import os
 
 from asgiref.sync import async_to_sync
@@ -10,6 +11,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
+
+logger = logging.getLogger(__name__)
 from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.llm.openai_client import get_openai_client
 from uu_backend.models.taxonomy import (
@@ -30,7 +33,7 @@ from uu_backend.models.taxonomy import (
 from uu_backend.repositories import get_repository
 from uu_backend.services.classification_service import get_classification_service
 from uu_backend.services.extraction_service import get_extraction_service
-from uu_backend.services.prompt_generator import get_prompt_generator
+from uu_backend.services.prompt_generator import get_prompt_generator, ContentType
 
 
 def _jsonable(value):
@@ -158,11 +161,33 @@ class TaxonomyPrefixView(APIView):
                 "3) Type must be one of: string, number, date, boolean, object, array.\n"
                 "4) extraction_prompt must enforce RAW extraction (no interpretation).\n"
                 "5) For TABLES with multiple rows, ALWAYS use type=array with items_type=object.\n"
-                "6) If type=array and array of objects is appropriate, set items_type=object and include object_properties.\n"
-                "7) For non-array fields set items_type=null and object_properties=[].\n"
-                "8) object_properties can have nested objects: use type=object with nested 'properties' array.\n"
-                "9) For repeated sub-items within a row (like multiple limits per coverage), use type=array with nested items.\n"
-                "10) Keep output concise and practical for production extraction.\n"
+                "6) **FIELD NAMES MUST BE GENERIC AND REUSABLE**:\n"
+                "   - NEVER use data-specific values in field names (e.g., 'full_year_2024', 'q1_2023')\n"
+                "   - Use generic names like 'period_1', 'period_2' or 'column_1', 'column_2'\n"
+                "   - Actual values (dates, years, periods) belong in the DATA, not field names\n"
+                "   - Schema must work for ANY document of this type, not just the current example\n"
+                "7) **HIERARCHICAL TABLES**: If the table has nested/indented row labels (multiple category levels):\n"
+                "   - Use a 'hierarchy_path' field with type=array, items_type=string\n"
+                "   - This array will contain the full path from root to leaf (e.g., ['Level 1', 'Level 2', 'Level 3'])\n"
+                "   - This scales automatically to any nesting depth without predefined level fields\n"
+                "   - The hierarchy_path field should be part of the row object (alongside data value fields)\n"
+                "8) For data fields with currency values:\n"
+                "   - Keep currency symbol + amount TOGETHER in one field for reliable extraction\n"
+                "   - Extract the complete value exactly as shown (e.g., '$ 25.0', '$20.0 - $23.0')\n"
+                "   - ONLY split if components are in completely separate table cells\n"
+                "   - Add extraction_prompt for EXACT character-by-character extraction\n"
+                "9) **TABLE BOUNDARY DETECTION**:\n"
+                "   - Extract ONLY data from the actual table, not surrounding text\n"
+                "   - Skip: titles, disclaimers, explanatory paragraphs, footnotes\n"
+                "   - Only extract: table headers, row labels, and data cells\n"
+                "10) For other fields needing exact formatting:\n"
+                "   - Add extraction_prompt emphasizing EXACT extraction\n"
+                "   - Preserve ALL formatting: spaces, commas, parentheses, dashes, ranges\n"
+                "11) If type=array and array of objects is appropriate, set items_type=object and include object_properties.\n"
+                "12) For non-array fields set items_type=null and object_properties=[].\n"
+                "13) object_properties can have nested objects: use type=object with nested 'properties' array.\n"
+                "14) For repeated sub-items within a row (like multiple limits per coverage), use type=array with nested items.\n"
+                "15) Keep output concise and practical for production extraction.\n"
             )
             user_prompt_text = (
                 f"Document type: {doc_type.name if doc_type else 'N/A'}\n"
@@ -176,17 +201,47 @@ class TaxonomyPrefixView(APIView):
                 '  "description": "short description",\n'
                 '  "extraction_prompt": "field extraction prompt",\n'
                 '  "items_type": "string|number|date|boolean|object|null",\n'
+                '  "object_properties": [...]\n'
+                "}\n\n"
+                "Example 1: Table with currency values (keep together for reliability)\n"
+                "{\n"
+                '  "name": "financial_data",\n'
+                '  "type": "array",\n'
+                '  "items_type": "object",\n'
                 '  "object_properties": [\n'
-                '    {\n'
-                '      "name": "property_name",\n'
-                '      "type": "string|number|date|boolean|object|array",\n'
-                '      "description": "...",\n'
-                '      "items_type": "string|number|date|boolean|object|null (only if type=array)",\n'
-                '      "properties": [...nested properties if type=object or items_type=object...]\n'
-                '    }\n'
+                '    {"name": "line_item", "type": "string", "description": "Row label or category"},\n'
+                '    {"name": "period_1", "type": "string", "description": "Complete value with currency", "extraction_prompt": "Extract EXACT value as shown including currency symbol, spaces, and numbers. Examples: \'$ 25.0\', \'$20.0 - $23.0\', \'(1.0)\'. Only extract from table cells, not surrounding text."},\n'
+                '    {"name": "period_2", "type": "string", "description": "Complete value with currency", "extraction_prompt": "Extract EXACT value as shown including currency symbol, spaces, and numbers. Only extract from table cells."}\n'
                 '  ]\n'
-                "}\n"
-                "\nExample for a coverage table with multiple limits per row:\n"
+                "}\n\n"
+                "Example 2: Hierarchical table with dynamic depth scaling\n"
+                "BAD - Fixed hierarchy levels:\n"
+                '{"name": "level_1", "name": "level_2", "name": "level_3"} <- WRONG! Doesn\'t scale to deeper hierarchies\n\n'
+                "GOOD - Dynamic hierarchy_path array:\n"
+                "{\n"
+                '  "name": "table_data",\n'
+                '  "type": "array",\n'
+                '  "items_type": "object",\n'
+                '  "object_properties": [\n'
+                '    {"name": "hierarchy_path", "type": "array", "items_type": "string", "description": "Full path from root to leaf category", "extraction_prompt": "Extract the complete hierarchical path as an array. Include all levels from the main category down to the most specific item. For a row \'GAAP R&D > Acquisitions > Amortization\', return [\'GAAP R&D\', \'Acquisitions\', \'Amortization\']. For a top-level row with no sub-items, return a single-element array."},\n'
+                '    {"name": "period_1_header", "type": "string", "description": "First period column header"},\n'
+                '    {"name": "period_1_value", "type": "string", "description": "Value for first period", "extraction_prompt": "Extract EXACT value as shown including currency symbol, spaces, commas, parentheses, ranges. Examples: \'$ 25.0\', \'$20.0 - $23.0\', \'(1.0)\'. Return null for empty cells."},\n'
+                '    {"name": "period_2_header", "type": "string", "description": "Second period column header"},\n'
+                '    {"name": "period_2_value", "type": "string", "description": "Value for second period", "extraction_prompt": "Extract EXACT value. Return null for empty cells."}\n'
+                '  ]\n'
+                "}\n\n"
+                "Example 3: Simple (non-hierarchical) table\n"
+                "{\n"
+                '  "name": "items",\n'
+                '  "type": "array",\n'
+                '  "items_type": "object",\n'
+                '  "object_properties": [\n'
+                '    {"name": "item_name", "type": "string"},\n'
+                '    {"name": "value_1", "type": "string"},\n'
+                '    {"name": "value_2", "type": "string"}\n'
+                '  ]\n'
+                "}\n\n"
+                "Example 4: Table with nested sub-arrays (coverage with multiple limits per row)\n"
                 "{\n"
                 '  "name": "coverages",\n'
                 '  "type": "array",\n'
@@ -206,17 +261,65 @@ class TaxonomyPrefixView(APIView):
 
             # Build user message content - with or without image
             if parsed.screenshot_base64:
-                # Multimodal message with image
-                user_content = [
-                    {"type": "text", "text": user_prompt_text},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/png;base64,{parsed.screenshot_base64}",
-                            "detail": "high",
+                # First analyze image structure to detect hierarchy
+                try:
+                    prompt_generator = get_prompt_generator()
+                    visual_analysis = prompt_generator.analyze_image(parsed.screenshot_base64)
+                    
+                    # Add hierarchy context to prompt if detected
+                    hierarchy_hint = ""
+                    if (visual_analysis.content_type == ContentType.TABLE and 
+                        visual_analysis.row_hierarchy and 
+                        visual_analysis.row_hierarchy.has_hierarchy):
+                        
+                        depth = visual_analysis.row_hierarchy.depth or 3
+                        example_paths = visual_analysis.row_hierarchy.example_paths or []
+                        structure_desc = visual_analysis.row_hierarchy.structure_description or ""
+                        
+                        hierarchy_hint = (
+                            f"\n\n**IMPORTANT - HIERARCHICAL TABLE DETECTED**:\n"
+                            f"This table has a HIERARCHICAL row structure with approximately {depth} nesting levels.\n"
+                            f"Structure: {structure_desc}\n"
+                        )
+                        
+                        if example_paths:
+                            hierarchy_hint += f"Example hierarchical paths from the table:\n"
+                            for path in example_paths[:2]:  # Show first 2 examples
+                                hierarchy_hint += f"  - {' > '.join(path)}\n"
+                        
+                        hierarchy_hint += (
+                            f"\nYou MUST use a 'hierarchy_path' field (type=array, items_type=string).\n"
+                            f"This array will contain the full path from root to leaf (approximately {depth} levels).\n"
+                            f"For example: ['GAAP additions to property', 'Proceeds from capital-related incentives'].\n"
+                            f"This scales automatically to any depth without needing predefined level fields.\n"
+                        )
+                        
+                        logger.info(f"[Field Assistant] Detected hierarchical table: depth={depth}, examples={len(example_paths)}")
+                    
+                    # Multimodal message with image and hierarchy context
+                    user_content = [
+                        {"type": "text", "text": user_prompt_text + hierarchy_hint},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{parsed.screenshot_base64}",
+                                "detail": "high",
+                            },
                         },
-                    },
-                ]
+                    ]
+                except Exception as e:
+                    # If analysis fails, proceed without hierarchy hint
+                    logger.warning(f"[Field Assistant] Image analysis failed: {e}, proceeding without hierarchy detection")
+                    user_content = [
+                        {"type": "text", "text": user_prompt_text},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{parsed.screenshot_base64}",
+                                "detail": "high",
+                            },
+                        },
+                    ]
             else:
                 user_content = user_prompt_text
 

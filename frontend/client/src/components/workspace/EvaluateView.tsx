@@ -430,6 +430,28 @@ export function EvaluateView() {
               <TabsContent value="instance" className="space-y-4">
                 {Object.entries(evaluation.result.instance_comparisons).map(([parentField, instances]) => {
                   const metrics = evaluation.result.metrics.instance_metrics[parentField];
+                  
+                  // Get all unique field names (columns), excluding headers
+                  const allFields = Array.from(
+                    new Set(
+                      instances.flatMap(inst => 
+                        inst.field_comparisons
+                          .filter(fc => !fc.field_name.includes('_header'))
+                          .map(fc => fc.field_name.split('.').pop() || fc.field_name)
+                      )
+                    )
+                  );
+                  
+                  // Helper to format field values (especially hierarchy_path arrays)
+                  const formatFieldValue = (value: any): string => {
+                    if (value === null || value === undefined) return "-";
+                    if (Array.isArray(value)) {
+                      // For hierarchy_path arrays, show as breadcrumb
+                      return value.join(" > ");
+                    }
+                    return String(value);
+                  };
+                  
                   return (
                     <div key={parentField} className="space-y-2">
                       <div className="flex items-center justify-between">
@@ -441,36 +463,84 @@ export function EvaluateView() {
                           </div>
                         )}
                       </div>
-                      {instances.map((inst, idx) => (
-                        <Card key={idx} className={cn("", inst.is_matched ? "border-green-200" : "border-red-200")}>
-                          <CardHeader className="py-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-medium">
-                                Instance #{inst.instance_num}
-                                {inst.gt_instance_num && inst.pred_instance_num && 
-                                  ` (GT: ${inst.gt_instance_num}, Pred: ${inst.pred_instance_num})`}
-                              </span>
-                              <Badge variant={inst.is_matched ? "default" : "destructive"}>
-                                {inst.is_matched ? "Matched" : "Unmatched"}
-                              </Badge>
-                            </div>
-                          </CardHeader>
-                          <CardContent className="py-2">
-                            <Table>
-                              <TableBody>
-                                {inst.field_comparisons.map((fc, fcIdx) => (
-                                  <TableRow key={fcIdx}>
-                                    <TableCell className="font-mono text-xs">{fc.field_name}</TableCell>
-                                    <TableCell className="text-xs">{String(fc.ground_truth_value || "-")}</TableCell>
-                                    <TableCell className="text-xs">{String(fc.predicted_value || "-")}</TableCell>
-                                    <TableCell>{getMatchIcon(fc.match_result.is_match)}</TableCell>
+                      
+                      {/* Table format like extraction output */}
+                      <div className="border rounded-lg overflow-hidden">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="w-12">Row</TableHead>
+                              {allFields.map(field => (
+                                <TableHead key={field} className="text-xs">
+                                  {field}
+                                </TableHead>
+                              ))}
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {instances.map((inst) => {
+                              // Build a map of field values for this instance
+                              const gtValues: Record<string, any> = {};
+                              const predValues: Record<string, any> = {};
+                              const matchStatus: Record<string, boolean> = {};
+                              
+                              inst.field_comparisons.forEach(fc => {
+                                const fieldKey = fc.field_name.split('.').pop() || fc.field_name;
+                                gtValues[fieldKey] = fc.ground_truth_value;
+                                predValues[fieldKey] = fc.predicted_value;
+                                matchStatus[fieldKey] = fc.match_result.is_match;
+                              });
+                              
+                              return (
+                                <>
+                                  {/* Ground Truth Row */}
+                                  <TableRow key={`${inst.instance_num}-gt`} className="bg-blue-50/50">
+                                    <TableCell className="font-semibold text-xs" rowSpan={2}>
+                                      {inst.instance_num}
+                                      <div className="text-xs text-muted-foreground font-normal">GT</div>
+                                    </TableCell>
+                                    {allFields.map(field => (
+                                      <TableCell 
+                                        key={field} 
+                                        className={cn(
+                                          "text-xs",
+                                          matchStatus[field] === false && gtValues[field] ? "bg-red-50" : ""
+                                        )}
+                                      >
+                                        {formatFieldValue(gtValues[field])}
+                                      </TableCell>
+                                    ))}
                                   </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </CardContent>
-                        </Card>
-                      ))}
+                                  {/* Predicted Row */}
+                                  <TableRow key={`${inst.instance_num}-pred`} className="bg-green-50/50 border-b-2">
+                                    {allFields.map(field => {
+                                      const isMatch = matchStatus[field];
+                                      const hasPred = predValues[field] !== null && predValues[field] !== undefined && predValues[field] !== "";
+                                      
+                                      return (
+                                        <TableCell 
+                                          key={field} 
+                                          className={cn(
+                                            "text-xs",
+                                            isMatch && hasPred ? "bg-green-50" : "",
+                                            !isMatch && hasPred ? "bg-red-50" : ""
+                                          )}
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            {formatFieldValue(predValues[field])}
+                                            {isMatch && hasPred && <CheckCircle2 className="w-3 h-3 text-green-600" />}
+                                            {!isMatch && hasPred && <XCircle className="w-3 h-3 text-red-600" />}
+                                          </div>
+                                        </TableCell>
+                                      );
+                                    })}
+                                  </TableRow>
+                                </>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </div>
                   );
                 })}
