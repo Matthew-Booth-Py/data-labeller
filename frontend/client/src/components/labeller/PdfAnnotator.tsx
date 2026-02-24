@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ZoomIn, ZoomOut, CheckCircle2 } from "lucide-react";
 import type { GroundTruthAnnotation, BoundingBoxData } from "@/lib/api";
+import { formatAnnotationValue } from "@/lib/utils";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
@@ -237,8 +238,7 @@ export function PdfAnnotator({
                   className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground"
                   onClick={() => onAnnotationDelete(annotation.id)}
                 >
-                  {annotation.field_name}: {String(annotation.value).substring(0, 30)}
-                  {String(annotation.value).length > 30 && "..."}
+                  {annotation.field_name}: {formatAnnotationValue(annotation.value, 30)}
                 </Badge>
               ))}
             </div>

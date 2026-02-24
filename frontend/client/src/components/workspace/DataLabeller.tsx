@@ -14,6 +14,7 @@ import { TextAnnotator } from "@/components/labeller/TextAnnotator";
 import { PdfBboxAnnotator } from "@/components/labeller/PdfBboxAnnotator";
 import { ImageAnnotator } from "@/components/labeller/ImageAnnotator";
 import { toast } from "sonner";
+import { formatAnnotationValue } from "@/lib/utils";
 
 export function DataLabeller() {
   const queryClient = useQueryClient();
@@ -452,7 +453,7 @@ export function DataLabeller() {
                     <div key={suggestion.id} className="p-2 border rounded-lg space-y-2">
                       <div className="text-sm">
                         <span className="font-medium">{suggestion.field_name}:</span>{" "}
-                        {String(suggestion.value).substring(0, 50)}
+                        {formatAnnotationValue(suggestion.value, 50)}
                       </div>
                       <div className="flex gap-2">
                         <Button
