@@ -398,6 +398,8 @@ If a field cannot be found, return null. Do not make up data."""
         all_chunks = {}
         for field in effective_schema_fields:
             query = self._build_field_query(field)
+            logger.info(f"🔍 Retrieval Query - Field: {field.name}")
+            logger.info(f"   Query: {query}")
             print(f"\n🔍 Field: {field.name}")
             print(f"   Query: {query[:100]}...")
             
@@ -544,36 +546,17 @@ Extract all fields according to the schema. Return null for fields that cannot b
     def _build_field_query(self, field: SchemaField) -> str:
         """Build a search query for a schema field.
         
-        Uses visual analysis metadata when available to build more targeted queries
-        that are likely to match actual content rather than explanatory text.
+        Uses only semantic content (field name + description) to match
+        page summaries, avoiding extraction instructions.
         """
         parts = [field.name.replace("_", " ")]
         
-        # If visual features are available from image analysis, use them
-        # These are more specific and likely to match actual table/form content
-        if field.visual_features:
-            parts.extend(field.visual_features[:5])  # Limit to top 5 features
-        
-        # Add content-type specific keywords
-        if field.visual_content_type:
-            content_type = field.visual_content_type.value if hasattr(field.visual_content_type, 'value') else str(field.visual_content_type)
-            if content_type == "table":
-                parts.append("table column row")
-            elif content_type == "form":
-                parts.append("form field label")
-        
-        # Visual guidance is more targeted than generic description
-        if field.visual_guidance:
-            parts.append(field.visual_guidance)
-        elif field.description:
+        if field.description:
             parts.append(field.description)
         
-        # Only include extraction_prompt if no visual guidance (it can be verbose)
-        if not field.visual_guidance and field.extraction_prompt:
-            # Take first 200 chars to avoid overly long queries
-            parts.append(field.extraction_prompt[:200])
-        
-        return " ".join(parts)
+        query = " ".join(parts)
+        logger.info(f"Retrieval query for field '{field.name}': {query}")
+        return query
 
     def extract_structured_with_retrieval_vision(
         self,
@@ -647,6 +630,9 @@ Extract all fields according to the schema. Return null for fields that cannot b
         
         for field in effective_schema_fields:
             query = self._build_field_query(field)
+            logger.info(f"🔍 Retrieval Query - Field: {field.name}")
+            logger.info(f"   Query: {query}")
+            print(f"🔍 Field: {field.name} → Query: {query}")
             results = retrieval_service.search(
                 query=query,
                 top_k=top_k_per_field,
@@ -718,6 +704,13 @@ Extract all fields according to the schema. Return null for fields that cannot b
 
 Document Type: {doc_type.name}
 Filename: {document.filename}
+
+CRITICAL INSTRUCTION: Transcribe all text values EXACTLY character-for-character as shown in the images.
+- Include ALL symbols: $, parentheses, dashes, spaces
+- Do NOT normalize, reformat, or interpret
+- If you see "$ 19.0", extract "$ 19.0" (not "19.0")
+- If you see "(0.1)", extract "(0.1)" (not "-0.1")
+- If you see "—", extract "—" (not "N/A")
 
 Analyze the page image(s) and extract all fields according to the schema. Return null for fields that cannot be found."""
             }

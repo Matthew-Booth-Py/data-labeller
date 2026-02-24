@@ -470,20 +470,50 @@ export function PdfTextAnnotator({
             top: `${popupPosition.y}px`,
           }}
         >
-          {entityTypes.map(et => (
-            <button
-              key={et.id}
-              className="dl-popup-entity-btn"
-              style={{
-                background: `${et.color}30`,
-                color: et.color,
-                borderColor: `${et.color}40`,
-              }}
-              onClick={() => applyFromPopup(et.id)}
-            >
-              {et.name}
-            </button>
-          ))}
+          {(() => {
+            // Group entity types by parent
+            const grouped: Record<string, typeof entityTypes> = {};
+            entityTypes.forEach(et => {
+              const parts = et.name.split('.');
+              const parent = parts.length > 1 ? parts[0] : '_root';
+              if (!grouped[parent]) grouped[parent] = [];
+              grouped[parent].push(et);
+            });
+
+            return Object.entries(grouped).map(([parent, types]) => (
+              <div key={parent}>
+                {parent !== '_root' && (
+                  <div style={{
+                    fontSize: '11px',
+                    color: '#8b949e',
+                    fontWeight: 600,
+                    padding: '4px 8px',
+                    borderBottom: '1px solid #21262d',
+                    marginTop: '4px'
+                  }}>
+                    {parent}
+                  </div>
+                )}
+                {types.map(et => {
+                  const displayName = et.name.split('.').pop() || et.name;
+                  return (
+                    <button
+                      key={et.id}
+                      className="dl-popup-entity-btn"
+                      style={{
+                        background: `${et.color}30`,
+                        color: et.color,
+                        borderColor: `${et.color}40`,
+                      }}
+                      onClick={() => applyFromPopup(et.id)}
+                    >
+                      {displayName}
+                    </button>
+                  );
+                })}
+              </div>
+            ));
+          })()}
         </div>
       )}
     </div>

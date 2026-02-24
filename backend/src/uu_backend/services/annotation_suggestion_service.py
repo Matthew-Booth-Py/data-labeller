@@ -88,6 +88,9 @@ class AnnotationSuggestionService:
                 
                 if suggestion:
                     suggestions.append(suggestion)
+                    logger.debug(f"Created suggestion for {field_name} = '{value}'")
+                else:
+                    logger.debug(f"Could not create suggestion for {field_name} = '{value}'")
             
             logger.info(f"Generated {len(suggestions)} suggestions for document {document_id}")
             return suggestions
@@ -105,14 +108,13 @@ class AnnotationSuggestionService:
         page_numbers: list[int],
     ) -> list[dict]:
         """
-        Run Azure DI on specific PDF pages and return lines with percentage coordinates.
+        Extract text and bounding boxes from PDF pages.
         
-        We extract just the requested pages from the PDF (to avoid sending the whole
-        document to Azure DI), analyze them, and convert inch coordinates to percentages
-        so they match the percentage-based overlay positioning in the frontend.
+        Strategy:
+        1. Try pdfplumber first (fast, free, works for selectable text)
+        2. Fall back to Azure DI if pdfplumber returns insufficient results
         
-        Page numbers in the returned lines reflect the original PDF page numbers,
-        not the position within the extracted sub-document.
+        Returns lines with percentage coordinates for overlay positioning.
         """
         if not page_numbers or file_type.lower() != 'pdf':
             return []
@@ -124,79 +126,139 @@ class AnnotationSuggestionService:
                 logger.error(f"PDF file not found: {file_path}")
                 return []
             
-            from pypdf import PdfReader, PdfWriter
+            # Try pdfplumber first
+            pdfplumber_words = self._extract_with_pdfplumber(file_path, page_numbers)
             
-            reader = PdfReader(str(file_path))
-            total_pages = len(reader.pages)
+            # Check if we got good results (at least 20 words per page on average)
+            if len(pdfplumber_words) >= len(page_numbers) * 20:
+                print(f"✅ Using pdfplumber: {len(pdfplumber_words)} words from {len(page_numbers)} pages")
+                logger.info(f"Using pdfplumber results: {len(pdfplumber_words)} words from {len(page_numbers)} pages")
+                return pdfplumber_words
             
-            # Build a sub-PDF containing only the requested pages,
-            # keeping a map from sub-doc page index → original page number
+            # Fall back to Azure DI for scanned/image-based content
+            print(f"⚠️  pdfplumber insufficient ({len(pdfplumber_words)} words), falling back to Azure Document Intelligence")
+            logger.info(f"pdfplumber found insufficient text ({len(pdfplumber_words)} words), falling back to Azure DI")
+            return self._extract_with_azure_di(file_path, page_numbers)
+            
+        except Exception as e:
+            logger.error(f"Error extracting text from pages {page_numbers}: {e}", exc_info=True)
+            return []
+    
+    def _extract_with_pdfplumber(self, file_path: Path, page_numbers: list[int]) -> list[dict]:
+        """Extract text + bounding boxes using pdfplumber (for selectable text PDFs).
+        
+        Returns word-level bounding boxes (not line-level) for more precise matching.
+        """
+        import pdfplumber
+        
+        all_words = []
+        logger.info(f"Trying pdfplumber for {len(page_numbers)} pages: {sorted(set(page_numbers))}")
+        
+        with pdfplumber.open(str(file_path)) as pdf:
+            total_pages = len(pdf.pages)
+            
+            for page_num in sorted(set(page_numbers)):
+                zero_idx = page_num - 1
+                if not (0 <= zero_idx < total_pages):
+                    continue
+                
+                page = pdf.pages[zero_idx]
+                page_w = float(page.width)
+                page_h = float(page.height)
+                
+                # Extract words with individual bounding boxes
+                words = page.extract_words(x_tolerance=3, y_tolerance=3)
+                
+                if not words:
+                    continue
+                
+                # Keep each word as a separate "line" for precise matching
+                for word in words:
+                    all_words.append({
+                        "text": word['text'],
+                        "page": page_num,
+                        "x": (word['x0'] / page_w) * 100,
+                        "y": (word['top'] / page_h) * 100,
+                        "width": ((word['x1'] - word['x0']) / page_w) * 100,
+                        "height": ((word['bottom'] - word['top']) / page_h) * 100,
+                    })
+        
+        logger.debug(f"pdfplumber extracted {len(all_words)} words from {len(page_numbers)} pages")
+        return all_words
+    
+    def _extract_with_azure_di(self, file_path: Path, page_numbers: list[int]) -> list[dict]:
+        """Extract text + bounding boxes using Azure DI (for scanned/image-based PDFs)."""
+        from pypdf import PdfReader, PdfWriter
+        
+        reader = PdfReader(str(file_path))
+        total_pages = len(reader.pages)
+        
+        # Process each page SEPARATELY to avoid Azure DI dropping pages
+        all_lines = []
+        logger.info(f"Sending {len(page_numbers)} pages to Azure DI (individually): {sorted(set(page_numbers))}")
+        
+        for orig_page_num in sorted(set(page_numbers)):
+            zero_idx = orig_page_num - 1
+            if not (0 <= zero_idx < total_pages):
+                logger.warning(f"Page {orig_page_num} does not exist in PDF ({total_pages} pages)")
+                continue
+            
+            # Create a single-page PDF
             writer = PdfWriter()
-            sub_page_to_original: dict[int, int] = {}  # 1-indexed sub page → original page num
+            writer.add_page(reader.pages[zero_idx])
             
-            for orig_page_num in sorted(set(page_numbers)):
-                zero_idx = orig_page_num - 1
-                if 0 <= zero_idx < total_pages:
-                    writer.add_page(reader.pages[zero_idx])
-                    sub_idx = len(writer.pages)  # 1-indexed position just added
-                    sub_page_to_original[sub_idx] = orig_page_num
-            
-            if not sub_page_to_original:
-                logger.warning(f"None of the requested pages {page_numbers} exist in PDF ({total_pages} pages)")
-                return []
-            
-            # Write sub-PDF to a buffer and send to Azure DI
             buffer = io.BytesIO()
             writer.write(buffer)
             buffer.seek(0)
             
-            logger.info(f"Sending {len(sub_page_to_original)} pages to Azure DI: {sorted(sub_page_to_original.values())}")
+            logger.debug(f"Sending page {orig_page_num} to Azure DI ({len(buffer.getvalue())} bytes)")
             
+            # Send this single page to Azure DI
             poller = self.azure_di_service.client.begin_analyze_document(
                 "prebuilt-read",
                 document=buffer,
             )
             result = poller.result()
             
-            lines = []
-            for page in result.pages:
-                # Map sub-doc page number back to original PDF page number
-                orig_num = sub_page_to_original.get(page.page_number, page.page_number)
-                page_w = page.width or 0
-                page_h = page.height or 0
-                
-                if not page_w or not page_h:
+            if not result.pages:
+                logger.warning(f"Azure DI returned no results for page {orig_page_num}")
+                continue
+            
+            # Should only have 1 page in response (since we sent 1 page)
+            page = result.pages[0]
+            page_w = page.width or 0
+            page_h = page.height or 0
+            
+            logger.debug(f"Page {orig_page_num}: got {len(page.lines) if page.lines else 0} lines")
+            
+            if not page_w or not page_h:
+                continue
+            
+            for line in page.lines:
+                polygon = line.polygon or []
+                if not polygon:
                     continue
                 
-                for line in page.lines:
-                    polygon = line.polygon or []
-                    if not polygon:
-                        continue
-                    
-                    x_coords = [p.x for p in polygon]
-                    y_coords = [p.y for p in polygon]
-                    
-                    # Convert from inches to percentage of page dimensions
-                    x_pct = (min(x_coords) / page_w) * 100
-                    y_pct = (min(y_coords) / page_h) * 100
-                    w_pct = ((max(x_coords) - min(x_coords)) / page_w) * 100
-                    h_pct = ((max(y_coords) - min(y_coords)) / page_h) * 100
-                    
-                    lines.append({
-                        "text": line.content,
-                        "page": orig_num,
-                        "x": x_pct,
-                        "y": y_pct,
-                        "width": w_pct,
-                        "height": h_pct,
-                    })
-            
-            logger.info(f"Azure DI returned {len(lines)} lines across {len(sub_page_to_original)} pages")
-            return lines
-            
-        except Exception as e:
-            logger.error(f"Error running Azure DI on pages {page_numbers}: {e}", exc_info=True)
-            return []
+                x_coords = [p.x for p in polygon]
+                y_coords = [p.y for p in polygon]
+                
+                # Convert from inches to percentage of page dimensions
+                x_pct = (min(x_coords) / page_w) * 100
+                y_pct = (min(y_coords) / page_h) * 100
+                w_pct = ((max(x_coords) - min(x_coords)) / page_w) * 100
+                h_pct = ((max(y_coords) - min(y_coords)) / page_h) * 100
+                
+                all_lines.append({
+                    "text": line.content,
+                    "page": orig_page_num,  # Use original page number
+                    "x": x_pct,
+                    "y": y_pct,
+                    "width": w_pct,
+                    "height": h_pct,
+                })
+        
+        logger.info(f"Azure DI returned {len(all_lines)} total lines across {len(page_numbers)} pages")
+        return all_lines
     
     def _flatten_extraction_fields(self, fields: list) -> list[tuple[str, Any, int]]:
         """
@@ -298,62 +360,103 @@ class AnnotationSuggestionService:
         used_line_indices: set[int]
     ) -> tuple[Optional[dict], Optional[int]]:
         """
-        Find bounding box for text in Azure DI lines.
+        Find bounding box for text, supporting both word-level and phrase matching.
         
-        Skips lines that have already been used (by index) to avoid
-        matching the same physical location twice for repeated values.
+        For multi-word search text, finds consecutive words and merges their bounding boxes.
+        Skips words/phrases that have already been used to avoid duplicates.
         
         Returns:
             Tuple of (bbox_dict, line_index) or (None, None) if not found
-        
-        Strategies:
-        1. Exact match on a single line
-        2. Partial match (search text contained in line)
-        3. Fuzzy match for numbers (ignore formatting differences)
         """
         if not search_text or not lines:
             return None, None
         
         search_lower = search_text.lower().strip()
+        search_words = search_lower.split()
         search_normalized = self._normalize_text(search_text)
         
-        def make_bbox(line: dict) -> dict:
+        def make_bbox(word: dict) -> dict:
             return {
-                "page": line["page"],
-                "x": line["x"],
-                "y": line["y"],
-                "width": line["width"],
-                "height": line["height"],
-                "text": line["text"]
+                "page": word["page"],
+                "x": word["x"],
+                "y": word["y"],
+                "width": word["width"],
+                "height": word["height"],
+                "text": word["text"]
             }
         
-        # Strategy 1: Exact match
-        for idx, line in enumerate(lines):
-            if idx in used_line_indices:
-                continue
-            if line["text"].lower().strip() == search_lower:
-                return make_bbox(line), idx
+        def merge_word_bboxes(word_list: list[dict]) -> dict:
+            """Merge multiple word bounding boxes into one."""
+            if len(word_list) == 1:
+                return make_bbox(word_list[0])
+            
+            # All words should be on same page
+            page = word_list[0]["page"]
+            
+            # Calculate merged bounding box
+            min_x = min(w["x"] for w in word_list)
+            min_y = min(w["y"] for w in word_list)
+            max_x = max(w["x"] + w["width"] for w in word_list)
+            max_y = max(w["y"] + w["height"] for w in word_list)
+            
+            return {
+                "page": page,
+                "x": min_x,
+                "y": min_y,
+                "width": max_x - min_x,
+                "height": max_y - min_y,
+                "text": " ".join(w["text"] for w in word_list)
+            }
         
-        # Strategy 2: Search text is contained in a line
-        for idx, line in enumerate(lines):
-            if idx in used_line_indices:
-                continue
-            if search_lower in line["text"].lower():
-                return make_bbox(line), idx
+        # Strategy 1: Single-word exact match
+        if len(search_words) == 1:
+            for idx, word in enumerate(lines):
+                if idx in used_line_indices:
+                    continue
+                if word["text"].lower().strip() == search_lower:
+                    return make_bbox(word), idx
         
-        # Strategy 3: Normalized match (good for numbers like "58,000" vs "58000")
-        for idx, line in enumerate(lines):
-            if idx in used_line_indices:
-                continue
-            if self._normalize_text(line["text"]) == search_normalized:
-                return make_bbox(line), idx
+        # Strategy 2: Multi-word consecutive match
+        if len(search_words) > 1:
+            for start_idx in range(len(lines) - len(search_words) + 1):
+                if start_idx in used_line_indices:
+                    continue
+                
+                # Check if consecutive words match
+                consecutive_words = lines[start_idx:start_idx + len(search_words)]
+                
+                # Skip if any word in sequence is already used
+                if any((start_idx + i) in used_line_indices for i in range(len(search_words))):
+                    continue
+                
+                # Check if words are on same page and close together (same line)
+                if len(set(w["page"] for w in consecutive_words)) > 1:
+                    continue
+                
+                # Check if y-coordinates are similar (within 5% tolerance for same line)
+                y_coords = [w["y"] for w in consecutive_words]
+                if max(y_coords) - min(y_coords) > 5:
+                    continue
+                
+                # Check text match
+                consecutive_text = " ".join(w["text"].lower() for w in consecutive_words)
+                if consecutive_text == search_lower:
+                    return merge_word_bboxes(consecutive_words), start_idx
         
-        # Strategy 4: Partial normalized match
-        for idx, line in enumerate(lines):
+        # Strategy 3: Normalized single-word match
+        if len(search_words) == 1:
+            for idx, word in enumerate(lines):
+                if idx in used_line_indices:
+                    continue
+                if self._normalize_text(word["text"]) == search_normalized:
+                    return make_bbox(word), idx
+        
+        # Strategy 4: Partial match for short search text (fallback)
+        for idx, word in enumerate(lines):
             if idx in used_line_indices:
                 continue
-            if search_normalized in self._normalize_text(line["text"]):
-                return make_bbox(line), idx
+            if search_lower in word["text"].lower():
+                return make_bbox(word), idx
         
         return None, None
     

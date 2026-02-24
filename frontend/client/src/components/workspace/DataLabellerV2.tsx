@@ -14,7 +14,7 @@ import { TextSpanAnnotator, type EntityType } from "@/components/labeller/TextSp
 import { PdfTextAnnotator } from "@/components/labeller/PdfTextAnnotator";
 import { ImageBboxAnnotator } from "@/components/labeller/ImageBboxAnnotator";
 import { toast } from "sonner";
-import { Loader2, FileText, Image, Copy, ChevronDown, Sparkles } from "lucide-react";
+import { Loader2, FileText, Image, Copy, ChevronDown, Sparkles, Trash2 } from "lucide-react";
 
 // Color palette for entity types
 const ENTITY_COLORS = [
@@ -36,6 +36,7 @@ export function DataLabellerV2() {
   const [localStorageVersion, setLocalStorageVersion] = useState(0);
   const [suggestions, setSuggestions] = useState<AnnotationSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const projectId = localStorage.getItem("selected-project") || "all";
 
@@ -112,6 +113,36 @@ export function DataLabellerV2() {
       color: ENTITY_COLORS[i % ENTITY_COLORS.length],
     }));
   }, [schemaFields]);
+
+  // Group entity types by parent for hierarchical display
+  const groupedEntityTypes = useMemo(() => {
+    const groups: Record<string, EntityType[]> = {};
+    
+    entityTypes.forEach(et => {
+      const parts = et.name.split('.');
+      if (parts.length > 1) {
+        const parent = parts[0];
+        if (!groups[parent]) {
+          groups[parent] = [];
+        }
+        groups[parent].push(et);
+      } else {
+        // Top-level fields
+        if (!groups['_root']) {
+          groups['_root'] = [];
+        }
+        groups['_root'].push(et);
+      }
+    });
+    
+    return groups;
+  }, [entityTypes]);
+
+  // Auto-expand all groups by default
+  useEffect(() => {
+    const allGroups = Object.keys(groupedEntityTypes).filter(g => g !== '_root');
+    setExpandedGroups(new Set(allGroups));
+  }, [groupedEntityTypes]);
 
   // Fetch annotations for selected document
   const { data: annotationsData, refetch: refetchAnnotations } = useQuery({
@@ -237,6 +268,41 @@ export function DataLabellerV2() {
   const handleSuggestionReject = useCallback((id: string) => {
     setSuggestions(prev => prev.filter(s => s.id !== id));
   }, []);
+
+  const handleAcceptAllSuggestions = useCallback(async () => {
+    if (suggestions.length === 0) return;
+    
+    toast.promise(
+      Promise.all(suggestions.map(s => approveSuggestionMutation.mutateAsync(s))),
+      {
+        loading: `Accepting ${suggestions.length} suggestions...`,
+        success: () => {
+          setSuggestions([]);
+          return `Accepted ${suggestions.length} suggestions`;
+        },
+        error: 'Failed to accept some suggestions',
+      }
+    );
+  }, [suggestions, approveSuggestionMutation]);
+
+  const handleDeleteAllAnnotations = useCallback(async () => {
+    if (annotations.length === 0) return;
+    
+    const confirmed = window.confirm(
+      `Are you sure you want to delete all ${annotations.length} annotations? This cannot be undone.`
+    );
+    
+    if (!confirmed) return;
+    
+    toast.promise(
+      Promise.all(annotations.map(a => deleteAnnotationMutation.mutateAsync(a.id))),
+      {
+        loading: `Deleting ${annotations.length} annotations...`,
+        success: `Deleted ${annotations.length} annotations`,
+        error: 'Failed to delete some annotations',
+      }
+    );
+  }, [annotations, deleteAnnotationMutation]);
 
   // Calculate stats
   const stats = useMemo(() => {
@@ -491,19 +557,74 @@ export function DataLabellerV2() {
               </div>
             ) : (
               <div className="dl-entity-types-list">
-                {entityTypes.map((et, i) => (
-                  <div
-                    key={et.id}
-                    className={`dl-entity-type-item ${activeEntityTypeId === et.id ? 'active' : ''}`}
-                    style={activeEntityTypeId === et.id ? { color: et.color } : undefined}
-                    onClick={() => setActiveEntityTypeId(activeEntityTypeId === et.id ? null : et.id)}
-                  >
-                    <div className="dl-entity-color-dot" style={{ background: et.color }} />
-                    <span className="dl-entity-type-name">{et.name}</span>
-                    {i < 9 && <span className="dl-kbd">{i + 1}</span>}
-                    <span className="dl-entity-type-count">{entityCounts[et.name] || 0}</span>
-                  </div>
-                ))}
+                {Object.entries(groupedEntityTypes).map(([groupName, groupTypes]) => {
+                  const isExpanded = expandedGroups.has(groupName);
+                  const isRoot = groupName === '_root';
+                  
+                  return (
+                    <div key={groupName} className="dl-entity-group">
+                      {!isRoot && (
+                        <div
+                          className="dl-entity-group-header"
+                          onClick={() => {
+                            const newExpanded = new Set(expandedGroups);
+                            if (isExpanded) {
+                              newExpanded.delete(groupName);
+                            } else {
+                              newExpanded.add(groupName);
+                            }
+                            setExpandedGroups(newExpanded);
+                          }}
+                          style={{ 
+                            fontSize: '12px', 
+                            fontWeight: 600, 
+                            color: '#8b949e',
+                            padding: '6px 8px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            borderBottom: '1px solid #21262d',
+                            marginBottom: '4px'
+                          }}
+                        >
+                          <ChevronDown 
+                            size={14} 
+                            style={{ 
+                              transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+                              transition: 'transform 0.15s'
+                            }} 
+                          />
+                          <span>{groupName}</span>
+                          <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#484f58' }}>
+                            {groupTypes.length}
+                          </span>
+                        </div>
+                      )}
+                      {(isRoot || isExpanded) && groupTypes.map((et, i) => {
+                        const globalIndex = entityTypes.findIndex(e => e.id === et.id);
+                        const displayName = et.name.split('.').pop() || et.name;
+                        
+                        return (
+                          <div
+                            key={et.id}
+                            className={`dl-entity-type-item ${activeEntityTypeId === et.id ? 'active' : ''}`}
+                            style={{
+                              ...(activeEntityTypeId === et.id ? { color: et.color } : undefined),
+                              paddingLeft: isRoot ? '8px' : '24px'
+                            }}
+                            onClick={() => setActiveEntityTypeId(activeEntityTypeId === et.id ? null : et.id)}
+                          >
+                            <div className="dl-entity-color-dot" style={{ background: et.color }} />
+                            <span className="dl-entity-type-name">{displayName}</span>
+                            {globalIndex < 9 && <span className="dl-kbd">{globalIndex + 1}</span>}
+                            <span className="dl-entity-type-count">{entityCounts[et.name] || 0}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -608,6 +729,29 @@ export function DataLabellerV2() {
                   {suggestions.length}
                 </span>
               )}
+            </button>
+          )}
+          {selectedDocId && suggestions.length > 0 && (
+            <button
+              className="dl-btn dl-btn-sm dl-btn-primary"
+              onClick={handleAcceptAllSuggestions}
+              disabled={loadingSuggestions}
+              title={`Accept all ${suggestions.length} suggestions`}
+              style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+            >
+              <Sparkles size={12} />
+              Accept All ({suggestions.length})
+            </button>
+          )}
+          {selectedDocId && annotations.length > 0 && (
+            <button
+              className="dl-btn dl-btn-sm"
+              onClick={handleDeleteAllAnnotations}
+              title={`Delete all ${annotations.length} annotations`}
+              style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#f85149' }}
+            >
+              <Trash2 size={12} />
+              Delete All ({annotations.length})
             </button>
           )}
           {activeEntityType && (

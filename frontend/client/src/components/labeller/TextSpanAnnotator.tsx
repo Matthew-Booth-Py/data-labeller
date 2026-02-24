@@ -125,11 +125,29 @@ export function TextSpanAnnotator({
     // Otherwise show popup to pick entity type
     if (entityTypes.length === 0) return;
 
-    // Build popup content
-    popup.innerHTML = entityTypes.map(et =>
-      `<button class="dl-popup-entity-btn" style="background:${et.color}30; color:${et.color}; border-color:${et.color}40"
-         data-entity-id="${et.id}" data-start="${selStart}" data-end="${selEnd}">${escapeHtml(et.name)}</button>`
-    ).join('');
+    // Group entity types by parent
+    const grouped: Record<string, typeof entityTypes> = {};
+    entityTypes.forEach(et => {
+      const parts = et.name.split('.');
+      const parent = parts.length > 1 ? parts[0] : '_root';
+      if (!grouped[parent]) grouped[parent] = [];
+      grouped[parent].push(et);
+    });
+
+    // Build popup content with hierarchy
+    let popupHtml = '';
+    Object.entries(grouped).forEach(([parent, types]) => {
+      if (parent !== '_root') {
+        popupHtml += `<div style="font-size:11px;color:#8b949e;font-weight:600;padding:4px 8px;border-bottom:1px solid #21262d;margin-top:4px">${escapeHtml(parent)}</div>`;
+      }
+      types.forEach(et => {
+        const displayName = et.name.split('.').pop() || et.name;
+        popupHtml += `<button class="dl-popup-entity-btn" style="background:${et.color}30; color:${et.color}; border-color:${et.color}40"
+           data-entity-id="${et.id}" data-start="${selStart}" data-end="${selEnd}">${escapeHtml(displayName)}</button>`;
+      });
+    });
+    
+    popup.innerHTML = popupHtml;
 
     // Position popup near the selection
     const rect = range.getBoundingClientRect();
