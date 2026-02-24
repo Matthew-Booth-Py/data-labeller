@@ -1,7 +1,0 @@
-{% extends "account/email/base_notification.html" %}
-{% load i18n %}
-
-{% block notification_message %}
-<i class="fas fa-trash text-danger me-2"></i>
-{% blocktrans %}Email address <code>{{ deleted_email }}</code> has been removed from your account.{% endblocktrans %}
-{% endblock notification_message %}

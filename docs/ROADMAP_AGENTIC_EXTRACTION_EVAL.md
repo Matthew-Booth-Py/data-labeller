@@ -26,7 +26,7 @@ Key existing modules:
 - Backend services: `backend/src/uu_backend/services/evaluation_service.py`
 - Persistence: `backend/src/uu_backend/repositories/django_repo.py`
 - Frontend UI: `frontend/client/src/pages/FieldsLibrary.tsx`
-- Frontend UI: `frontend/client/src/pages/Evaluation.tsx`
+- Frontend UI: `frontend/client/src/components/workspace/EvaluateView.tsx`
 - Frontend API client: `frontend/client/src/lib/api.ts`
 
 ## Milestones
@@ -196,7 +196,7 @@ Touchpoints:
 
 - `backend/src/uu_backend/services/evaluation_service.py`
 - `backend/src/uu_backend/models/evaluation.py`
-- `frontend/client/src/pages/Evaluation.tsx`
+- `frontend/client/src/components/workspace/EvaluateView.tsx`
 - `frontend/client/src/components/workspace/EvaluationBoard.tsx`
 
 Acceptance:
@@ -290,4 +290,3 @@ Definition of done:
   - Mitigation: stratified spot-audit + confidence calibration
 - Risk: Added workflow complexity
   - Mitigation: default templates with optional advanced controls
-

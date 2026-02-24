@@ -1,7 +1,0 @@
-{% extends "account/email/base_notification.html" %}
-{% load i18n %}
-
-{% block notification_message %}
-<i class="fas fa-exchange-alt text-info me-2"></i>
-{% blocktrans %}Your email has been changed from <code>{{ from_email }}</code> to <code>{{ to_email }}</code>.{% endblocktrans %}
-{% endblock notification_message %}
