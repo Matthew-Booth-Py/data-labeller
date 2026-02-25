@@ -187,7 +187,7 @@ Backend API: `http://localhost:8000`
 
 Use your `.env` file. Important keys include:
 - `OPENAI_API_KEY` — LLM for extraction, classification, and AI suggestions
-- `OPENAI_MODEL` — model used for extraction (default: `gpt-4o-mini`)
+- `OPENAI_MODEL` — primary model used across extraction, classification, and retrieval enrichment
 - `AZURE_OPENAI_*` — optional Azure OpenAI endpoint/key/version if using Azure-hosted models
 - `CO_API_KEY` / `CO_RERANK_ENDPOINT` — optional Cohere reranking for contextual retrieval
 - `DJANGO_DATABASE_URL` — Postgres connection string

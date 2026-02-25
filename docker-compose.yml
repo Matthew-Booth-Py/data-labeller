@@ -17,7 +17,7 @@ services:
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5-mini}
+      - OPENAI_MODEL=${OPENAI_MODEL}
       - DJANGO_DATABASE_URL=${DJANGO_DATABASE_URL:-postgres://uu:uu@postgres:5432/uu_django}
       - REDIS_URL=redis://redis:6379/0
       - DJANGO_SETTINGS_MODULE=uu_backend.django_project.settings.local
@@ -61,14 +61,14 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - DJANGO_SETTINGS_MODULE=uu_backend.django_project.settings.local
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5-mini}
+      - OPENAI_MODEL=${OPENAI_MODEL}
       - DJANGO_DATABASE_URL=${DJANGO_DATABASE_URL:-postgres://uu:uu@postgres:5432/uu_django}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       - CHUNK_SIZE=${CHUNK_SIZE:-4000}
       - CHUNK_OVERLAP=${CHUNK_OVERLAP:-800}
       - MAX_CONCURRENCY=${MAX_CONCURRENCY:-40}
-      - CONTEXT_MODEL=${CONTEXT_MODEL:-gpt-5-mini}
+      - CONTEXT_MODEL=${CONTEXT_MODEL}
       - USE_AZURE_OPENAI=${USE_AZURE_OPENAI:-false}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}

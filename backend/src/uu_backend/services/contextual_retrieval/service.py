@@ -4,6 +4,8 @@ import logging
 import os
 from typing import Callable
 
+from uu_backend.config import get_settings
+
 from .bm25_index import BM25Index
 from .chunker import DocumentChunker, PageAwareChunker
 from .contextualizer import ChunkContextualizer
@@ -34,11 +36,12 @@ class ContextualRetrievalService:
         chroma_persist_directory: str | None = None,
         chroma_collection_name: str | None = None,
         bm25_index_path: str | None = None,
-        context_model: str = "gpt-5-mini",
+        context_model: str | None = None,
         embedding_model: str = "text-embedding-3-small",
         use_reranking: bool = True,
         chunking_strategy: str | None = None,
     ):
+        settings = get_settings()
         chunking_strategy = chunking_strategy or os.getenv("CHUNKING_STRATEGY", "page")
 
         if chunking_strategy == "page":
@@ -57,10 +60,10 @@ class ContextualRetrievalService:
             )
             logger.info(f"Chunking strategy: fixed-size ({chunk_size} chars)")
         
-        context_model = os.getenv("CONTEXT_MODEL", context_model)
+        context_model = context_model or settings.effective_context_model
         self.contextualizer = ChunkContextualizer(model=context_model)
         
-        summary_model = os.getenv("SUMMARY_MODEL", context_model)
+        summary_model = settings.effective_summary_model
         self.page_summarizer = PageSummarizer(model=summary_model)
         
         self.embedder = OpenAIEmbedder(model=embedding_model)

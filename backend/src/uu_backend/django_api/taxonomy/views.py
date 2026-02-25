@@ -324,7 +324,7 @@ class TaxonomyPrefixView(APIView):
                 user_content = user_prompt_text
 
             # Use document type's extraction model if available, otherwise fall back to global settings
-            model = (doc_type.extraction_model if doc_type and doc_type.extraction_model else None) or settings.openai_tagging_model or settings.openai_model
+            model = (doc_type.extraction_model if doc_type and doc_type.extraction_model else None) or settings.effective_tagging_model
             print(f"[Field Assistant] Model: {model} | DocType: {doc_type.name if doc_type else 'N/A'} | Input: {parsed.user_input[:50]}...")
             print(f"[Field Assistant] USE_AZURE_OPENAI: {os.getenv('USE_AZURE_OPENAI')}")
             print(f"[Field Assistant] AZURE_OPENAI_ENDPOINT: {os.getenv('AZURE_OPENAI_ENDPOINT')}")

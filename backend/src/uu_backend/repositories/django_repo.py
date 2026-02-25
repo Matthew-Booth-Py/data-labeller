@@ -17,6 +17,7 @@ if not apps.ready:
     django.setup()
 
 from uu_backend.django_data import models as orm
+from uu_backend.config import get_settings
 from uu_backend.models.prompt import FieldPromptVersion, PromptVersion
 from uu_backend.models.taxonomy import (
     Classification,
@@ -323,6 +324,7 @@ class DjangoORMRepository:
         if set_active:
             orm.DeploymentVersionModel.objects.filter(project_id=project_id).update(is_active=False)
 
+        settings = get_settings()
         created = orm.DeploymentVersionModel.objects.create(
             id=deployment_id,
             project_id=project_id,
@@ -335,7 +337,7 @@ class DjangoORMRepository:
             user_prompt_template=(prompt_version.user_prompt_template if prompt_version else None),
             schema_fields=snapshot_schema_fields,
             field_prompt_versions=active_field_prompt_versions,
-            model="gpt-5-mini",
+            model=doc_type.extraction_model or settings.effective_tagging_model,
             is_active=set_active,
             created_by=created_by,
             created_at=now,

@@ -56,7 +56,8 @@ class ClassificationService:
             logger.info("Using OpenAI for classification")
             self.client = AsyncOpenAI()
         
-        self.model = "gpt-5-mini"
+        settings = get_settings()
+        self.model = settings.effective_tagging_model
 
     async def classify_document(
         self, 

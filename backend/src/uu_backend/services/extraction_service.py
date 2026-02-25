@@ -37,7 +37,7 @@ class ExtractionService:
         openai_client = get_openai_client()
         self.client = openai_client._client
         settings = get_settings()
-        self.model = settings.openai_tagging_model or settings.openai_model
+        self.model = settings.effective_tagging_model
         self._raw_guardrails = (
             "Critical extraction rules:\n"
             "1) Extract values EXACTLY as they appear in the document (RAW).\n"

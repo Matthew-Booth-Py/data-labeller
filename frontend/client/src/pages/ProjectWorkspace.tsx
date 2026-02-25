@@ -103,7 +103,6 @@ export default function ProjectWorkspace() {
       name: id ? id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Project",
       description: "",
       docCount: 0,
-      model: "GPT-5-mini",
     };
   }, [id]);
 

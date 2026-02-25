@@ -116,7 +116,7 @@ export default function Settings() {
                       <div className="space-y-2">
                         <div className="text-sm text-muted-foreground">
                           <p>The LLM model is configured in the backend <code className="text-xs bg-muted px-1 py-0.5 rounded">.env</code> file.</p>
-                          <p className="mt-2">Current model: <Badge variant="outline" className="ml-2 font-mono">gpt-5-mini</Badge></p>
+                          <p className="mt-2">Current model: <Badge variant="outline" className="ml-2 font-mono">OPENAI_MODEL</Badge></p>
                         </div>
                       </div>
                     </CardContent>

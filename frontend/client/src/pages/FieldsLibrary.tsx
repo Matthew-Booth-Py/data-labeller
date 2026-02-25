@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { api, type FieldType, type GlobalField } from "@/lib/api";
 
-const DEFAULT_MODEL = "gpt-5-mini";
+const DEFAULT_MODEL = "OPENAI_MODEL";
 const DEFAULT_OCR = "native-text";
 
 export default function FieldsLibrary() {

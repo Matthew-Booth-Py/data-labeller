@@ -110,11 +110,11 @@ Be specific and practical - the extraction_guidance will be used directly in pro
         """Initialize the prompt generator.
         
         Args:
-            model: Optional model override. Defaults to settings.openai_tagging_model.
+            model: Optional model override. Defaults to settings.effective_tagging_model.
         """
         self._openai_client = get_openai_client()
         settings = get_settings()
-        self._model = model or settings.openai_tagging_model or settings.openai_model
+        self._model = model or settings.effective_tagging_model
 
     def analyze_image(self, image_base64: str) -> VisualAnalysis:
         """Analyze a base64-encoded image and return visual structure analysis.

@@ -14,6 +14,8 @@ from tenacity import (
     before_sleep_log,
 )
 
+from uu_backend.config import get_settings
+
 from .models import Chunk, ContextualizedChunk
 
 logger = logging.getLogger(__name__)
@@ -51,13 +53,14 @@ class ChunkContextualizer:
 
     def __init__(
         self,
-        model: str = "gpt-5-mini",
+        model: str | None = None,
         max_completion_tokens: int = 500,
         max_context_chars: int = 25_000,
         max_concurrency: int = 40,  # Optimized for 500K TPM with 4K chunks (~34% utilization)
         api_key: str | None = None,
     ):
-        self.model = model
+        settings = get_settings()
+        self.model = model or settings.effective_context_model
         self.max_completion_tokens = max_completion_tokens
         self.max_context_chars = max_context_chars
         self.max_concurrency = int(os.getenv("MAX_CONCURRENCY", str(max_concurrency)))

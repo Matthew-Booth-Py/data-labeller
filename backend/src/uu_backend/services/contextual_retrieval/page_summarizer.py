@@ -14,6 +14,8 @@ from tenacity import (
     before_sleep_log,
 )
 
+from uu_backend.config import get_settings
+
 from .models import Chunk
 
 logger = logging.getLogger(__name__)
@@ -48,12 +50,13 @@ class PageSummarizer:
 
     def __init__(
         self,
-        model: str = "gpt-5-mini",
+        model: str | None = None,
         max_completion_tokens: int = 2000,
         max_concurrency: int = 40,
         api_key: str | None = None,
     ):
-        self.model = model
+        settings = get_settings()
+        self.model = model or settings.effective_summary_model
         self.max_completion_tokens = max_completion_tokens
         self.max_concurrency = int(os.getenv("MAX_CONCURRENCY", str(max_concurrency)))
         

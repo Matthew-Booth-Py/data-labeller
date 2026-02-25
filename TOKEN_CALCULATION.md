@@ -81,7 +81,7 @@ Total:             2,052,725 tokens
 
 ### Cost Breakdown
 
-**gpt-5-mini Pricing**:
+**Example Pricing (set by `OPENAI_MODEL`)**:
 - Input: $0.15 per 1M tokens
 - Output: $0.60 per 1M tokens
 - Cached input: $0.075 per 1M tokens (50% discount)

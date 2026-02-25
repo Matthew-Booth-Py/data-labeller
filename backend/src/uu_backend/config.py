@@ -39,8 +39,25 @@ class Settings(BaseModel):
     # OpenAI Settings
     openai_api_key: str = ""
     openai_model: str = "gpt-5-mini"
-    openai_tagging_model: str = "gpt-5-mini"
+    openai_tagging_model: str = ""
+    context_model: str = ""
+    summary_model: str = ""
     openai_reasoning_effort: str = "low"
+
+    @property
+    def effective_tagging_model(self) -> str:
+        """Model used for extraction/tagging flows."""
+        return self.openai_tagging_model or self.openai_model
+
+    @property
+    def effective_context_model(self) -> str:
+        """Model used for contextual retrieval chunk context generation."""
+        return self.context_model or self.openai_model
+
+    @property
+    def effective_summary_model(self) -> str:
+        """Model used for page summarization in contextual retrieval."""
+        return self.summary_model or self.effective_context_model
 
     @property
     def file_storage_path(self) -> Path:
@@ -61,6 +78,8 @@ _ENV_TO_FIELD = {
     "OPENAI_API_KEY": "openai_api_key",
     "OPENAI_MODEL": "openai_model",
     "OPENAI_TAGGING_MODEL": "openai_tagging_model",
+    "CONTEXT_MODEL": "context_model",
+    "SUMMARY_MODEL": "summary_model",
     "OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
 }
 
