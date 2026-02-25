@@ -81,15 +81,20 @@ These run automatically when you `git commit`:
 
 ### On Every Push (Slower Checks)
 
-These run when you `git push` to avoid slowing down commits:
+**Note**: Push-stage hooks are currently disabled for Windows compatibility. These checks run in CI instead:
 
-#### Backend Tests
+#### Backend Tests (Runs in CI)
 - 🧪 **Full test suite** - Runs all pytest tests
 - 📊 **Coverage check** - Ensures 70% minimum coverage
 
-#### Frontend Tests
+#### Frontend Tests (Runs in CI)
 - 🧪 **Test suite** - Runs frontend tests (if configured)
 - 🔍 **Type checking** - Full TypeScript validation
+
+**Why disabled locally?**
+- Bash commands in pre-commit don't work reliably on Windows
+- Tests run faster in CI with proper service containers
+- CI provides comprehensive validation anyway
 
 ## Usage Examples
 

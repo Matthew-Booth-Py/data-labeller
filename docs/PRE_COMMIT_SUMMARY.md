@@ -4,8 +4,8 @@
 
 Added comprehensive pre-commit hooks to automate testing and quality checks locally before commits and pushes. This provides fast feedback and catches issues before they reach CI/CD.
 
-**Commit**: `16c5d49` - feat: Add pre-commit hooks for automated local testing and quality checks  
-**Pull Request**: [#14](https://github.com/Matthew-Booth-Py/data-labeller/pull/14)  
+**Commit**: `16c5d49` - feat: Add pre-commit hooks for automated local testing and quality checks
+**Pull Request**: [#14](https://github.com/Matthew-Booth-Py/data-labeller/pull/14)
 
 ## What Was Added
 
@@ -421,6 +421,6 @@ pre-commit install --install-hooks
 
 ---
 
-**Implementation Date**: February 25, 2026  
-**Status**: ✅ Complete - Ready for Use  
+**Implementation Date**: February 25, 2026
+**Status**: ✅ Complete - Ready for Use
 **Pull Request**: [#14](https://github.com/Matthew-Booth-Py/data-labeller/pull/14)
