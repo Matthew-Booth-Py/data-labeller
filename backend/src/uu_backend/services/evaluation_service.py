@@ -146,9 +146,6 @@ class EvaluationService:
         For array fields (tables), intelligently groups GT annotations into rows
         by matching field values, not relying on instance_num.
         
-        Handles cross-format comparison: old-style (category/subcategory/line_item) 
-        GT labels vs new-style (hierarchy_path) predictions.
-        
         Returns:
             {
                 "field_name": {
@@ -177,20 +174,15 @@ class EvaluationService:
             for gt in ground_truth
         )
         
-        # Second pass: transform and normalize if there's a format mismatch
-        if pred_uses_hierarchy_path and not gt_uses_hierarchy_path:
-            # Predictions use new format, GT uses old format
-            # Transform old-style GT to hierarchy_path format
-            gt_transformed = self._transform_gt_for_hierarchy_path(ground_truth, schema)
-            gt_with_instances = self._assign_gt_instances(gt_transformed, schema)
-        elif gt_uses_hierarchy_path and not pred_uses_hierarchy_path:
-            # GT uses new format, predictions use old format
-            # Synthesize hierarchy_path entries from normalized predictions
-            self._synthesize_prediction_hierarchy_paths(schema)
-            gt_with_instances = self._assign_gt_instances(ground_truth, schema)
-        else:
-            # Both use same format (or both have hierarchy_path)
-            gt_with_instances = self._assign_gt_instances(ground_truth, schema)
+        # Enforce schema contract: GT and predictions must use the same hierarchy schema.
+        if pred_uses_hierarchy_path != gt_uses_hierarchy_path:
+            raise ValueError(
+                "Hierarchy schema mismatch: ground truth and predictions must use the same schema "
+                f"(gt_uses_hierarchy_path={gt_uses_hierarchy_path}, "
+                f"pred_uses_hierarchy_path={pred_uses_hierarchy_path})."
+            )
+
+        gt_with_instances = self._assign_gt_instances(ground_truth, schema)
         
         # Add ground truth values with assigned instances
         for gt in gt_with_instances:
@@ -201,113 +193,6 @@ class EvaluationService:
             })
         
         return dict(schema)
-    
-    def _detect_hierarchy_fields(self, gt_list: list[dict], parent: str) -> list[str]:
-        """
-        Dynamically detect which fields are hierarchy fields based on their values.
-        
-        Uses content analysis, NOT hardcoded field name patterns.
-        """
-        # Collect field names with sample values
-        field_samples: dict[str, list[any]] = defaultdict(list)
-        for gt in gt_list:
-            field_key = gt["field_name"].replace(f"{parent}.", "")
-            if field_key != "hierarchy_path" and not "_header" in field_key:
-                field_samples[field_key].append(gt["value"])
-        
-        # Analyze each field to determine if it's hierarchy or data
-        detected = []
-        for field_name, values in field_samples.items():
-            # Analyze the values to determine field type
-            is_hierarchy = True
-            
-            for value in values:
-                if value is None or str(value).strip() == "":
-                    continue
-                
-                # Use value-based detection
-                if not self._is_hierarchy_field(field_name, value):
-                    is_hierarchy = False
-                    break
-            
-            if is_hierarchy:
-                detected.append(field_name)
-        
-        return detected
-    
-    def _transform_gt_for_hierarchy_path(
-        self,
-        ground_truth: list[dict],
-        schema: dict
-    ) -> list[dict]:
-        """
-        Transform old-style GT (category/subcategory/line_item) to new-style (hierarchy_path).
-        
-        Dynamically detects hierarchy fields instead of using hardcoded list.
-        Groups related GT annotations and converts them to hierarchy_path format
-        for proper comparison against new extraction format.
-        """
-        # Group GT by parent field
-        gt_by_parent: dict[str, list[dict]] = defaultdict(list)
-        for gt in ground_truth:
-            parts = gt["field_name"].split(".")
-            if len(parts) > 1:
-                parent = parts[0]
-                gt_by_parent[parent].append(gt)
-            else:
-                gt_by_parent[gt["field_name"]].append(gt)
-        
-        transformed = []
-        
-        for parent, gt_list in gt_by_parent.items():
-            # Check if this parent has hierarchy_path in predictions
-            has_hierarchy_path = f"{parent}.hierarchy_path" in schema
-            
-            if not has_hierarchy_path:
-                # No hierarchy_path in predictions, keep GT as-is
-                transformed.extend(gt_list)
-                continue
-            
-            # Dynamically detect hierarchy fields from GT
-            hierarchy_fields = self._detect_hierarchy_fields(gt_list, parent)
-            
-            if not hierarchy_fields:
-                # No hierarchy fields detected, keep as-is
-                transformed.extend(gt_list)
-                continue
-            
-            # Group GT by rows
-            gt_groups = self._group_gt_by_similarity(gt_list, parent)
-            
-            # Convert each group to hierarchy_path format
-            for group in gt_groups:
-                # Extract hierarchy values from this group in consistent order
-                hierarchy_parts = []
-                other_fields = []
-                
-                for gt in group:
-                    field_key = gt["field_name"].replace(f"{parent}.", "")
-                    
-                    if field_key in hierarchy_fields:
-                        value = gt["value"]
-                        if value and str(value).strip():
-                            hierarchy_parts.append(str(value).strip())
-                    else:
-                        # Keep non-hierarchy fields as-is
-                        other_fields.append(gt)
-                
-                # Add a synthetic hierarchy_path GT entry
-                if hierarchy_parts:
-                    transformed.append({
-                        "field_name": f"{parent}.hierarchy_path",
-                        "value": hierarchy_parts,
-                        "instance_num": group[0].get("instance_num")
-                    })
-                
-                # Add other fields
-                transformed.extend(other_fields)
-        
-        return transformed
     
     def _assign_gt_instances(
         self,
@@ -410,7 +295,7 @@ class EvaluationService:
         normalized = fields.copy()
         normalized["_normalized_hierarchy_path"] = hierarchy_values if hierarchy_values else []
         return normalized
-    
+
     def _match_gt_to_predicted_rows(
         self,
         gt_list: list[dict],
@@ -1028,14 +913,13 @@ Rules:
             eval_data = eval_results.get(field_name, {})
             
             matches = eval_data.get("matches", [])
-            missing_indices = set(eval_data.get("missing_gt_indices", []))
-            extra_indices = set(eval_data.get("extra_pred_indices", []))
             
             # Track what's been matched
             matched_gt = set()
             matched_pred = set()
             
-            # Process matches
+            # Process explicit LLM-provided pairings first.
+            # We enforce one-to-one usage and recover deterministic empty/hierarchy matches.
             for match in matches:
                 gt_idx = match.get("gt_idx", 0)
                 pred_idx = match.get("pred_idx", 0)
@@ -1043,76 +927,230 @@ Rules:
                 confidence = match.get("confidence", 0.0)
                 reason = match.get("reason", "")
                 
-                if gt_idx < len(gt_items) and pred_idx < len(pred_items):
-                    gt_item = gt_items[gt_idx]
-                    pred_item = pred_items[pred_idx]
-                    
-                    comparisons.append(FieldComparison(
-                        field_name=field_name,
-                        ground_truth_value=gt_item["value"],
-                        predicted_value=pred_item["value"],
-                        match_result=MatchResult(
-                            is_match=is_match,
-                            match_type=MatchType.SEMANTIC if is_match else MatchType.NO_MATCH,
-                            confidence=confidence,
-                            reason=reason
-                        ),
-                        instance_num=gt_item.get("instance")
-                    ))
-                    matched_gt.add(gt_idx)
-                    matched_pred.add(pred_idx)
-            
-            # Add missing (GT with no prediction)
-            for gt_idx in missing_indices:
-                if gt_idx < len(gt_items) and gt_idx not in matched_gt:
-                    gt_item = gt_items[gt_idx]
-                    comparisons.append(FieldComparison(
-                        field_name=field_name,
-                        ground_truth_value=gt_item["value"],
-                        predicted_value=None,
-                        match_result=MatchResult(
-                            is_match=False,
-                            match_type=MatchType.NO_MATCH,
-                            confidence=0.0,
-                            reason="Missing prediction"
-                        ),
-                        instance_num=gt_item.get("instance")
-                    ))
-            
-            # Add extra (predictions with no GT)
-            for pred_idx in extra_indices:
-                if pred_idx < len(pred_items) and pred_idx not in matched_pred:
-                    pred_item = pred_items[pred_idx]
-                    comparisons.append(FieldComparison(
-                        field_name=field_name,
-                        ground_truth_value=None,
-                        predicted_value=pred_item["value"],
-                        match_result=MatchResult(
-                            is_match=False,
-                            match_type=MatchType.NO_MATCH,
-                            confidence=0.0,
-                            reason="Extra prediction"
-                        ),
-                        instance_num=pred_item.get("instance")
-                    ))
-            
-            # Handle unprocessed items (if eval_results was incomplete)
-            for gt_idx, gt_item in enumerate(gt_items):
-                if gt_idx not in matched_gt and gt_idx not in missing_indices:
-                    comparisons.append(FieldComparison(
-                        field_name=field_name,
-                        ground_truth_value=gt_item["value"],
-                        predicted_value=None,
-                        match_result=MatchResult(
-                            is_match=False,
-                            match_type=MatchType.NO_MATCH,
-                            confidence=0.0,
-                            reason="Unprocessed GT"
-                        ),
-                        instance_num=gt_item.get("instance")
-                    ))
+                if gt_idx >= len(gt_items) or pred_idx >= len(pred_items):
+                    continue
+                if gt_idx in matched_gt or pred_idx in matched_pred:
+                    continue
+
+                gt_item = gt_items[gt_idx]
+                pred_item = pred_items[pred_idx]
+                normalized_match, normalized_type, normalized_reason = self._determine_pair_match(
+                    field_name,
+                    gt_item["value"],
+                    pred_item["value"],
+                )
+
+                # Respect explicit LLM positive matches but enforce deterministic positives too.
+                final_is_match = is_match or normalized_match
+                final_match_type = (
+                    MatchType.SEMANTIC
+                    if is_match and not normalized_match
+                    else normalized_type
+                )
+                final_confidence = max(confidence, 1.0 if normalized_match else 0.0)
+                final_reason = reason or normalized_reason
+
+                comparisons.append(FieldComparison(
+                    field_name=field_name,
+                    ground_truth_value=gt_item["value"],
+                    predicted_value=pred_item["value"],
+                    match_result=MatchResult(
+                        is_match=final_is_match,
+                        match_type=final_match_type if final_is_match else MatchType.NO_MATCH,
+                        confidence=final_confidence if final_is_match else 0.0,
+                        reason=final_reason
+                    ),
+                    instance_num=gt_item.get("instance") or pred_item.get("instance")
+                ))
+                matched_gt.add(gt_idx)
+                matched_pred.add(pred_idx)
+
+            remaining_gt = [i for i in range(len(gt_items)) if i not in matched_gt]
+            remaining_pred = [i for i in range(len(pred_items)) if i not in matched_pred]
+
+            # Recover deterministic true matches that LLM omitted (e.g., hierarchy leaf matches).
+            value_pairs, remaining_gt, remaining_pred = self._pair_unmatched_by_value(
+                field_name,
+                gt_items,
+                pred_items,
+                remaining_gt,
+                remaining_pred,
+            )
+            comparisons.extend(value_pairs)
+
+            # For row-based fields, align any still-unmatched GT/pred by instance so one row
+            # mismatch is represented as one incorrect comparison (not missing+extra duplicates).
+            instance_pairs, remaining_gt, remaining_pred = self._pair_unmatched_by_instance(
+                field_name,
+                gt_items,
+                pred_items,
+                remaining_gt,
+                remaining_pred,
+            )
+            comparisons.extend(instance_pairs)
+
+            # Remaining unmatched GT -> missing.
+            for gt_idx in remaining_gt:
+                gt_item = gt_items[gt_idx]
+                gt_value = gt_item["value"]
+                gt_is_empty = self._is_empty_value(gt_value)
+                comparisons.append(FieldComparison(
+                    field_name=field_name,
+                    ground_truth_value=gt_value,
+                    predicted_value=None,
+                    match_result=MatchResult(
+                        is_match=gt_is_empty,
+                        match_type=MatchType.EXACT if gt_is_empty else MatchType.NO_MATCH,
+                        confidence=1.0 if gt_is_empty else 0.0,
+                        reason=(
+                            "Ground truth empty value matches null prediction"
+                            if gt_is_empty
+                            else "Missing prediction"
+                        )
+                    ),
+                    instance_num=gt_item.get("instance")
+                ))
+
+            # Remaining unmatched predictions -> extra.
+            for pred_idx in remaining_pred:
+                pred_item = pred_items[pred_idx]
+                comparisons.append(FieldComparison(
+                    field_name=field_name,
+                    ground_truth_value=None,
+                    predicted_value=pred_item["value"],
+                    match_result=MatchResult(
+                        is_match=False,
+                        match_type=MatchType.NO_MATCH,
+                        confidence=0.0,
+                        reason="Extra prediction"
+                    ),
+                    instance_num=pred_item.get("instance")
+                ))
         
         return comparisons
+
+    def _determine_pair_match(
+        self,
+        field_name: str,
+        gt_value: Any,
+        pred_value: Any,
+    ) -> tuple[bool, MatchType, str]:
+        """Apply deterministic matching rules for a GT/pred value pair."""
+        gt_is_empty = self._is_empty_value(gt_value)
+        pred_is_empty = self._is_empty_value(pred_value)
+        if gt_is_empty and pred_is_empty:
+            return True, MatchType.EXACT, "Both values are empty/not-applicable"
+        if gt_is_empty or pred_is_empty:
+            return False, MatchType.NO_MATCH, "One value is empty while the other is not"
+
+        if "hierarchy_path" in field_name:
+            if self._compare_hierarchy_values(gt_value, pred_value):
+                return True, MatchType.EXACT, "Hierarchy path match"
+            return False, MatchType.NO_MATCH, "Hierarchy path mismatch"
+
+        gt_normalized = self._normalize_value_for_comparison(gt_value).lower()
+        pred_normalized = self._normalize_value_for_comparison(pred_value).lower()
+        if gt_normalized == pred_normalized:
+            return True, MatchType.EXACT, "Exact normalized match"
+        return False, MatchType.NO_MATCH, "Value mismatch"
+
+    def _pair_unmatched_by_instance(
+        self,
+        field_name: str,
+        gt_items: list[dict],
+        pred_items: list[dict],
+        gt_indices: list[int],
+        pred_indices: list[int],
+    ) -> tuple[list[FieldComparison], list[int], list[int]]:
+        """Pair unmatched values sharing the same instance number."""
+        from collections import defaultdict
+
+        gt_by_instance: dict[int, list[int]] = defaultdict(list)
+        pred_by_instance: dict[int, list[int]] = defaultdict(list)
+        for idx in gt_indices:
+            instance = gt_items[idx].get("instance")
+            if instance is not None:
+                gt_by_instance[instance].append(idx)
+        for idx in pred_indices:
+            instance = pred_items[idx].get("instance")
+            if instance is not None:
+                pred_by_instance[instance].append(idx)
+
+        paired_gt = set()
+        paired_pred = set()
+        comparisons: list[FieldComparison] = []
+        for instance in sorted(set(gt_by_instance) & set(pred_by_instance)):
+            gt_list = gt_by_instance[instance]
+            pred_list = pred_by_instance[instance]
+            pair_count = min(len(gt_list), len(pred_list))
+            for offset in range(pair_count):
+                gt_idx = gt_list[offset]
+                pred_idx = pred_list[offset]
+                gt_item = gt_items[gt_idx]
+                pred_item = pred_items[pred_idx]
+                is_match, match_type, reason = self._determine_pair_match(
+                    field_name, gt_item["value"], pred_item["value"]
+                )
+                comparisons.append(FieldComparison(
+                    field_name=field_name,
+                    ground_truth_value=gt_item["value"],
+                    predicted_value=pred_item["value"],
+                    match_result=MatchResult(
+                        is_match=is_match,
+                        match_type=match_type if is_match else MatchType.NO_MATCH,
+                        confidence=1.0 if is_match else 0.0,
+                        reason=reason,
+                    ),
+                    instance_num=instance,
+                ))
+                paired_gt.add(gt_idx)
+                paired_pred.add(pred_idx)
+
+        remaining_gt = [idx for idx in gt_indices if idx not in paired_gt]
+        remaining_pred = [idx for idx in pred_indices if idx not in paired_pred]
+        return comparisons, remaining_gt, remaining_pred
+
+    def _pair_unmatched_by_value(
+        self,
+        field_name: str,
+        gt_items: list[dict],
+        pred_items: list[dict],
+        gt_indices: list[int],
+        pred_indices: list[int],
+    ) -> tuple[list[FieldComparison], list[int], list[int]]:
+        """Pair unmatched values by deterministic true-match rules."""
+        remaining_pred = set(pred_indices)
+        matched_gt = set()
+        comparisons: list[FieldComparison] = []
+
+        for gt_idx in gt_indices:
+            gt_item = gt_items[gt_idx]
+            for pred_idx in sorted(remaining_pred):
+                pred_item = pred_items[pred_idx]
+                is_match, match_type, reason = self._determine_pair_match(
+                    field_name, gt_item["value"], pred_item["value"]
+                )
+                if not is_match:
+                    continue
+
+                comparisons.append(FieldComparison(
+                    field_name=field_name,
+                    ground_truth_value=gt_item["value"],
+                    predicted_value=pred_item["value"],
+                    match_result=MatchResult(
+                        is_match=True,
+                        match_type=match_type,
+                        confidence=1.0,
+                        reason=reason,
+                    ),
+                    instance_num=gt_item.get("instance") or pred_item.get("instance"),
+                ))
+                matched_gt.add(gt_idx)
+                remaining_pred.remove(pred_idx)
+                break
+
+        remaining_gt = [idx for idx in gt_indices if idx not in matched_gt]
+        return comparisons, remaining_gt, sorted(remaining_pred)
     
     def _build_instance_comparisons(
         self,
@@ -1185,11 +1223,22 @@ Rules:
             instance_metrics=instance_metrics,
             field_metrics=field_metrics
         )
+
+    def _counts_as_predicted(self, comparison: FieldComparison) -> bool:
+        """
+        Count a comparison as a prediction for precision denominators.
+
+        Null predictions can be legitimate/correct for empty GT markers (for example "-"),
+        so include those matched-null cases as predicted.
+        """
+        return comparison.predicted_value is not None or (
+            comparison.predicted_value is None and comparison.is_correct
+        )
     
     def _calculate_flattened_metrics(self, comparisons: list[FieldComparison]) -> FlattenedMetrics:
         """Calculate flattened metrics."""
         total_gt = sum(1 for c in comparisons if c.ground_truth_value is not None)
-        total_pred = sum(1 for c in comparisons if c.predicted_value is not None)
+        total_pred = sum(1 for c in comparisons if self._counts_as_predicted(c))
         correct = sum(1 for c in comparisons if c.is_correct)
         incorrect = sum(1 for c in comparisons if not c.is_correct and not c.is_missing and not c.is_extra)
         missing = sum(1 for c in comparisons if c.is_missing)
@@ -1231,7 +1280,7 @@ Rules:
             
             # Calculate GT vs predicted instance counts
             gt_instances = len([i for i in instances if any(c.ground_truth_value is not None for c in i.field_comparisons)])
-            pred_instances = len([i for i in instances if any(c.predicted_value is not None for c in i.field_comparisons)])
+            pred_instances = len([i for i in instances if any(self._counts_as_predicted(c) for c in i.field_comparisons)])
             
             missing_instances = gt_instances - matched_instances
             extra_instances = pred_instances - matched_instances
@@ -1273,7 +1322,7 @@ Rules:
         field_metrics = {}
         for field_name, comps in field_groups.items():
             total_gt = sum(1 for c in comps if c.ground_truth_value is not None)
-            total_pred = sum(1 for c in comps if c.predicted_value is not None)
+            total_pred = sum(1 for c in comps if self._counts_as_predicted(c))
             correct = sum(1 for c in comps if c.is_correct)
             incorrect = sum(1 for c in comps if not c.is_correct and not c.is_missing and not c.is_extra)
             missing = sum(1 for c in comps if c.is_missing)

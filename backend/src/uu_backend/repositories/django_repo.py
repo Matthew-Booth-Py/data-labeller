@@ -137,22 +137,6 @@ class DjangoORMRepository:
             created_at=model.created_at,
         )
 
-
-    def _next_prompt_version_name(self, document_type_id: Optional[str]) -> str:
-        query = orm.PromptVersionModel.objects.all()
-        if document_type_id is None:
-            query = query.filter(document_type_id__isnull=True)
-        else:
-            query = query.filter(document_type_id=document_type_id)
-
-        minors = [
-            parsed
-            for parsed in (self._parse_incremental_version(name) for name in query.values_list("name", flat=True))
-            if parsed is not None
-        ]
-        next_minor = (max(minors) + 1) if minors else 0
-        return self._format_incremental_version(next_minor)
-
     def _next_field_prompt_version_name(self, document_type_id: str, field_name: str) -> str:
         query = orm.FieldPromptVersionModel.objects.filter(
             document_type_id=document_type_id,
@@ -195,7 +179,7 @@ class DjangoORMRepository:
             schema_fields=self._schema_fields_to_payload(data.schema_fields),
             system_prompt=data.system_prompt,
             post_processing=data.post_processing,
-            ocr_engine=data.ocr_engine or "azure-di-prebuilt",
+            ocr_engine=data.ocr_engine or "native-text",
             schema_version_id=schema_version_id,
             created_at=now,
             updated_at=now,
@@ -207,7 +191,7 @@ class DjangoORMRepository:
             schema_fields=self._schema_fields_to_payload(data.schema_fields),
             system_prompt=data.system_prompt,
             post_processing=data.post_processing,
-            ocr_engine=data.ocr_engine or "azure-di-prebuilt",
+            ocr_engine=data.ocr_engine or "native-text",
             created_at=now,
             created_by=None,
         )
@@ -390,169 +374,6 @@ class DjangoORMRepository:
         row.save(update_fields=["is_active"])
         return self._deployment_from_model(row)
 
-    def get_llm_provider_settings(self, provider: str) -> Optional[dict[str, Any]]:
-        row = orm.LLMProviderSettingsModel.objects.filter(provider=provider).first()
-        if not row:
-            return None
-        return {
-            "provider": row.provider,
-            "api_key_override": row.api_key_override,
-            "endpoint_override": getattr(row, "endpoint_override", None),
-            "last_test_status": row.last_test_status,
-            "last_tested_at": self._iso(row.last_tested_at),
-            "updated_at": self._iso(row.updated_at),
-        }
-
-    def upsert_llm_provider_api_key(self, provider: str, api_key_override: Optional[str]) -> dict[str, Any]:
-        now = timezone.now()
-        orm.LLMProviderSettingsModel.objects.update_or_create(
-            provider=provider,
-            defaults={
-                "api_key_override": api_key_override,
-                "updated_at": now,
-            },
-        )
-        return self.get_llm_provider_settings(provider) or {
-            "provider": provider,
-            "api_key_override": api_key_override,
-            "last_test_status": "unknown",
-            "last_tested_at": None,
-            "updated_at": self._iso(now),
-        }
-
-    def upsert_llm_provider_settings(
-        self, 
-        provider: str, 
-        api_key_override: Optional[str] = None,
-        endpoint_override: Optional[str] = None,
-    ) -> dict[str, Any]:
-        now = timezone.now()
-        defaults = {"updated_at": now}
-        if api_key_override is not None:
-            defaults["api_key_override"] = api_key_override
-        if endpoint_override is not None:
-            defaults["endpoint_override"] = endpoint_override
-            
-        orm.LLMProviderSettingsModel.objects.update_or_create(
-            provider=provider,
-            defaults=defaults,
-        )
-        return self.get_llm_provider_settings(provider) or {
-            "provider": provider,
-            "api_key_override": api_key_override,
-            "endpoint_override": endpoint_override,
-            "last_test_status": "unknown",
-            "last_tested_at": None,
-            "updated_at": self._iso(now),
-        }
-
-    def update_llm_provider_test_status(self, provider: str, status: str) -> dict[str, Any]:
-        now = timezone.now()
-        orm.LLMProviderSettingsModel.objects.update_or_create(
-            provider=provider,
-            defaults={
-                "last_test_status": status,
-                "last_tested_at": now,
-                "updated_at": now,
-            },
-        )
-        return self.get_llm_provider_settings(provider) or {
-            "provider": provider,
-            "api_key_override": None,
-            "last_test_status": status,
-            "last_tested_at": self._iso(now),
-            "updated_at": self._iso(now),
-        }
-
-    def list_llm_provider_models(self, provider: str, enabled_only: bool = False) -> list[dict[str, Any]]:
-        query = orm.LLMProviderModelModel.objects.filter(provider=provider)
-        if enabled_only:
-            query = query.filter(is_enabled=True)
-        rows = query.order_by("model_id")
-        return [
-            {
-                "provider": row.provider,
-                "model_id": row.model_id,
-                "display_name": row.display_name,
-                "is_enabled": bool(row.is_enabled),
-                "created_at": self._iso(row.created_at) or "",
-                "updated_at": self._iso(row.updated_at) or "",
-            }
-            for row in rows
-        ]
-
-    def upsert_llm_provider_model(
-        self,
-        provider: str,
-        model_id: str,
-        display_name: Optional[str] = None,
-        is_enabled: bool = True,
-    ) -> dict[str, Any]:
-        now = timezone.now()
-        row = orm.LLMProviderModelModel.objects.filter(provider=provider, model_id=model_id).first()
-        if row:
-            if display_name is not None:
-                row.display_name = display_name
-            row.is_enabled = is_enabled
-            row.updated_at = now
-            row.save(update_fields=["display_name", "is_enabled", "updated_at"])
-        else:
-            row = orm.LLMProviderModelModel.objects.create(
-                id=f"{provider}::{model_id}",
-                provider=provider,
-                model_id=model_id,
-                display_name=display_name,
-                is_enabled=is_enabled,
-                created_at=now,
-                updated_at=now,
-            )
-
-        return {
-            "provider": row.provider,
-            "model_id": row.model_id,
-            "display_name": row.display_name,
-            "is_enabled": bool(row.is_enabled),
-            "created_at": self._iso(row.created_at) or "",
-            "updated_at": self._iso(row.updated_at) or "",
-        }
-
-    def update_llm_provider_model(
-        self,
-        provider: str,
-        model_id: str,
-        display_name: Optional[str] = None,
-        is_enabled: Optional[bool] = None,
-    ) -> Optional[dict[str, Any]]:
-        row = orm.LLMProviderModelModel.objects.filter(provider=provider, model_id=model_id).first()
-        if not row:
-            return None
-
-        changed_fields: list[str] = []
-        if display_name is not None:
-            row.display_name = display_name
-            changed_fields.append("display_name")
-        if is_enabled is not None:
-            row.is_enabled = is_enabled
-            changed_fields.append("is_enabled")
-
-        if changed_fields:
-            row.updated_at = timezone.now()
-            changed_fields.append("updated_at")
-            row.save(update_fields=changed_fields)
-
-        return {
-            "provider": row.provider,
-            "model_id": row.model_id,
-            "display_name": row.display_name,
-            "is_enabled": bool(row.is_enabled),
-            "created_at": self._iso(row.created_at) or "",
-            "updated_at": self._iso(row.updated_at) or "",
-        }
-
-    def delete_llm_provider_model(self, provider: str, model_id: str) -> bool:
-        deleted, _ = orm.LLMProviderModelModel.objects.filter(provider=provider, model_id=model_id).delete()
-        return deleted > 0
-
     def create_global_field(self, data: GlobalFieldCreate) -> GlobalField:
         now = timezone.now()
         row = orm.GlobalFieldModel.objects.create(
@@ -561,7 +382,7 @@ class DjangoORMRepository:
             type=data.type.value,
             prompt=data.prompt,
             description=data.description,
-            ocr_engine=data.ocr_engine or "azure-di-prebuilt",
+            ocr_engine=data.ocr_engine or "native-text",
             created_by=data.created_by,
             created_at=now,
             updated_at=now,
@@ -734,85 +555,9 @@ class DjangoORMRepository:
         deleted, _ = orm.ExtractionModel.objects.filter(document_id=document_id).delete()
         return deleted > 0
 
-    @transaction.atomic
-    def create_prompt_version(self, prompt_version: PromptVersion) -> str:
-        version_name = self._next_prompt_version_name(prompt_version.document_type_id)
-
-        if prompt_version.is_active:
-            query = orm.PromptVersionModel.objects.exclude(id=prompt_version.id)
-            if prompt_version.document_type_id is None:
-                query = query.filter(document_type_id__isnull=True)
-            else:
-                query = query.filter(document_type_id=prompt_version.document_type_id)
-            query.update(is_active=False)
-
-        orm.PromptVersionModel.objects.create(
-            id=prompt_version.id,
-            name=version_name,
-            document_type_id=prompt_version.document_type_id,
-            system_prompt=prompt_version.system_prompt,
-            user_prompt_template=prompt_version.user_prompt_template,
-            description=prompt_version.description,
-            is_active=bool(prompt_version.is_active),
-            created_by=prompt_version.created_by,
-            created_at=prompt_version.created_at,
-        )
-        return prompt_version.id
-
     def get_prompt_version(self, version_id: str) -> Optional[PromptVersion]:
         row = orm.PromptVersionModel.objects.filter(id=version_id).first()
         return self._prompt_version_from_model(row) if row else None
-
-    def get_active_prompt_version(self, document_type_id: Optional[str] = None) -> Optional[PromptVersion]:
-        query = orm.PromptVersionModel.objects.filter(is_active=True)
-        if document_type_id is None:
-            query = query.filter(document_type_id__isnull=True)
-        else:
-            query = query.filter(document_type_id=document_type_id)
-        row = query.order_by("-created_at").first()
-        return self._prompt_version_from_model(row) if row else None
-
-    def list_prompt_versions(
-        self,
-        document_type_id: Optional[str] = None,
-        is_active: Optional[bool] = None,
-    ) -> list[PromptVersion]:
-        query = orm.PromptVersionModel.objects.all()
-        if document_type_id is not None:
-            query = query.filter(Q(document_type_id=document_type_id) | Q(document_type_id__isnull=True))
-        if is_active is not None:
-            query = query.filter(is_active=is_active)
-        rows = query.order_by("-created_at")
-        return [self._prompt_version_from_model(row) for row in rows]
-
-    @transaction.atomic
-    def update_prompt_version(self, version_id: str, updates: dict[str, Any]) -> bool:
-        row = orm.PromptVersionModel.objects.filter(id=version_id).first()
-        if not row:
-            return False
-
-        if updates.get("is_active"):
-            query = orm.PromptVersionModel.objects.exclude(id=version_id)
-            if row.document_type_id is None:
-                query = query.filter(document_type_id__isnull=True)
-            else:
-                query = query.filter(document_type_id=row.document_type_id)
-            query.update(is_active=False)
-
-        changed_fields: list[str] = []
-        for key, value in updates.items():
-            setattr(row, key, value)
-            changed_fields.append(key)
-
-        if not changed_fields:
-            return False
-
-        row.save(update_fields=changed_fields)
-        return True
-
-    def delete_prompt_version(self, version_id: str) -> bool:
-        deleted, _ = orm.PromptVersionModel.objects.filter(id=version_id).delete()
-        return deleted > 0
 
     @transaction.atomic
     def create_field_prompt_version(self, field_prompt_version: FieldPromptVersion) -> str:
@@ -1040,4 +785,3 @@ class DjangoORMRepository:
         
         model.save(update_fields=update_fields)
         return True
-

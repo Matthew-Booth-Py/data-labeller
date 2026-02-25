@@ -43,7 +43,8 @@ class FieldComparison(BaseModel):
     @property
     def is_missing(self) -> bool:
         """Whether the field is missing from predictions."""
-        return self.predicted_value is None
+        # A null prediction can still be correct for empty GT markers (e.g., "-").
+        return self.predicted_value is None and not self.match_result.is_match
     
     @property
     def is_extra(self) -> bool:

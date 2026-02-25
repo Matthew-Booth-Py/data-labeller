@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { api, type FieldType, type GlobalField } from "@/lib/api";
 
 const DEFAULT_MODEL = "gpt-5-mini";
-const DEFAULT_OCR = "azure-di-prebuilt";
+const DEFAULT_OCR = "native-text";
 
 export default function FieldsLibrary() {
   const { toast } = useToast();
@@ -389,7 +389,7 @@ export default function FieldsLibrary() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="azure-di-prebuilt">Azure DI Prebuilt</SelectItem>
+                      <SelectItem value="native-text">Native Text</SelectItem>
                       <SelectItem value="aws-textract">AWS Textract</SelectItem>
                     </SelectContent>
                   </Select>

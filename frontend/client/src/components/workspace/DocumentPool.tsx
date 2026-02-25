@@ -340,27 +340,6 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
     },
   });
 
-  // Reindex Azure DI mutation
-  const reindexAzureDIMutation = useMutation({
-    mutationFn: async (documentId: string) => {
-      return api.reindexDocumentAzureDI(documentId);
-    },
-    onSuccess: (data) => {
-      toast({
-        title: "Reindexing queued",
-        description: "Azure Document Intelligence analysis has been queued for this document.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Reindex failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
   // Reindex Retrieval mutation
   const reindexRetrievalMutation = useMutation({
     mutationFn: async (documentId: string) => {
@@ -1075,23 +1054,6 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                       >
                         <Network className="h-3 w-3" />
                       </Button>
-                      {/* Reindex Azure DI button for PDFs and images */}
-                      {['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp'].includes(doc.file_type.toLowerCase()) && (
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          className="h-8 gap-2"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            reindexAzureDIMutation.mutate(doc.id);
-                          }}
-                          disabled={reindexAzureDIMutation.isPending}
-                          title="Reindex with Azure Document Intelligence"
-                        >
-                          <RefreshCw className="h-3 w-3" />
-                          Reindex
-                        </Button>
-                      )}
                       {extractingDocs.has(doc.id) ? (
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                       ) : doc.document_type ? (

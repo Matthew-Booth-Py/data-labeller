@@ -1,9 +1,9 @@
 """Tests for the evaluation service and annotation suggestion service.
 
 This test suite covers:
-1. Hierarchy_path matching between different formats (string vs array)
+1. Strict schema enforcement between GT and predictions
 2. Proper flattening of extraction results (keeping leaf arrays atomic)
-3. Schema compatibility between predictions and ground truth
+3. Hierarchy_path comparison behavior
 
 The goal is to ensure predictions and ground truth use the EXACT SAME SCHEMA
 so evaluation compares apples to apples.
@@ -448,6 +448,42 @@ class TestComparisonSchemaBuilding:
         assert len(pred_values) == 1
         assert pred_values[0]["value"] == ["GAAP additions", "Proceeds from capital-related"]
 
+    def test_build_schema_rejects_legacy_prediction_hierarchy_fields(self, service):
+        """Schema mismatch should fail when GT uses hierarchy_path and predictions do not."""
+        from uu_backend.models.taxonomy import ExtractedField
+
+        extraction = MagicMock()
+        extraction.fields = [
+            ExtractedField(
+                field_name="forward_looking_estimates_table",
+                value=[
+                    {
+                        "category": "GAAP additions",
+                        "line_item": "Proceeds from capital-related",
+                        "period_1_value": "(1.0)",
+                    }
+                ],
+                confidence=0.95,
+                source_text=None,
+            )
+        ]
+
+        ground_truth = [
+            {
+                "field_name": "forward_looking_estimates_table.hierarchy_path",
+                "value": "Proceeds from capital-related",
+                "instance_num": 1,
+            },
+            {
+                "field_name": "forward_looking_estimates_table.period_1_value",
+                "value": "(1.0)",
+                "instance_num": 1,
+            },
+        ]
+
+        with pytest.raises(ValueError, match="Hierarchy schema mismatch"):
+            service._build_comparison_schema(ground_truth, extraction)
+
 
 class TestEndToEndScenario:
     """End-to-end test mimicking the actual failing scenario."""
@@ -567,7 +603,6 @@ class TestAnnotationSuggestionServiceFlattening:
     def service(self):
         """Create suggestion service with mocked dependencies."""
         with patch('uu_backend.services.annotation_suggestion_service.get_extraction_service'), \
-             patch('uu_backend.services.annotation_suggestion_service.get_azure_di_service'), \
              patch('uu_backend.services.annotation_suggestion_service.get_document_repository'):
             from uu_backend.services.annotation_suggestion_service import AnnotationSuggestionService
             return AnnotationSuggestionService()
@@ -881,3 +916,137 @@ class TestEmptyValueMatching:
         
         matches = result["table.value"]["matches"]
         assert len(matches) == 0, f"Expected 0 matches, got {len(matches)}"
+
+    def test_build_field_comparisons_treats_dash_and_missing_prediction_as_match(self):
+        """GT '-' with missing/null prediction should be marked correct."""
+        from uu_backend.services.evaluation_service import EvaluationService
+
+        with patch('uu_backend.services.evaluation_service.get_extraction_service'), \
+             patch('uu_backend.services.evaluation_service.get_document_repository'), \
+             patch('uu_backend.services.evaluation_service.get_openai_client'):
+            service = EvaluationService()
+
+        comparison_schema = {
+            "table.value": {
+                "ground_truth": [{"value": "-", "instance": 1}],
+                "predicted": [],
+            }
+        }
+        eval_results = {
+            "table.value": {
+                "matches": [],
+                "missing_gt_indices": [0],
+                "extra_pred_indices": [],
+            }
+        }
+
+        comparisons = service._build_field_comparisons(comparison_schema, eval_results)
+        assert len(comparisons) == 1
+        comparison = comparisons[0]
+        assert comparison.is_correct is True
+        assert comparison.match_result.match_type.value == "exact"
+        assert comparison.predicted_value is None
+        assert comparison.is_missing is False
+
+    def test_matched_null_counts_in_precision_denominator(self):
+        """Correct null matches should not allow precision > 1.0."""
+        from uu_backend.services.evaluation_service import EvaluationService
+        from uu_backend.models.evaluation import FieldComparison, MatchResult, MatchType
+
+        with patch('uu_backend.services.evaluation_service.get_extraction_service'), \
+             patch('uu_backend.services.evaluation_service.get_document_repository'), \
+             patch('uu_backend.services.evaluation_service.get_openai_client'):
+            service = EvaluationService()
+
+        comparisons = [
+            FieldComparison(
+                field_name="table.value",
+                ground_truth_value="-",
+                predicted_value=None,
+                match_result=MatchResult(
+                    is_match=True,
+                    match_type=MatchType.EXACT,
+                    confidence=1.0,
+                    reason="Ground truth empty value matches null prediction",
+                ),
+                instance_num=1,
+            ),
+            FieldComparison(
+                field_name="table.value",
+                ground_truth_value="$10.0",
+                predicted_value="$10.0",
+                match_result=MatchResult(
+                    is_match=True,
+                    match_type=MatchType.EXACT,
+                    confidence=1.0,
+                    reason="Exact match",
+                ),
+                instance_num=2,
+            ),
+        ]
+
+        flattened = service._calculate_flattened_metrics(comparisons)
+        assert flattened.precision == 1.0
+        assert flattened.correct_fields == 2
+
+
+class TestUnmatchedReconciliation:
+    """Tests for reconciling missing+extra duplicates in row-based comparisons."""
+
+    @pytest.fixture
+    def service(self):
+        with patch('uu_backend.services.evaluation_service.get_extraction_service'), \
+             patch('uu_backend.services.evaluation_service.get_document_repository'), \
+             patch('uu_backend.services.evaluation_service.get_openai_client'):
+            return EvaluationService()
+
+    def test_same_instance_missing_and_extra_become_single_incorrect_pair(self, service):
+        """A same-instance mismatch should be one incorrect row, not two duplicate rows."""
+        comparison_schema = {
+            "table.hierarchy_path": {
+                "ground_truth": [{"value": "Non-GAAP capital spending", "instance": 4}],
+                "predicted": [{"value": ["GAAP additions", "Partner contributions, net"], "instance": 4}],
+            }
+        }
+        eval_results = {
+            "table.hierarchy_path": {
+                "matches": [],
+                "missing_gt_indices": [0],
+                "extra_pred_indices": [0],
+            }
+        }
+
+        comparisons = service._build_field_comparisons(comparison_schema, eval_results)
+
+        assert len(comparisons) == 1
+        c = comparisons[0]
+        assert c.instance_num == 4
+        assert c.ground_truth_value == "Non-GAAP capital spending"
+        assert c.predicted_value == ["GAAP additions", "Partner contributions, net"]
+        assert c.is_correct is False
+        assert c.is_missing is False
+        assert c.is_extra is False
+
+    def test_hierarchy_leaf_match_recovers_from_missing_plus_extra(self, service):
+        """Leaf hierarchy matches should be recovered even if LLM omitted the match."""
+        comparison_schema = {
+            "table.hierarchy_path": {
+                "ground_truth": [{"value": "Non-GAAP R&D and MG&A", "instance": 8}],
+                "predicted": [{"value": ["GAAP R&D and MG&A", "Non-GAAP R&D and MG&A"], "instance": 8}],
+            }
+        }
+        eval_results = {
+            "table.hierarchy_path": {
+                "matches": [],
+                "missing_gt_indices": [0],
+                "extra_pred_indices": [0],
+            }
+        }
+
+        comparisons = service._build_field_comparisons(comparison_schema, eval_results)
+
+        assert len(comparisons) == 1
+        c = comparisons[0]
+        assert c.instance_num == 8
+        assert c.is_correct is True
+        assert c.match_result.match_type.value == "exact"

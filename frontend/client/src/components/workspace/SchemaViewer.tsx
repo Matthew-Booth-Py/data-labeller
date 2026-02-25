@@ -430,7 +430,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   const [editedProperties, setEditedProperties] = useState<NestedProperty[]>([]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [postProcessing, setPostProcessing] = useState("");
-  const [ocrEngine, setOcrEngine] = useState("azure-di-prebuilt");
+  const [ocrEngine, setOcrEngine] = useState("native-text");
   
   // State for adding field
   const [isAddingField, setIsAddingField] = useState(false);
@@ -527,7 +527,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       if (currentType && currentType.schema_version_id !== lastSyncedSchemaVersionId) {
         setSystemPrompt(currentType.system_prompt || "");
         setPostProcessing(currentType.post_processing || "");
-        setOcrEngine(currentType.ocr_engine || "azure-di-prebuilt");
+        setOcrEngine(currentType.ocr_engine || "native-text");
         setLastSyncedSchemaVersionId(currentType.schema_version_id || null);
       }
       return;
@@ -549,7 +549,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     const nextType = availableTypes.find((type) => type.id === nextTypeId);
     setSystemPrompt(nextType?.system_prompt || "");
     setPostProcessing(nextType?.post_processing || "");
-    setOcrEngine(nextType?.ocr_engine || "azure-di-prebuilt");
+    setOcrEngine(nextType?.ocr_engine || "native-text");
     setLastSyncedSchemaVersionId(nextType?.schema_version_id || null);
   }, [typesData, selectedTypeId, selectedTypeStorageKey, lastSyncedSchemaVersionId]);
   
@@ -560,7 +560,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     if (type) {
       setSystemPrompt(type.system_prompt || "");
       setPostProcessing(type.post_processing || "");
-      setOcrEngine(type.ocr_engine || "azure-di-prebuilt");
+      setOcrEngine(type.ocr_engine || "native-text");
       setLastSyncedSchemaVersionId(type.schema_version_id || null);
     }
   };
@@ -574,7 +574,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       setSelectedType(result.type.id);
       setSystemPrompt(result.type.system_prompt || "");
       setPostProcessing(result.type.post_processing || "");
-      setOcrEngine(result.type.ocr_engine || "azure-di-prebuilt");
+      setOcrEngine(result.type.ocr_engine || "native-text");
       setLastSyncedSchemaVersionId(result.type.schema_version_id || null);
       setIsCreating(false);
       setNewTypeName("");
@@ -597,7 +597,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       if (result.type && result.type.id === selectedTypeId) {
         setSystemPrompt(result.type.system_prompt || "");
         setPostProcessing(result.type.post_processing || "");
-        setOcrEngine(result.type.ocr_engine || "azure-di-prebuilt");
+        setOcrEngine(result.type.ocr_engine || "native-text");
         setLastSyncedSchemaVersionId(result.type.schema_version_id || null);
       }
       toast({ title: "Schema saved" });
@@ -1133,7 +1133,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="azure-di-prebuilt">Azure DI Prebuilt</SelectItem>
+                      <SelectItem value="native-text">Native Text</SelectItem>
                       <SelectItem value="aws-textract">AWS Textract</SelectItem>
                     </SelectContent>
                   </Select>

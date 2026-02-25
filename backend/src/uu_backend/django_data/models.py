@@ -13,11 +13,7 @@ class DocumentModel(models.Model):
     created_at = models.DateTimeField(db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     file_path = models.CharField(max_length=512, blank=True, null=True)
-    
-    # Azure DI analysis cache
-    azure_di_analysis = models.JSONField(blank=True, null=True)  # Cached Azure DI analysis results
-    azure_di_status = models.CharField(max_length=20, default="pending")  # pending, processing, completed, failed
-    
+
     # Contextual retrieval indexing status
     retrieval_index_status = models.CharField(max_length=20, default="pending")  # pending, processing, completed, failed
     retrieval_chunks_count = models.IntegerField(blank=True, null=True)

@@ -26,8 +26,6 @@ class DocumentRepository:
                 "date_extracted": document.date_extracted,
                 "created_at": document.created_at or datetime.utcnow(),
                 "file_path": document.file_path,
-                "azure_di_analysis": document.azure_di_analysis if hasattr(document, 'azure_di_analysis') else None,
-                "azure_di_status": document.azure_di_status if hasattr(document, 'azure_di_status') else "pending",
                 "page_count": (
                     document.metadata.page_count if document.metadata else None
                 ),
@@ -144,8 +142,6 @@ class DocumentRepository:
             created_at=doc.created_at,
             metadata=metadata,
             file_path=doc.file_path,
-            azure_di_analysis=doc.azure_di_analysis,
-            azure_di_status=doc.azure_di_status,
             retrieval_index_status=doc.retrieval_index_status,
             retrieval_chunks_count=doc.retrieval_chunks_count,
             retrieval_index_progress=doc.retrieval_index_progress,

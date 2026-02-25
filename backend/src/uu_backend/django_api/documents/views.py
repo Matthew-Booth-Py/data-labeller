@@ -8,9 +8,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
-from uu_backend.repositories.document_repository import get_document_repository
-from uu_backend.ingestion.converter import get_converter
 from uu_backend.models.document import DocumentListResponse, DocumentResponse
+from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.repositories import get_repository
 
 logger = logging.getLogger(__name__)
@@ -171,119 +170,6 @@ class DocumentFileView(APIView):
         )
         response["Content-Disposition"] = content_disposition
         return response
-
-
-class DocumentReprocessView(APIView):
-    authentication_classes: list = []
-    permission_classes: list = []
-
-    def post(self, request, document_id: str):
-        document_repo = get_document_repository()
-        document = document_repo.get_document(document_id)
-
-        if not document:
-            return Response({"detail": "Document not found"}, status=404)
-
-        file_path = get_original_file_path(document_id, document.file_type)
-        if not file_path:
-            return Response({"detail": "Original file not found"}, status=404)
-
-        try:
-            converter = get_converter()
-            with open(file_path, "rb") as file_obj:
-                result = converter.convert(file_obj, document.filename)
-
-            if not result.success:
-                return Response({"detail": f"Conversion failed: {result.error}"}, status=500)
-
-            document_repo.update_document_content(document_id, result.content)
-            return Response(
-                {
-                    "status": "reprocessed",
-                    "document_id": document_id,
-                    "content_length": len(result.content),
-                    "message": "Document reprocessed successfully. Note: Existing annotations may have invalid offsets.",
-                }
-            )
-        except Exception as exc:
-            return Response({"detail": f"Reprocessing failed: {exc}"}, status=500)
-
-
-class DocumentAzureDIStatusView(APIView):
-    """Get Azure DI analysis status for a document."""
-
-    def get(self, request, document_id: str):
-        """Get Azure DI status and analysis info."""
-        document_repo = get_document_repository()
-        document = document_repo.get_document(document_id)
-
-        if not document:
-            return Response({"detail": "Document not found"}, status=404)
-
-        response_data = {
-            "document_id": document_id,
-            "azure_di_status": document.azure_di_status,
-            "has_analysis": document.azure_di_analysis is not None,
-        }
-
-        if document.azure_di_analysis:
-            response_data["page_count"] = len(document.azure_di_analysis.get("pages", []))
-            response_data["content_length"] = len(document.azure_di_analysis.get("content", ""))
-
-        return Response(response_data)
-
-
-class DocumentReindexAzureDIView(APIView):
-    """Trigger Azure DI reindexing for a document."""
-
-    def post(self, request, document_id: str):
-        """Queue Azure DI analysis for a document."""
-        from uu_backend.tasks.azure_di_tasks import analyze_document_with_azure_di
-        
-        document_repo = get_document_repository()
-        document = document_repo.get_document(document_id)
-
-        if not document:
-            return Response({"detail": "Document not found"}, status=404)
-
-        # Check if file type is supported
-        file_ext = f".{document.file_type}"
-        if file_ext.lower() not in ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp']:
-            return Response(
-                {"detail": f"File type {document.file_type} not supported for Azure DI"},
-                status=400
-            )
-
-        # Get file path
-        settings = get_settings()
-        file_path = settings.file_storage_path / f"{document_id}{file_ext}"
-        
-        if not file_path.exists():
-            return Response({"detail": "Document file not found"}, status=404)
-
-        # Reset status and clear old analysis
-        from uu_backend.django_data.models import DocumentModel
-        doc_model = DocumentModel.objects.get(id=document_id)
-        doc_model.azure_di_status = "pending"
-        doc_model.azure_di_analysis = None
-        doc_model.save()
-
-        # Queue analysis
-        try:
-            analyze_document_with_azure_di.delay(document_id, str(file_path))
-            logger.info(f"Queued Azure DI reindexing for document {document_id}")
-            
-            return Response({
-                "status": "queued",
-                "document_id": document_id,
-                "message": "Azure DI analysis queued successfully"
-            })
-        except Exception as e:
-            logger.error(f"Failed to queue Azure DI analysis: {e}")
-            return Response(
-                {"detail": f"Failed to queue analysis: {str(e)}"},
-                status=500
-            )
 
 
 class DocumentReindexRetrievalView(APIView):

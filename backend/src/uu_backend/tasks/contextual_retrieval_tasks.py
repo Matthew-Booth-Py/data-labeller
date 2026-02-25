@@ -17,11 +17,10 @@ def index_document_for_retrieval(self, document_id: str):
     
     This task:
     1. Loads the document content from the database
-    2. Uses Azure DI content if available (better quality)
-    3. Chunks the document
-    4. Generates context for each chunk using LLM
-    5. Generates embeddings
-    6. Stores in vector DB and BM25 index
+    2. Chunks the document
+    3. Generates context for each chunk using LLM
+    4. Generates embeddings
+    5. Stores in vector DB and BM25 index
     
     Args:
         document_id: Document ID to index
@@ -72,13 +71,6 @@ def index_document_for_retrieval(self, document_id: str):
                         logger.info(f"Extracted {len(content)} chars from {len(pages_text)} pages using pdfplumber")
                 except Exception as e:
                     logger.warning(f"Failed to extract with pdfplumber: {e}")
-        
-        # Fall back to Azure DI content if available
-        if not content or not content.strip():
-            if doc_model.azure_di_analysis and doc_model.azure_di_status == "completed":
-                content = doc_model.azure_di_analysis.get("content", "")
-                if content:
-                    logger.info(f"Using Azure DI content for {document_id} ({len(content)} chars)")
         
         # Fall back to standard document content
         if not content or not content.strip():
@@ -171,81 +163,3 @@ def index_document_for_retrieval(self, document_id: str):
         
         raise self.retry(exc=e, countdown=60)
 
-
-@shared_task(bind=True, max_retries=2)
-def delete_document_from_retrieval_index(self, document_id: str):
-    """
-    Delete a document from the contextual retrieval index.
-    
-    Args:
-        document_id: Document ID to delete
-    """
-    from uu_backend.django_data.models import DocumentModel
-    
-    try:
-        logger.info(f"Deleting document {document_id} from retrieval index")
-        
-        service = get_contextual_retrieval_service()
-        result = service.delete_document(document_id)
-        
-        # Reset retrieval status
-        try:
-            doc_model = DocumentModel.objects.get(id=document_id)
-            doc_model.retrieval_index_status = "pending"
-            doc_model.retrieval_chunks_count = None
-            doc_model.save()
-        except DocumentModel.DoesNotExist:
-            pass
-        
-        logger.info(f"Deleted document {document_id}: {result}")
-        
-        return {
-            "status": "completed",
-            "document_id": document_id,
-            **result,
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to delete document {document_id} from index: {e}")
-        raise self.retry(exc=e, countdown=30)
-
-
-@shared_task
-def reindex_all_documents():
-    """
-    Reindex all documents for contextual retrieval.
-    
-    This clears the existing index and reindexes all documents.
-    Use with caution - this can be expensive for large document sets.
-    """
-    logger.info("Starting full reindex of all documents")
-    
-    service = get_contextual_retrieval_service()
-    service.vector_store.clear()
-    service.bm25_index.clear()
-    
-    doc_repo = get_document_repository()
-    documents = doc_repo.get_all_documents()
-    
-    total = len(documents)
-    indexed = 0
-    failed = 0
-    
-    for i, document in enumerate(documents):
-        logger.info(f"Reindexing document {i+1}/{total}: {document.id}")
-        
-        try:
-            index_document_for_retrieval.delay(document.id)
-            indexed += 1
-        except Exception as e:
-            logger.error(f"Failed to queue document {document.id}: {e}")
-            failed += 1
-    
-    logger.info(f"Reindex queued: {indexed} documents, {failed} failed")
-    
-    return {
-        "status": "completed",
-        "total": total,
-        "queued": indexed,
-        "failed": failed,
-    }

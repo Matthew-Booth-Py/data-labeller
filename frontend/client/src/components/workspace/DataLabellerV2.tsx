@@ -29,7 +29,10 @@ const ENTITY_COLORS = [
   '#ff7b72', // coral
 ];
 
-export function DataLabellerV2() {
+interface DataLabellerV2Props {
+}
+
+export function DataLabellerV2({}: DataLabellerV2Props) {
   const queryClient = useQueryClient();
   const projectId = localStorage.getItem("selected-project") || "all";
   
@@ -277,6 +280,40 @@ export function DataLabellerV2() {
   const handleAnnotationDelete = useCallback((annotationId: string) => {
     deleteAnnotationMutation.mutate(annotationId);
   }, [deleteAnnotationMutation]);
+
+  // Focus an annotation in the active document view (text/PDF/image)
+  const focusAnnotationInDocument = useCallback((annotation: GroundTruthAnnotation) => {
+    const annotationType = annotation.annotation_type;
+    if (annotationType === 'bbox') {
+      const bbox = annotation.annotation_data as BoundingBoxData;
+      if (
+        selectedDocument?.file_type?.toLowerCase() === 'pdf' &&
+        typeof bbox?.page === 'number'
+      ) {
+        const pageEl = document.querySelector(
+          `.react-pdf__Page[data-page-number="${bbox.page}"]`
+        ) as HTMLElement | null;
+        if (pageEl) {
+          pageEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    }
+
+    const target = document.querySelector(
+      `[data-annotation-id="${annotation.id}"]`
+    ) as HTMLElement | null;
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.style.outline = '2px solid #58a6ff';
+      setTimeout(() => {
+        target.style.outline = '';
+      }, 1200);
+      return;
+    }
+
+    // Text annotator keeps a stable helper for text-span cases.
+    TextSpanAnnotator.scrollToAnnotation(annotation.id);
+  }, [selectedDocument]);
 
   // Clear suggestions when document changes
   useEffect(() => {
@@ -782,7 +819,7 @@ export function DataLabellerV2() {
                     <div
                       key={ann.id}
                       className="dl-annotation-item"
-                      onClick={() => TextSpanAnnotator.scrollToAnnotation(ann.id)}
+                      onClick={() => focusAnnotationInDocument(ann)}
                     >
                       {instanceNum && (
                         <span

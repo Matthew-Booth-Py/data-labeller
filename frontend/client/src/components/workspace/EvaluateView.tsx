@@ -152,14 +152,19 @@ export function EvaluateView() {
 
     const evaluation = selectedEvaluationData.run;
     const headers = ["Field Name", "Ground Truth", "Predicted", "Match", "Match Type", "Confidence"];
-    const rows = evaluation.result.field_comparisons.map(fc => [
-      fc.field_name,
-      String(fc.ground_truth_value || ""),
-      String(fc.predicted_value || ""),
-      fc.match_result.is_match ? "✓" : "✗",
-      fc.match_result.match_type,
-      fc.match_result.confidence.toFixed(2),
-    ]);
+    const rows = evaluation.result.field_comparisons
+      .filter((fc) => {
+        const leaf = fc.field_name.split('.').pop() || fc.field_name;
+        return !leaf.includes('_header');
+      })
+      .map(fc => [
+        fc.field_name,
+        String(fc.ground_truth_value || ""),
+        String(fc.predicted_value || ""),
+        fc.match_result.is_match ? "✓" : "✗",
+        fc.match_result.match_type,
+        fc.match_result.confidence.toFixed(2),
+      ]);
 
     const csv = [
       headers.join(","),
@@ -208,6 +213,10 @@ export function EvaluateView() {
 
   const evaluation = selectedEvaluationData?.run;
   const summary = summaryData;
+  const flattenedComparisons = (evaluation?.result.field_comparisons || []).filter((fc) => {
+    const leaf = fc.field_name.split('.').pop() || fc.field_name;
+    return !leaf.includes('_header');
+  });
 
   return (
     <div className="space-y-6">
@@ -408,7 +417,7 @@ export function EvaluateView() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {evaluation.result.field_comparisons.map((fc, idx) => (
+                    {flattenedComparisons.map((fc, idx) => (
                       <TableRow key={idx}>
                         <TableCell className="font-mono text-sm">{fc.field_name}</TableCell>
                         <TableCell className="max-w-[200px] truncate">
@@ -470,6 +479,7 @@ export function EvaluateView() {
                           <TableHeader>
                             <TableRow>
                               <TableHead className="w-12">Row</TableHead>
+                              <TableHead className="w-32">Source</TableHead>
                               {allFields.map(field => (
                                 <TableHead key={field} className="text-xs">
                                   {field}
@@ -494,10 +504,14 @@ export function EvaluateView() {
                               return (
                                 <>
                                   {/* Ground Truth Row */}
-                                  <TableRow key={`${inst.instance_num}-gt`} className="bg-blue-50/50">
+                                  <TableRow key={`${inst.instance_num}-gt`} className="bg-slate-50/70">
                                     <TableCell className="font-semibold text-xs" rowSpan={2}>
                                       {inst.instance_num}
-                                      <div className="text-xs text-muted-foreground font-normal">GT</div>
+                                    </TableCell>
+                                    <TableCell className="text-xs">
+                                      <Badge variant="secondary" className="bg-slate-200 text-slate-800">
+                                        Ground Truth
+                                      </Badge>
                                     </TableCell>
                                     {allFields.map(field => (
                                       <TableCell 
@@ -512,7 +526,12 @@ export function EvaluateView() {
                                     ))}
                                   </TableRow>
                                   {/* Predicted Row */}
-                                  <TableRow key={`${inst.instance_num}-pred`} className="bg-green-50/50 border-b-2">
+                                  <TableRow key={`${inst.instance_num}-pred`} className="bg-emerald-50/70 border-b-2">
+                                    <TableCell className="text-xs">
+                                      <Badge variant="secondary" className="bg-emerald-200 text-emerald-800">
+                                        Prediction
+                                      </Badge>
+                                    </TableCell>
                                     {allFields.map(field => {
                                       const isMatch = matchStatus[field];
                                       const hasPred = predValues[field] !== null && predValues[field] !== undefined && predValues[field] !== "";
