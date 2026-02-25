@@ -178,19 +178,19 @@ class DocumentRepository:
         """
         try:
             doc = DocumentModel.objects.get(id=document_id)
-            doc.ocr_status = ocr_status
+            doc.ocr_status = ocr_status  # type: ignore
 
             update_fields = ["ocr_status"]
 
             if ocr_file_path is not None:
-                doc.ocr_file_path = ocr_file_path
+                doc.ocr_file_path = ocr_file_path  # type: ignore
                 update_fields.append("ocr_file_path")
 
             if has_text_layer is not None:
-                doc.has_text_layer = has_text_layer
+                doc.has_text_layer = has_text_layer  # type: ignore
                 update_fields.append("has_text_layer")
 
-            doc.save(update_fields=update_fields)
+            doc.save(update_fields=update_fields)  # type: ignore
             return True
         except DocumentModel.DoesNotExist:
             return False

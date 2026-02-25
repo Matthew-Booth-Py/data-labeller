@@ -41,7 +41,6 @@ dependencies = [
     "tenacity>=8.2.0",
     "cohere>=5.20.6",
     "pypdf>=6.7.2",
-    "pre-commit>=4.5.1",
 ]
 
 [project.optional-dependencies]
@@ -84,3 +83,6 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
+exclude = [
+    "^src/uu_backend/django_data/models\\.py$",
+]

@@ -53,7 +53,7 @@ def run_evaluation_task(
 
         # Save to database
         evaluation_id = str(uuid4())
-        evaluation_run = EvaluationRunModel.objects.create(
+        EvaluationRunModel.objects.create(
             id=evaluation_id,
             document_id=document_id,
             project_id=project_id,

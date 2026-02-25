@@ -65,7 +65,7 @@ class ChromaVectorStore:
             )
 
         # Group chunks by document
-        doc_chunks = {}
+        doc_chunks: dict[str, list[tuple[Any, list[float]]]] = {}
         for i, chunk in enumerate(chunks):
             if chunk.doc_id not in doc_chunks:
                 doc_chunks[chunk.doc_id] = []
@@ -150,7 +150,7 @@ class ChromaVectorStore:
 
     def _format_results(self, results: dict[str, Any]) -> list[SearchResult]:
         """Convert ChromaDB results to SearchResult objects."""
-        search_results = []
+        search_results: list[SearchResult] = []
 
         if not results["ids"] or not results["ids"][0]:
             return search_results

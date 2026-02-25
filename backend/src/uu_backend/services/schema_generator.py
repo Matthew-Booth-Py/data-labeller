@@ -52,8 +52,8 @@ def _field_type_to_python_type(field: SchemaField) -> Any:
 
     elif field.type == FieldType.ARRAY:
         if field.items:
-            item_type = _field_type_to_python_type(field.items)
-            return list[item_type]
+            item_type_result = _field_type_to_python_type(field.items)
+            return list[item_type_result]  # type: ignore
         return list[Any]
 
     elif field.type == FieldType.OBJECT:

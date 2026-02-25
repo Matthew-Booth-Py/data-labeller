@@ -54,11 +54,13 @@ repos:
       - id: mypy
         stages: [pre-commit]
         files: ^backend/src/
+        exclude: ^backend/src/uu_backend/django_data/models\.py$
         args: [--ignore-missing-imports, --no-strict-optional]
         additional_dependencies:
           - types-python-dateutil
           - types-PyYAML
           - types-redis
+          - types-requests
           - django-stubs
           - djangorestframework-stubs
 

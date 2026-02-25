@@ -60,7 +60,8 @@ class EvaluationService:
             if doc_type:
                 logger.warning(f"[EVAL DEBUG] Document type: {doc_type.name}")
                 logger.warning(
-                    f"[EVAL DEBUG] Schema fields: {[f.name for f in (doc_type.schema_fields or [])]}"
+                    f"[EVAL DEBUG] Schema fields: "
+                    f"{[f.name for f in (doc_type.schema_fields or [])]}"
                 )
 
         extraction_start = time.time()
@@ -105,7 +106,8 @@ class EvaluationService:
 
         evaluation_time_ms = (time.time() - start_time) * 1000
         logger.info(
-            f"[EVAL] Evaluation completed in {evaluation_time_ms:.2f}ms, accuracy={metrics.flattened.accuracy:.2%}"
+            f"[EVAL] Evaluation completed in {evaluation_time_ms:.2f}ms, "
+            f"accuracy={metrics.flattened.accuracy:.2%}"
         )
 
         return EvaluationResult(
@@ -117,19 +119,18 @@ class EvaluationService:
             evaluation_time_ms=evaluation_time_ms,
         )
 
-    async def _get_ground_truth(self, document_id: str) -> list[dict]:
+    async def _get_ground_truth(self, document_id: str) -> list[dict[str, Any]]:
         """Get ground truth annotations."""
         from uu_backend.django_data.models import GroundTruthAnnotationModel
 
-        annotations = await sync_to_async(list)(
-            GroundTruthAnnotationModel.objects.filter(document_id=document_id)
-        )
+        queryset = GroundTruthAnnotationModel.objects.filter(document_id=document_id)
+        annotations: list[Any] = await sync_to_async(list)(queryset)  # type: ignore
 
         return [
             {
-                "field_name": ann.field_name,
-                "value": ann.value,
-                "instance_num": ann.annotation_data.get("instance_num")
+                "field_name": ann.field_name,  # type: ignore
+                "value": ann.value,  # type: ignore
+                "instance_num": ann.annotation_data.get("instance_num")  # type: ignore
                 if ann.annotation_data
                 else None,
             }
@@ -141,8 +142,8 @@ class EvaluationService:
         return await sync_to_async(self.extraction_service.extract_auto)(document_id)
 
     def _build_comparison_schema(
-        self, ground_truth: list[dict], extraction: Any
-    ) -> dict[str, dict]:
+        self, ground_truth: list[dict[str, Any]], extraction: Any
+    ) -> dict[str, dict[str, Any]]:
         """
         Build comparison schema grouping GT and predictions by field.
 
@@ -157,7 +158,9 @@ class EvaluationService:
                 }
             }
         """
-        schema = defaultdict(lambda: {"ground_truth": [], "predicted": []})
+        schema: dict[str, dict[str, Any]] = defaultdict(
+            lambda: {"ground_truth": [], "predicted": []}
+        )
 
         # First pass: add predicted values to understand structure
         for extracted_field in extraction.fields:
@@ -302,8 +305,8 @@ class EvaluationService:
         used_instances = set()
 
         for gt_group in gt_groups:
-            best_match_instance = None
-            best_match_score = 0
+            best_match_instance: int | None = None
+            best_match_score = 0.0
 
             # Find best matching predicted row
             for pred_row in predicted_rows:
@@ -379,7 +382,7 @@ class EvaluationService:
 
         return True
 
-    def _is_hierarchy_field(self, field_name: str, field_value: any = None) -> bool:
+    def _is_hierarchy_field(self, field_name: str, field_value: Any = None) -> bool:
         """
         Check if a field represents hierarchy (structural/categorical) vs data (measurements).
 
@@ -584,7 +587,8 @@ class EvaluationService:
         Returns:
             {
                 "field_name": {
-                    "matches": [{"gt_idx": 0, "pred_idx": 0, "is_match": true, "confidence": 1.0, "reason": "..."}],
+                    "matches": [{"gt_idx": 0, "pred_idx": 0, "is_match": true,
+                                 "confidence": 1.0, "reason": "..."}],
                     "missing": [0, 1],  # GT indices with no match
                     "extra": [2]  # Pred indices with no match
                 }
@@ -624,52 +628,59 @@ class EvaluationService:
                     "predicted": [item["value"] for item in data["predicted"]],
                 }
 
-        prompt = f"""You are evaluating document extraction accuracy. Compare ground truth values against predicted values.
-
-For each field, determine which predictions match which ground truth values.
-Consider values as matching if they are semantically equivalent, even with different formatting:
-- "$1,000,000" matches "1000000"
-- "01/01/2026" matches "2026-01-01"
-- "COMMERCIAL GENERAL LIABILITY" matches "Commercial General Liability"
-- Minor OCR errors or whitespace differences should still match
-
-SPECIAL RULES for hierarchy_path fields (these contain hierarchical paths like breadcrumbs):
-- String "A" matches array ["A"] ONLY (exact single-level path)
-- String "B" matches array ["A", "B"] if "B" is the LAST element (leaf node)
-- String "A" does NOT match array ["A", "B"] (different hierarchy depths)
-- Array ["A", "B"] matches array ["A", "B"] exactly (full path match)
-
-When GT is a string and prediction is an array for hierarchy_path:
-- Match if GT exactly equals the single element: GT="A" matches Pred=["A"]
-- OR match if GT equals the LAST element (leaf): GT="B" matches Pred=["A", "B"]
-- Example: GT="Partner contributions" matches Pred=["GAAP additions", "Partner contributions"] ✓
-- Example: GT="GAAP additions" does NOT match Pred=["GAAP additions", "Partner contributions"] ✗
-
-Here are the fields to evaluate:
-
-{json.dumps(simplified, indent=2)}
-
-Respond with a JSON object in this exact format:
-{{
-    "evaluations": {{
-        "field_name": {{
-            "matches": [
-                {{"gt_idx": 0, "pred_idx": 0, "is_match": true, "confidence": 0.95, "reason": "Exact match"}},
-                {{"gt_idx": 1, "pred_idx": 1, "is_match": true, "confidence": 0.85, "reason": "Same value with different formatting"}}
-            ],
-            "missing_gt_indices": [],
-            "extra_pred_indices": []
-        }}
-    }}
-}}
-
-Rules:
-- gt_idx and pred_idx are 0-based indices into the ground_truth and predicted arrays
-- Each GT value should match at most one prediction (and vice versa)
-- missing_gt_indices: GT values with no matching prediction
-- extra_pred_indices: Predictions with no matching GT
-- confidence: 0.0-1.0 based on how well they match
-- For array fields with multiple instances, match by position/instance when possible"""
+        prompt = (
+            f"You are evaluating document extraction accuracy. Compare ground truth values "
+            f"against predicted values.\n\n"
+            f"For each field, determine which predictions match which ground truth values.\n"
+            f"Consider values as matching if they are semantically equivalent, even with "
+            f"different formatting:\n"
+            f'- "$1,000,000" matches "1000000"\n'
+            f'- "01/01/2026" matches "2026-01-01"\n'
+            f'- "COMMERCIAL GENERAL LIABILITY" matches "Commercial General Liability"\n'
+            f"- Minor OCR errors or whitespace differences should still match\n\n"
+            f"SPECIAL RULES for hierarchy_path fields (these contain hierarchical paths "
+            f"like breadcrumbs):\n"
+            f'- String "A" matches array ["A"] ONLY (exact single-level path)\n'
+            f'- String "B" matches array ["A", "B"] if "B" is the LAST element (leaf node)\n'
+            f'- String "A" does NOT match array ["A", "B"] (different hierarchy depths)\n'
+            f'- Array ["A", "B"] matches array ["A", "B"] exactly (full path match)\n\n'
+            f"When GT is a string and prediction is an array for hierarchy_path:\n"
+            f'- Match if GT exactly equals the single element: GT="A" matches Pred=["A"]\n'
+            f'- OR match if GT equals the LAST element (leaf): GT="B" matches '
+            f'Pred=["A", "B"]\n'
+            f'- Example: GT="Partner contributions" matches '
+            f'Pred=["GAAP additions", "Partner contributions"] ✓\n'
+            f'- Example: GT="GAAP additions" does NOT match '
+            f'Pred=["GAAP additions", "Partner contributions"] ✗\n\n'
+            f"Here are the fields to evaluate:\n\n"
+            f"{json.dumps(simplified, indent=2)}\n\n"
+            f"Respond with a JSON object in this exact format:\n"
+            f"{{\n"
+            f'    "evaluations": {{\n'
+            f'        "field_name": {{\n'
+            f'            "matches": [\n'
+            f'                {{"gt_idx": 0, "pred_idx": 0, "is_match": true, '
+            f'"confidence": 0.95,\n'
+            f'                  "reason": "Exact match"}},\n'
+            f'                {{"gt_idx": 1, "pred_idx": 1, "is_match": true, '
+            f'"confidence": 0.85,\n'
+            f'                  "reason": "Same value with different formatting"}}\n'
+            f"            ],\n"
+            f'            "missing_gt_indices": [],\n'
+            f'            "extra_pred_indices": []\n'
+            f"        }}\n"
+            f"    }}\n"
+            f"}}\n\n"
+            f"Rules:\n"
+            f"- gt_idx and pred_idx are 0-based indices into the ground_truth and "
+            f"predicted arrays\n"
+            f"- Each GT value should match at most one prediction (and vice versa)\n"
+            f"- missing_gt_indices: GT values with no matching prediction\n"
+            f"- extra_pred_indices: Predictions with no matching GT\n"
+            f"- confidence: 0.0-1.0 based on how well they match\n"
+            f"- For array fields with multiple instances, match by position/instance "
+            f"when possible"
+        )
 
         return prompt
 
@@ -715,7 +726,7 @@ Rules:
 
         return False
 
-    def _normalize_value_for_comparison(self, value: any) -> str:
+    def _normalize_value_for_comparison(self, value: Any) -> str:
         """Normalize a value for comparison (handles arrays, strings, etc.)."""
         if value is None:
             return ""
@@ -853,7 +864,8 @@ Rules:
         - Array: ["A", "B"] -> ["A", "B"]
         - Comma-separated string (no space after comma): "A,B" -> ["A", "B"]
         - Single string: "A" -> ["A"]
-        - Text with comma (space after): "Partner contributions, net" -> ["Partner contributions, net"]
+        - Text with comma (space after): "Partner contributions, net" ->
+          ["Partner contributions, net"]
         - None/empty: -> []
 
         The key distinction: separator commas have NO space after them (e.g., "A,B"),
@@ -1245,7 +1257,7 @@ Rules:
             2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
         )
 
-        match_type_dist = {}
+        match_type_dist: dict[str, int] = {}
         for c in comparisons:
             match_type = c.match_result.match_type.value
             match_type_dist[match_type] = match_type_dist.get(match_type, 0) + 1
@@ -1270,7 +1282,6 @@ Rules:
         metrics = {}
 
         for parent, instances in instance_comparisons.items():
-            total_instances = len(instances)
             matched_instances = sum(1 for inst in instances if inst.is_matched)
 
             # Calculate GT vs predicted instance counts
@@ -1350,7 +1361,7 @@ Rules:
                 sum(c.match_result.confidence for c in comps) / len(comps) if comps else 0.0
             )
 
-            match_type_dist = {}
+            match_type_dist: dict[str, int] = {}
             for c in comps:
                 match_type = c.match_result.match_type.value
                 match_type_dist[match_type] = match_type_dist.get(match_type, 0) + 1

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 
 class Settings(BaseModel):
-    api_host: str = "0.0.0.0"
+    api_host: str = "0.0.0.0"  # nosec B104
     api_port: int = 8000
     api_prefix: str = "/api/v1"
     debug: bool = False

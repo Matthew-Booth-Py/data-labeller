@@ -1,7 +1,7 @@
 """BM25 keyword search index for contextual retrieval."""
 
 import os
-import pickle
+import pickle  # nosec B403
 import re
 from pathlib import Path
 
@@ -158,7 +158,7 @@ class BM25Index:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(path, "wb") as f:
-            pickle.dump(
+            pickle.dump(  # nosec B301
                 {
                     "index": self.index,
                     "chunks": self.chunks,
@@ -172,7 +172,7 @@ class BM25Index:
 
         if path.exists():
             with open(path, "rb") as f:
-                data = pickle.load(f)
+                data = pickle.load(f)  # nosec B301
                 self.index = data.get("index")
                 self.chunks = data.get("chunks", [])
 

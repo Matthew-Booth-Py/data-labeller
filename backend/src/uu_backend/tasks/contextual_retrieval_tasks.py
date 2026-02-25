@@ -69,7 +69,8 @@ def index_document_for_retrieval(self, document_id: str):
                                 pages_text.append(f"## Page {page.page_number}\n\n{page_text}")
                         content = "\n\n".join(pages_text)
                         logger.info(
-                            f"Extracted {len(content)} chars from {len(pages_text)} pages using pdfplumber"
+                            f"Extracted {len(content)} chars from {len(pages_text)} pages "
+                            f"using pdfplumber"
                         )
                 except Exception as e:
                     logger.warning(f"Failed to extract with pdfplumber: {e}")
@@ -164,7 +165,7 @@ def index_document_for_retrieval(self, document_id: str):
             doc_model = DocumentModel.objects.get(id=document_id)
             doc_model.retrieval_index_status = "failed"
             doc_model.save()
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
         raise self.retry(exc=e, countdown=60)

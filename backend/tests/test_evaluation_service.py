@@ -45,7 +45,10 @@ class TestNormalizeHierarchyToArray:
 
     def test_normalize_real_world_example(self, service):
         """Real-world stringified array should be parsed correctly."""
-        value = "GAAP additions to property, plant and equipment (gross capital expenditures),Proceeds from capital-related government incentives"
+        value = (
+            "GAAP additions to property, plant and equipment "
+            "(gross capital expenditures),Proceeds from capital-related government incentives"
+        )
         result = service._normalize_hierarchy_to_array(value)
         assert result == [
             "GAAP additions to property, plant and equipment (gross capital expenditures)",
@@ -262,16 +265,23 @@ class TestRowMatchScoring:
         gt_group = [
             {
                 "field_name": "forward_looking_estimates_table.hierarchy_path",
-                "value": "GAAP additions to property, plant and equipment (gross capital expenditures)",
+                "value": (
+                    "GAAP additions to property, plant and equipment "
+                    "(gross capital expenditures)"
+                ),
             },
-            {"field_name": "forward_looking_estimates_table.period_1_value", "value": "$ 25.0"},
+            {
+                "field_name": "forward_looking_estimates_table.period_1_value",
+                "value": "$ 25.0",
+            },
         ]
 
         pred_row = {
             "instance": 1,
             "fields": {
                 "hierarchy_path": [
-                    "GAAP additions to property, plant and equipment (gross capital expenditures)"
+                    "GAAP additions to property, plant and equipment "
+                    "(gross capital expenditures)"
                 ],
                 "period_1_value": "$ 25.0",
             },
@@ -594,7 +604,10 @@ class TestEndToEndScenario:
             # Row 1
             {
                 "field_name": "forward_looking_estimates_table.hierarchy_path",
-                "value": "GAAP additions to property, plant and equipment (gross capital expenditures)",
+                "value": (
+                    "GAAP additions to property, plant and equipment "
+                    "(gross capital expenditures)"
+                ),
                 "instance_num": 1,
             },
             {

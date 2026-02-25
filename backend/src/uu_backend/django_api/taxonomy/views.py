@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+from typing import Any
 
 from asgiref.sync import async_to_sync
 from django.db import IntegrityError
@@ -194,10 +195,13 @@ class TaxonomyPrefixView(APIView):
                 "10) For other fields needing exact formatting:\n"
                 "   - Add extraction_prompt emphasizing EXACT extraction\n"
                 "   - Preserve ALL formatting: spaces, commas, parentheses, dashes, ranges\n"
-                "11) If type=array and array of objects is appropriate, set items_type=object and include object_properties.\n"
+                "11) If type=array and array of objects is appropriate, set items_type=object "
+                "and include object_properties.\n"
                 "12) For non-array fields set items_type=null and object_properties=[].\n"
-                "13) object_properties can have nested objects: use type=object with nested 'properties' array.\n"
-                "14) For repeated sub-items within a row (like multiple limits per coverage), use type=array with nested items.\n"
+                "13) object_properties can have nested objects: use type=object with nested "
+                "'properties' array.\n"
+                "14) For repeated sub-items within a row (like multiple limits per coverage), "
+                "use type=array with nested items.\n"
                 "15) Keep output concise and practical for production extraction.\n"
             )
             user_prompt_text = (
@@ -220,25 +224,48 @@ class TaxonomyPrefixView(APIView):
                 '  "type": "array",\n'
                 '  "items_type": "object",\n'
                 '  "object_properties": [\n'
-                '    {"name": "line_item", "type": "string", "description": "Row label or category"},\n'
-                '    {"name": "period_1", "type": "string", "description": "Complete value with currency", "extraction_prompt": "Extract EXACT value as shown including currency symbol, spaces, and numbers. Examples: \'$ 25.0\', \'$20.0 - $23.0\', \'(1.0)\'. Only extract from table cells, not surrounding text."},\n'
-                '    {"name": "period_2", "type": "string", "description": "Complete value with currency", "extraction_prompt": "Extract EXACT value as shown including currency symbol, spaces, and numbers. Only extract from table cells."}\n'
+                '    {"name": "line_item", "type": "string", '
+                '"description": "Row label or category"},\n'
+                '    {"name": "period_1", "type": "string", '
+                '"description": "Complete value with currency", '
+                '"extraction_prompt": "Extract EXACT value as shown including currency symbol, '
+                'spaces, and numbers. Examples: \'$ 25.0\', \'$20.0 - $23.0\', \'(1.0)\'. '
+                'Only extract from table cells, not surrounding text."},\n'
+                '    {"name": "period_2", "type": "string", '
+                '"description": "Complete value with currency", '
+                '"extraction_prompt": "Extract EXACT value as shown including currency symbol, '
+                'spaces, and numbers. Only extract from table cells."}\n'
                 '  ]\n'
                 "}\n\n"
                 "Example 2: Hierarchical table with dynamic depth scaling\n"
                 "BAD - Fixed hierarchy levels:\n"
-                '{"name": "level_1", "name": "level_2", "name": "level_3"} <- WRONG! Doesn\'t scale to deeper hierarchies\n\n'
+                '{"name": "level_1", "name": "level_2", "name": "level_3"} '
+                '<- WRONG! Doesn\'t scale to deeper hierarchies\n\n'
                 "GOOD - Dynamic hierarchy_path array:\n"
                 "{\n"
                 '  "name": "table_data",\n'
                 '  "type": "array",\n'
                 '  "items_type": "object",\n'
                 '  "object_properties": [\n'
-                '    {"name": "hierarchy_path", "type": "array", "items_type": "string", "description": "Full path from root to leaf category", "extraction_prompt": "Extract the complete hierarchical path as an array. Include all levels from the main category down to the most specific item. For a row \'GAAP R&D > Acquisitions > Amortization\', return [\'GAAP R&D\', \'Acquisitions\', \'Amortization\']. For a top-level row with no sub-items, return a single-element array."},\n'
-                '    {"name": "period_1_header", "type": "string", "description": "First period column header"},\n'
-                '    {"name": "period_1_value", "type": "string", "description": "Value for first period", "extraction_prompt": "Extract EXACT value as shown including currency symbol, spaces, commas, parentheses, ranges. Examples: \'$ 25.0\', \'$20.0 - $23.0\', \'(1.0)\'. Return null for empty cells."},\n'
-                '    {"name": "period_2_header", "type": "string", "description": "Second period column header"},\n'
-                '    {"name": "period_2_value", "type": "string", "description": "Value for second period", "extraction_prompt": "Extract EXACT value. Return null for empty cells."}\n'
+                '    {"name": "hierarchy_path", "type": "array", "items_type": "string", '
+                '"description": "Full path from root to leaf category", '
+                '"extraction_prompt": "Extract the complete hierarchical path as an array. '
+                'Include all levels from the main category down to the most specific item. '
+                'For a row \'GAAP R&D > Acquisitions > Amortization\', '
+                'return [\'GAAP R&D\', \'Acquisitions\', \'Amortization\']. '
+                'For a top-level row with no sub-items, return a single-element array."},\n'
+                '    {"name": "period_1_header", "type": "string", '
+                '"description": "First period column header"},\n'
+                '    {"name": "period_1_value", "type": "string", '
+                '"description": "Value for first period", '
+                '"extraction_prompt": "Extract EXACT value as shown including currency symbol, '
+                'spaces, commas, parentheses, ranges. Examples: \'$ 25.0\', \'$20.0 - $23.0\', '
+                '\'(1.0)\'. Return null for empty cells."},\n'
+                '    {"name": "period_2_header", "type": "string", '
+                '"description": "Second period column header"},\n'
+                '    {"name": "period_2_value", "type": "string", '
+                '"description": "Value for second period", '
+                '"extraction_prompt": "Extract EXACT value. Return null for empty cells."}\n'
                 '  ]\n'
                 "}\n\n"
                 "Example 3: Simple (non-hierarchical) table\n"
@@ -290,7 +317,8 @@ class TaxonomyPrefixView(APIView):
 
                         hierarchy_hint = (
                             f"\n\n**IMPORTANT - HIERARCHICAL TABLE DETECTED**:\n"
-                            f"This table has a HIERARCHICAL row structure with approximately {depth} nesting levels.\n"
+                            f"This table has a HIERARCHICAL row structure with approximately "
+                            f"{depth} nesting levels.\n"
                             f"Structure: {structure_desc}\n"
                         )
 
@@ -300,18 +328,23 @@ class TaxonomyPrefixView(APIView):
                                 hierarchy_hint += f"  - {' > '.join(path)}\n"
 
                         hierarchy_hint += (
-                            f"\nYou MUST use a 'hierarchy_path' field (type=array, items_type=string).\n"
-                            f"This array will contain the full path from root to leaf (approximately {depth} levels).\n"
-                            f"For example: ['GAAP additions to property', 'Proceeds from capital-related incentives'].\n"
-                            f"This scales automatically to any depth without needing predefined level fields.\n"
+                            f"\nYou MUST use a 'hierarchy_path' field "
+                            f"(type=array, items_type=string).\n"
+                            f"This array will contain the full path from root to leaf "
+                            f"(approximately {depth} levels).\n"
+                            f"For example: ['GAAP additions to property', "
+                            f"'Proceeds from capital-related incentives'].\n"
+                            f"This scales automatically to any depth without needing "
+                            f"predefined level fields.\n"
                         )
 
                         logger.info(
-                            f"[Field Assistant] Detected hierarchical table: depth={depth}, examples={len(example_paths)}"
+                            f"[Field Assistant] Detected hierarchical table: "
+                            f"depth={depth}, examples={len(example_paths)}"
                         )
 
                     # Multimodal message with image and hierarchy context
-                    user_content = [
+                    user_content: list[dict[str, Any]] = [
                         {"type": "text", "text": user_prompt_text + hierarchy_hint},
                         {
                             "type": "image_url",
@@ -324,7 +357,8 @@ class TaxonomyPrefixView(APIView):
                 except Exception as e:
                     # If analysis fails, proceed without hierarchy hint
                     logger.warning(
-                        f"[Field Assistant] Image analysis failed: {e}, proceeding without hierarchy detection"
+                        f"[Field Assistant] Image analysis failed: {e}, "
+                        f"proceeding without hierarchy detection"
                     )
                     user_content = [
                         {"type": "text", "text": user_prompt_text},
@@ -337,17 +371,22 @@ class TaxonomyPrefixView(APIView):
                         },
                     ]
             else:
-                user_content = user_prompt_text
+                user_content = [{"type": "text", "text": user_prompt_text}]
 
-            # Use document type's extraction model if available, otherwise fall back to global settings
+            # Use document type's extraction model if available, otherwise fall back to
+            # global settings
             model = (
                 doc_type.extraction_model if doc_type and doc_type.extraction_model else None
             ) or settings.effective_tagging_model
             print(
-                f"[Field Assistant] Model: {model} | DocType: {doc_type.name if doc_type else 'N/A'} | Input: {parsed.user_input[:50]}..."
+                f"[Field Assistant] Model: {model} | DocType: "
+                f"{doc_type.name if doc_type else 'N/A'} | Input: "
+                f"{parsed.user_input[:50]}..."
             )
-            print(f"[Field Assistant] USE_AZURE_OPENAI: {os.getenv('USE_AZURE_OPENAI')}")
-            print(f"[Field Assistant] AZURE_OPENAI_ENDPOINT: {os.getenv('AZURE_OPENAI_ENDPOINT')}")
+            print(f"[Field Assistant] USE_AZURE_OPENAI: " f"{os.getenv('USE_AZURE_OPENAI')}")
+            print(
+                f"[Field Assistant] AZURE_OPENAI_ENDPOINT: " f"{os.getenv('AZURE_OPENAI_ENDPOINT')}"
+            )
             try:
                 openai_client = get_openai_client()
                 print(f"[Field Assistant] Client type: {type(openai_client._client)}")
@@ -380,7 +419,8 @@ class TaxonomyPrefixView(APIView):
                 description = payload.get("description") or None
                 extraction_prompt = (
                     str(payload.get("extraction_prompt", "")).strip()
-                    or f"Extract the {name.replace('_', ' ')} from the document exactly as shown (RAW)."
+                    or f"Extract the {name.replace('_', ' ')} from the document "
+                    f"exactly as shown (RAW)."
                 )
 
                 items_raw = payload.get("items_type")
@@ -703,7 +743,9 @@ class ExtractDocumentView(APIView):
             elif use_structured_output:
                 result = service.extract_structured(document_id)
             else:
-                result = service.extract_from_annotations(document_id, use_llm_refinement=use_llm)
+                result = service.extract_from_annotations(  # type: ignore
+                    document_id, use_llm_refinement=use_llm
+                )
 
             return Response(
                 {

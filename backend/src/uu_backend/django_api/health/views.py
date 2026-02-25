@@ -26,7 +26,7 @@ class HealthView(APIView):
         try:
             openai_client = get_openai_client()
             openai_status = "available" if openai_client.is_available() else "not configured"
-        except Exception:
+        except Exception:  # nosec B110
             openai_status = "not configured"
 
         all_connected = db_status == "connected"

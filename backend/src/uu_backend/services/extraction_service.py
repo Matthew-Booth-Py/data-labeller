@@ -17,7 +17,6 @@ from uu_backend.services.schema_generator import generate_pydantic_schema
 
 try:
     from pdf2image import convert_from_path
-    from PIL import Image
 
     PDF_SUPPORT = True
 except ImportError:
@@ -38,8 +37,10 @@ class ExtractionService:
             "Critical extraction rules:\n"
             "1) Extract values EXACTLY as they appear in the document (RAW).\n"
             "2) Do NOT normalize, reformat, infer, or interpret values.\n"
-            "3) For dates, return the exact source string (for example, keep 'February 3, 2024' if shown).\n"
-            "4) Preserve ALL spacing, punctuation, currency symbols, and separators exactly when present.\n"
+            "3) For dates, return the exact source string "
+            "(for example, keep 'February 3, 2024' if shown).\n"
+            "4) Preserve ALL spacing, punctuation, currency symbols, and separators "
+            "exactly when present.\n"
             "5) If not found, return null."
         )
 
@@ -71,7 +72,8 @@ class ExtractionService:
         Smart extraction that automatically selects the best extraction strategy.
 
         Routes to:
-        - extract_structured_with_retrieval_vision: when any field has visual_content_type='table' (PDF only)
+        - extract_structured_with_retrieval_vision: when any field has
+          visual_content_type='table' (PDF only)
         - extract_structured: default fallback using full document vision/text
 
         Args:
@@ -191,12 +193,13 @@ class ExtractionService:
                     use_vision = True
 
         if use_vision and image_data:
-            user_prompt_text = f"""Extract structured data from this document.
-
-Document Type: {doc_type.name}
-Filename: {document.filename}
-
-Analyze the document image and extract all fields according to the schema. Return null for fields that cannot be found."""
+            user_prompt_text = (
+                f"Extract structured data from this document.\n\n"
+                f"Document Type: {doc_type.name}\n"
+                f"Filename: {document.filename}\n\n"
+                f"Analyze the document image and extract all fields according to the schema. "
+                f"Return null for fields that cannot be found."
+            )
 
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -283,31 +286,35 @@ Extract all fields according to the schema. Return null for fields that cannot b
             raise ValueError(f"Extraction failed: {str(e)}")
 
     def _get_default_extraction_prompt(self, doc_type) -> str:
-        base_prompt = f"""You are an expert at extracting structured data from {doc_type.name} documents.
-
-Extract all fields accurately from the document. Pay special attention to:
-- Tables: Extract ONLY table data (skip titles, disclaimers, footnotes, surrounding text)
-- Numbers: Keep exact source formatting including currency symbols (e.g., '$ 25.0', '$20.0 - $23.0')
-- Dates: Keep exact source formatting (no ISO conversion)
-- Arrays: Include all table rows, exclude non-table text
-- Empty cells: Return null for genuinely empty cells, do not guess or fill in
-- Hierarchy paths: For tables with nested/indented rows, extract the full path from root to leaf as an array
-
-HIERARCHICAL TABLES (if schema has 'hierarchy_path' field):
-- For each row, identify its complete hierarchical path from the table structure
-- Detect hierarchy using: indentation, font weight (bold/normal), visual grouping
-- Top-level rows: ["Main Category"]
-- Indented sub-rows: ["Main Category", "Sub Item"]
-- Deeper nesting: ["Level 1", "Level 2", "Level 3", "Level 4", ...]
-- Extract the row label at each level EXACTLY as it appears (preserve spacing/formatting)
-
-CRITICAL: Only extract data that appears IN the table structure. Do not extract:
-- Table titles or section headers above the table
-- Explanatory paragraphs or disclaimers
-- Footnotes or references below the table
-
-EMPTY CELLS: If a table cell is empty or a field cannot be found, return null (not empty string "").
-Do not make up data or use empty strings for missing values."""
+        base_prompt = (
+            f"You are an expert at extracting structured data from {doc_type.name} "
+            f"documents.\n\n"
+            f"Extract all fields accurately from the document. Pay special attention to:\n"
+            f"- Tables: Extract ONLY table data (skip titles, disclaimers, footnotes, "
+            f"surrounding text)\n"
+            f"- Numbers: Keep exact source formatting including currency symbols "
+            f"(e.g., '$ 25.0', '$20.0 - $23.0')\n"
+            f"- Dates: Keep exact source formatting (no ISO conversion)\n"
+            f"- Arrays: Include all table rows, exclude non-table text\n"
+            f"- Empty cells: Return null for genuinely empty cells, do not guess or fill in\n"
+            f"- Hierarchy paths: For tables with nested/indented rows, extract the full path "
+            f"from root to leaf as an array\n\n"
+            f"HIERARCHICAL TABLES (if schema has 'hierarchy_path' field):\n"
+            f"- For each row, identify its complete hierarchical path from the table structure\n"
+            f"- Detect hierarchy using: indentation, font weight (bold/normal), visual grouping\n"
+            f'- Top-level rows: ["Main Category"]\n'
+            f'- Indented sub-rows: ["Main Category", "Sub Item"]\n'
+            f'- Deeper nesting: ["Level 1", "Level 2", "Level 3", "Level 4", ...]\n'
+            f"- Extract the row label at each level EXACTLY as it appears "
+            f"(preserve spacing/formatting)\n\n"
+            f"CRITICAL: Only extract data that appears IN the table structure. Do not extract:\n"
+            f"- Table titles or section headers above the table\n"
+            f"- Explanatory paragraphs or disclaimers\n"
+            f"- Footnotes or references below the table\n\n"
+            f"EMPTY CELLS: If a table cell is empty or a field cannot be found, return null "
+            f'(not empty string "").\n'
+            f"Do not make up data or use empty strings for missing values."
+        )
 
         visual_guidance_parts = []
         for field in doc_type.schema_fields or []:
@@ -419,15 +426,15 @@ Do not make up data or use empty strings for missing values."""
             if prompt_version:
                 system_prompt = f"{prompt_version.system_prompt}\n\n{self._raw_guardrails}"
 
-        user_prompt = f"""Extract structured data from the following document excerpts.
-
-Document Type: {doc_type.name}
-Filename: {document.filename}
-
-Relevant Document Excerpts:
-{context}
-
-Extract all fields according to the schema. Return null for fields that cannot be found in the excerpts."""
+        user_prompt = (
+            f"Extract structured data from the following document excerpts.\n\n"
+            f"Document Type: {doc_type.name}\n"
+            f"Filename: {document.filename}\n\n"
+            f"Relevant Document Excerpts:\n"
+            f"{context}\n\n"
+            f"Extract all fields according to the schema. Return null for fields that "
+            f"cannot be found in the excerpts."
+        )
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -435,7 +442,8 @@ Extract all fields according to the schema. Return null for fields that cannot b
         ]
 
         logger.info(
-            f"Retrieval extraction: {document.filename} (model={model_name}, chunks={len(top_chunks)})"
+            f"Retrieval extraction: {document.filename} "
+            f"(model={model_name}, chunks={len(top_chunks)})"
         )
 
         try:
@@ -624,7 +632,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
             if prompt_version:
                 system_prompt = f"{prompt_version.system_prompt}\n\n{self._raw_guardrails}"
 
-        user_content = [
+        user_content: list[dict[str, Any]] = [
             {
                 "type": "text",
                 "text": f"""Extract structured data from the document page(s) shown below.
@@ -659,7 +667,8 @@ CRITICAL INSTRUCTIONS for table extraction:
    - Do not use "" (empty string) - always use null for missing values
    - Do not guess or fill in values
 
-Analyze the page image(s) and extract according to the schema. Use null (not "") for fields not found in the table.""",
+Analyze the page image(s) and extract according to the schema. Use null (not "") for
+fields not found in the table.""",
             }
         ]
 
@@ -752,7 +761,8 @@ Analyze the page image(s) and extract according to the schema. Use null (not "")
 
         effective_system_prompt = (
             system_prompt
-            or f"You are an expert at extracting structured data from {document_type_name} documents."
+            or f"You are an expert at extracting structured data from "
+            f"{document_type_name} documents."
         )
         effective_system_prompt = f"{effective_system_prompt}\n\n{self._raw_guardrails}"
 

@@ -21,20 +21,20 @@ from .models import Chunk
 logger = logging.getLogger(__name__)
 
 
-SUMMARY_PROMPT = """Analyze this document page and create a comprehensive summary optimized for semantic search.
-
-Include:
-- Main points and key topics on the page
-- Tables present (with brief description of what data they contain)
-- Visual elements (forms, charts, diagrams, images)
-- Key data fields or information visible
-
-Be specific and concrete. Focus on what information is available on this page.
-Respond with 2-3 sentences.
-
-<page_content>
-{page_content}
-</page_content>"""
+SUMMARY_PROMPT = (
+    "Analyze this document page and create a comprehensive summary optimized for "
+    "semantic search.\n\n"
+    "Include:\n"
+    "- Main points and key topics on the page\n"
+    "- Tables present (with brief description of what data they contain)\n"
+    "- Visual elements (forms, charts, diagrams, images)\n"
+    "- Key data fields or information visible\n\n"
+    "Be specific and concrete. Focus on what information is available on this page.\n"
+    "Respond with 2-3 sentences.\n\n"
+    "<page_content>\n"
+    "{page_content}\n"
+    "</page_content>"
+)
 
 
 class PageSummarizer:

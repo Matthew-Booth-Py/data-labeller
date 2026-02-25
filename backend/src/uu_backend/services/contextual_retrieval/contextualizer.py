@@ -27,7 +27,8 @@ SYSTEM_PROMPT = """You are a document analyst. You will be given a document exce
 {document}
 </document_excerpt>
 
-When given a chunk, respond with ONE brief sentence of context to situate it within the document. Be extremely concise."""
+When given a chunk, respond with ONE brief sentence of context to situate it within
+the document. Be extremely concise."""
 
 USER_PROMPT = """Provide a short context for this chunk:
 

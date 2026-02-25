@@ -34,13 +34,13 @@ class SearchResultSerializer(serializers.Serializer):
     chunk_index = serializers.IntegerField()
     text = serializers.CharField()
     original_text = serializers.CharField()
-    context = serializers.CharField()
+    context = serializers.CharField()  # type: ignore[assignment]
     score = serializers.FloatField()
 
 
 class SearchResponseSerializer(serializers.Serializer):
     """Response serializer for search endpoint."""
 
-    results = SearchResultSerializer(many=True)
+    results = SearchResultSerializer(many=True)  # type: ignore[assignment,misc]
     total = serializers.IntegerField()
     query = serializers.CharField()

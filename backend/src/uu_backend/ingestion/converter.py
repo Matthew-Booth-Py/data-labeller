@@ -47,7 +47,8 @@ def _repair_table_header_fragments(line: str) -> str:
 
 
 def _move_total_after_following_table(lines: list[str]) -> list[str]:
-    """If TOTAL line appears before immediately following markdown table rows, move it below the table."""
+    """If TOTAL line appears before immediately following markdown table rows, move it
+    below the table."""
     i = 0
     out: list[str] = []
     while i < len(lines):
@@ -109,7 +110,7 @@ def _normalize_key_value_blocks(lines: list[str]) -> list[str]:
 
 def _dedupe_lines(lines: list[str]) -> list[str]:
     """Remove repeated nearby lines caused by layout extraction overlap."""
-    recent = deque(maxlen=24)
+    recent: deque[str] = deque(maxlen=24)
     out: list[str] = []
     for line in lines:
         stripped = line.strip()

@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 try:
     from pdf2image import convert_from_path
-    from PIL import Image
 
     PDF_SUPPORT = True
 except ImportError:
@@ -94,7 +93,8 @@ class ClassificationService:
 
         if not has_content and not is_visual_document:
             raise ValueError(
-                f"Document {document_id} has no content and is not a visual document type. Try re-uploading the document."
+                f"Document {document_id} has no content and is not a visual document "
+                f"type. Try re-uploading the document."
             )
 
         # Get all document types (wrap sync call for async context)
@@ -103,7 +103,6 @@ class ClassificationService:
             raise ValueError("No document types defined. Create document types first.")
 
         # Create a Pydantic schema for classification with document type as enum
-        type_id_to_name = {dt.id: dt.name for dt in doc_types}
         type_ids = tuple(dt.id for dt in doc_types)
 
         # Build document type descriptions for the prompt
@@ -120,7 +119,7 @@ class ClassificationService:
 
         # Create Pydantic model for classification response with enum
         class ClassificationResponse(BaseModel):
-            document_type_id: Literal[type_ids] = Field(
+            document_type_id: Literal[type_ids] = Field(  # type: ignore
                 description="The ID of the matching document type"
             )
             confidence: float = Field(
@@ -165,13 +164,17 @@ class ClassificationService:
         if len(content) > 8000:
             content = content[:4000] + "\n\n... [content truncated] ...\n\n" + content[-4000:]
 
-        system_prompt = """You are a document classification expert. Your task is to analyze a document and classify it into one of the predefined document types.
-
-Analyze the document's content, structure, and key characteristics to determine the most appropriate classification.
-
-You must respond with a valid JSON object matching the provided schema. The document_type_id must be one of the valid IDs from the available document types.
-
-If the document doesn't clearly match any type, choose the closest match but set a lower confidence score."""
+        system_prompt = (
+            "You are a document classification expert. Your task is to analyze a document "
+            "and classify it into one of the predefined document types.\n\n"
+            "Analyze the document's content, structure, and key characteristics to determine "
+            "the most appropriate classification.\n\n"
+            "You must respond with a valid JSON object matching the provided schema. "
+            "The document_type_id must be one of the valid IDs from the available document "
+            "types.\n\n"
+            "If the document doesn't clearly match any type, choose the closest match but "
+            "set a lower confidence score."
+        )
 
         use_vision = False
         image_data = None
@@ -215,21 +218,21 @@ If the document doesn't clearly match any type, choose the closest match but set
                     use_vision = False
 
         logger.info(
-            f"Classifying document: {document.filename} (type={document.file_type}, vision={use_vision})"
+            f"Classifying document: {document.filename} "
+            f"(type={document.file_type}, vision={use_vision})"
         )
 
         # Build messages based on whether we're using vision
         if use_vision and image_data:
-            user_prompt_text = f"""## Available Document Types
-
-{types_text}
-
-## Document to Classify
-
-**Filename:** {document.filename}
-**File Type:** {document.file_type}
-
-Please analyze the document image and classify it into one of the available types based on its visual content, structure, and layout."""
+            user_prompt_text = (
+                f"## Available Document Types\n\n"
+                f"{types_text}\n\n"
+                f"## Document to Classify\n\n"
+                f"**Filename:** {document.filename}\n"
+                f"**File Type:** {document.file_type}\n\n"
+                f"Please analyze the document image and classify it into one of the available "
+                f"types based on its visual content, structure, and layout."
+            )
 
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -296,7 +299,7 @@ Classify this document into one of the available types based on its content and 
             result["document_type_name"] = matched_type.name
 
             if auto_save:
-                classification = await sync_to_async(repository.classify_document)(
+                await sync_to_async(repository.classify_document)(
                     document_id=document_id,
                     document_type_id=matched_type.id,
                     confidence=result.get("confidence", 0.7),

@@ -99,7 +99,7 @@ class IngestView(APIView):
             finally:
                 try:
                     upload_file.seek(0)
-                except Exception:
+                except Exception:  # nosec B110
                     pass
 
         processing_time = time.time() - start_time

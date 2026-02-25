@@ -53,44 +53,51 @@ class VisualAnalysis(BaseModel):
 
 
 class ImageAwarePromptGenerator:
-    ANALYSIS_PROMPT = """Analyze this document image and describe its visual structure for data extraction.
-
-Focus on identifying:
-1. Content type: Is this a TABLE, FORM (labeled fields), LIST, PARAGRAPH, or MIXED?
-2. Structure: Describe the layout - columns, rows, sections, field labels
-3. Data types: What kinds of values are present? (currency, percentages, dates, text, numbers)
-4. Distinguishing features: What visual cues help identify this specific content?
-
-For TABLES specifically:
-- List the column headers if visible
-- Note sample row labels from the leftmost column
-- Describe the data format in cells (e.g., "$1,234", "(45.6)%", "Sep 28, 2024")
-- **HIERARCHY DETECTION**: Does the table have nested/indented row labels indicating a category hierarchy?
-  - If yes: How many hierarchy levels? (count the maximum depth)
-  - Provide 2-3 example row hierarchies showing the full path from top level to bottom level
-  - Describe how indentation/formatting indicates hierarchy (indent spaces, bold headers, different font sizes, etc.)
-
-Return a JSON object with these exact keys:
-{
-  "content_type": "table" | "form" | "list" | "paragraph" | "mixed",
-  "structure_description": "Detailed description of the visual layout",
-  "extraction_guidance": "Specific instructions for extracting data from this structure",
-  "distinguishing_features": ["feature1", "feature2", ...],
-  "column_headers": ["header1", "header2", ...] or null,
-  "row_labels": ["sample_label1", "sample_label2", ...] or null,
-  "data_types": ["currency", "percentage", "date", ...] or null,
-  "row_hierarchy": {
-    "has_hierarchy": true/false,
-    "depth": 2-5 (max nesting levels, only if has_hierarchy is true),
-    "example_paths": [
-      ["level1", "level2", "level3", "metric"],
-      ["level1", "level2", "metric"]
-    ] (only if has_hierarchy is true),
-    "structure_description": "Description of how hierarchy is visually indicated" (only if has_hierarchy is true)
-  } or null (if not a table or no hierarchy detected)
-}
-
-Be specific and practical - the extraction_guidance will be used directly in prompts."""
+    ANALYSIS_PROMPT = (
+        "Analyze this document image and describe its visual structure for data "
+        "extraction.\n\n"
+        "Focus on identifying:\n"
+        "1. Content type: Is this a TABLE, FORM (labeled fields), LIST, PARAGRAPH, or MIXED?\n"
+        "2. Structure: Describe the layout - columns, rows, sections, field labels\n"
+        "3. Data types: What kinds of values are present? (currency, percentages, dates, "
+        "text, numbers)\n"
+        "4. Distinguishing features: What visual cues help identify this specific content?\n\n"
+        "For TABLES specifically:\n"
+        "- List the column headers if visible\n"
+        "- Note sample row labels from the leftmost column\n"
+        '- Describe the data format in cells (e.g., "$1,234", "(45.6)%", '
+        '"Sep 28, 2024")\n'
+        "- **HIERARCHY DETECTION**: Does the table have nested/indented row labels "
+        "indicating a category hierarchy?\n"
+        "  - If yes: How many hierarchy levels? (count the maximum depth)\n"
+        "  - Provide 2-3 example row hierarchies showing the full path from top level "
+        "to bottom level\n"
+        "  - Describe how indentation/formatting indicates hierarchy (indent spaces, "
+        "bold headers, different font sizes, etc.)\n\n"
+        "Return a JSON object with these exact keys:\n"
+        "{\n"
+        '  "content_type": "table" | "form" | "list" | "paragraph" | "mixed",\n'
+        '  "structure_description": "Detailed description of the visual layout",\n'
+        '  "extraction_guidance": "Specific instructions for extracting data from this '
+        'structure",\n'
+        '  "distinguishing_features": ["feature1", "feature2", ...],\n'
+        '  "column_headers": ["header1", "header2", ...] or null,\n'
+        '  "row_labels": ["sample_label1", "sample_label2", ...] or null,\n'
+        '  "data_types": ["currency", "percentage", "date", ...] or null,\n'
+        '  "row_hierarchy": {\n'
+        '    "has_hierarchy": true/false,\n'
+        '    "depth": 2-5 (max nesting levels, only if has_hierarchy is true),\n'
+        '    "example_paths": [\n'
+        '      ["level1", "level2", "level3", "metric"],\n'
+        '      ["level1", "level2", "metric"]\n'
+        "    ] (only if has_hierarchy is true),\n"
+        '    "structure_description": "Description of how hierarchy is visually indicated" '
+        "(only if has_hierarchy is true)\n"
+        "  } or null (if not a table or no hierarchy detected)\n"
+        "}\n\n"
+        "Be specific and practical - the extraction_guidance will be used directly "
+        "in prompts."
+    )
 
     def __init__(self, model: str | None = None):
         """Initialize the prompt generator.
@@ -150,7 +157,8 @@ Be specific and practical - the extraction_guidance will be used directly in pro
                         structure_description=hierarchy_data.get("structure_description"),
                     )
                     logger.info(
-                        f"Detected hierarchical table: depth={row_hierarchy.depth}, examples={len(row_hierarchy.example_paths or [])}"
+                        f"Detected hierarchical table: depth={row_hierarchy.depth}, "
+                        f"examples={len(row_hierarchy.example_paths or [])}"
                     )
 
             return VisualAnalysis(
@@ -231,7 +239,8 @@ Be specific and practical - the extraction_guidance will be used directly in pro
                 prompt_parts.append(analysis.extraction_guidance)
 
             prompt_parts.append(
-                "Extract values from labeled fields. Match each field label to its corresponding value."
+                "Extract values from labeled fields. Match each field label to its "
+                "corresponding value."
             )
 
             return "\n".join(prompt_parts)

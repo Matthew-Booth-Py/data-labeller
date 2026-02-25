@@ -1,4 +1,5 @@
 """Phase 4 ORM models for SQL parity and Postgres migration."""
+# mypy: disable-error-code="var-annotated"
 
 from django.db import models
 

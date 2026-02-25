@@ -56,7 +56,8 @@ class AnnotationSuggestionService:
                 page_numbers=extraction_result.source_page_numbers,
             )
             logger.info(
-                f"Got {len(positioned_words)} positioned words on pages {extraction_result.source_page_numbers}"
+                f"Got {len(positioned_words)} positioned words on pages "
+                f"{extraction_result.source_page_numbers}"
             )
 
             # Convert extraction results to suggestions with locations
@@ -185,7 +186,7 @@ class AnnotationSuggestionService:
         Also handles deeply nested structures like:
         policy_coverages_table[0].limits[0].amount
         """
-        result = []
+        result: list[tuple[str, Any, int]] = []
 
         for field in fields:
             field_name = field.field_name
@@ -206,8 +207,10 @@ class AnnotationSuggestionService:
         Recursively flatten a value into field tuples.
 
         Key distinction:
-        - "Row arrays" (array of objects/dicts): Each item is a row, flatten into separate instances
-        - "Leaf arrays" (array of primitives within a row): Keep as atomic value (e.g., hierarchy_path)
+        - "Row arrays" (array of objects/dicts): Each item is a row, flatten into
+          separate instances
+        - "Leaf arrays" (array of primitives within a row): Keep as atomic value
+          (e.g., hierarchy_path)
 
         Args:
             prefix: Field name prefix (e.g., "table.field")

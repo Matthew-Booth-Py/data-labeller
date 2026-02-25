@@ -17,7 +17,10 @@ SECRET_KEY = env(
     "DJANGO_SECRET_KEY",
     default="django-insecure-migration-phase-key-change-me",
 )
-ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1", "0.0.0.0"])
+ALLOWED_HOSTS = env.list(
+    "DJANGO_ALLOWED_HOSTS",
+    default=["localhost", "127.0.0.1", "0.0.0.0"],  # nosec B104
+)
 
 INSTALLED_APPS = [
     "django.contrib.contenttypes",

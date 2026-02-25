@@ -36,7 +36,7 @@ class ContextualRetrievalService:
         chunking_strategy = chunking_strategy or os.getenv("CHUNKING_STRATEGY", "page")
 
         if chunking_strategy == "page":
-            self.chunker = PageAwareChunker(
+            self.chunker: PageAwareChunker | DocumentChunker = PageAwareChunker(
                 max_page_size=int(os.getenv("MAX_PAGE_SIZE", "8000")),
                 fallback_chunk_size=int(os.getenv("CHUNK_SIZE", "2000")),
                 fallback_chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "200")),
@@ -67,7 +67,7 @@ class ContextualRetrievalService:
         self.bm25_index = BM25Index(storage_path=bm25_index_path)
 
         if use_reranking and os.getenv("CO_API_KEY"):
-            self.reranker = AzureCohereReranker()
+            self.reranker: AzureCohereReranker | NoReranker = AzureCohereReranker()
             logger.info("✓ Reranker enabled: Azure Cohere")
         else:
             self.reranker = NoReranker()
@@ -170,7 +170,8 @@ class ContextualRetrievalService:
         use_reranking: bool = True,
     ) -> list[SearchResult]:
         logger.info(
-            f"Search query: '{query[:100]}...' | top_k={top_k} | doc_filter={filter_doc_id} | rerank={use_reranking}"
+            f"Search query: '{query[:100]}...' | top_k={top_k} | "
+            f"doc_filter={filter_doc_id} | rerank={use_reranking}"
         )
 
         results = self.retriever.retrieve(
@@ -228,16 +229,17 @@ class ContextualRetrievalService:
     ) -> list[ContextualizedChunk]:
         chunk_data = self.vector_store.get_document_chunks(document_id)
 
-        chunks = []
+        chunks: list[ContextualizedChunk] = []
         for data in chunk_data:
             metadata = data.get("metadata", {})
             chunks.append(
                 ContextualizedChunk(
-                    doc_id=metadata.get("doc_id", document_id),
+                    doc_id=str(metadata.get("doc_id", document_id)),
                     index=int(metadata.get("chunk_index", 0)),
-                    original_text=metadata.get("original_text", ""),
-                    context=metadata.get("context", ""),
-                    contextualized_text=data.get("text", ""),
+                    original_text=str(metadata.get("original_text", "")),
+                    context=str(metadata.get("context", "")),
+                    page_summary=str(metadata.get("page_summary", "")),
+                    contextualized_text=str(data.get("text", "")),
                     metadata=metadata,
                 )
             )
