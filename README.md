@@ -1,5 +1,11 @@
 # Document Extraction Platform
 
+[![Backend CI](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/backend-ci.yml)
+[![Frontend CI](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/frontend-ci.yml)
+[![Docker Publish](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/docker-publish.yml)
+[![CodeQL](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/codeql.yml/badge.svg)](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A general-purpose document extraction and data labelling platform that enables teams to define schemas, label documents, and extract structured data from any document type using AI.
 
 ## Core Capabilities
