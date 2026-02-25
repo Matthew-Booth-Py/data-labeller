@@ -30,8 +30,12 @@ export default function Dashboard() {
   const classifiedDocs = ingestStatus?.classified_documents || 0;
   
   const projects = (() => {
-    const stored = localStorage.getItem("uu-projects");
-    return stored ? JSON.parse(stored) : [];
+    try {
+      const stored = localStorage.getItem("uu-projects");
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
   })();
 
   return (

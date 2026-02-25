@@ -170,7 +170,7 @@ If the document doesn't clearly match any type, choose the closest match but set
             # Try to reconstruct file path from document ID and file type
             settings = get_settings()
             file_ext = f".{document.file_type.lower()}" if document.file_type else ""
-                potential_path = settings.file_storage_path / f"{document.id}{file_ext}"
+            potential_path = settings.file_storage_path / f"{document.id}{file_ext}"
             if potential_path.exists():
                 file_path_to_use = potential_path
         
