@@ -21,13 +21,6 @@ logger = logging.getLogger(__name__)
 
 
 class ContextualRetrievalService:
-    """
-    Main service facade for Contextual Retrieval.
-    
-    Orchestrates the full pipeline:
-    - Document indexing: chunk → contextualize → embed → store
-    - Search: query → hybrid search → rerank → results
-    """
 
     def __init__(
         self,
@@ -96,26 +89,6 @@ class ContextualRetrievalService:
         metadata: dict | None = None,
         progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> int:
-        """
-        Index a document for contextual retrieval.
-        
-        Pipeline:
-        1. Chunk the document
-        2. Generate page summaries for each chunk
-        3. Generate context for each chunk
-        4. Merge summaries into contextualized chunks
-        5. Generate embeddings
-        6. Store in vector DB and BM25 index
-        
-        Args:
-            document_id: Unique identifier for the document
-            content: Full text content of the document
-            metadata: Optional metadata to attach to chunks
-            progress_callback: Optional callback(stage, current, total)
-            
-        Returns:
-            Number of chunks indexed
-        """
         logger.info(f"Indexing document {document_id}")
         
         chunks = self.chunker.chunk_with_metadata(
@@ -137,7 +110,6 @@ class ContextualRetrievalService:
             if progress_callback:
                 progress_callback("summarizing", current, total)
 
-        # Generate page summaries
         page_summaries = self.page_summarizer.summarize_pages_async(
             chunks=chunks,
             progress_callback=summary_progress,
@@ -152,17 +124,14 @@ class ContextualRetrievalService:
             if progress_callback:
                 progress_callback("contextualizing", current, total)
 
-        # Reset stats for new document
         self.contextualizer.reset_stats()
         
-        # Use async version for concurrent API calls (much faster)
         contextualized = self.contextualizer.contextualize_chunks_async(
             document=content,
             chunks=chunks,
             progress_callback=context_progress,
         )
         
-        # Log cache statistics
         cache_stats = self.contextualizer.get_cache_stats()
         logger.info(
             f"Context generation complete. "
@@ -171,7 +140,6 @@ class ContextualRetrievalService:
         
         logger.info(f"Contextualized {len(contextualized)} chunks")
         
-        # Merge page summaries into contextualized chunks
         for chunk, summary in zip(contextualized, page_summaries):
             chunk.page_summary = summary
             chunk.contextualized_text = f"{summary}\n\n{chunk.context}\n\n{chunk.original_text}"
@@ -204,18 +172,6 @@ class ContextualRetrievalService:
         filter_doc_id: str | None = None,
         use_reranking: bool = True,
     ) -> list[SearchResult]:
-        """
-        Search for relevant chunks.
-        
-        Args:
-            query: Search query
-            top_k: Number of results to return
-            filter_doc_id: Optional document ID to search within
-            use_reranking: Whether to apply reranking
-            
-        Returns:
-            List of SearchResult objects
-        """
         logger.info(f"Search query: '{query[:100]}...' | top_k={top_k} | doc_filter={filter_doc_id} | rerank={use_reranking}")
         
         results = self.retriever.retrieve(
@@ -234,20 +190,6 @@ class ContextualRetrievalService:
         top_k_per_query: int = 10,
         filter_doc_id: str | None = None,
     ) -> list[SearchResult]:
-        """
-        Search with multiple queries and deduplicate results.
-        
-        Useful for schema-based extraction where you want to find
-        chunks relevant to multiple fields.
-        
-        Args:
-            queries: List of search queries (one per field)
-            top_k_per_query: Results per query before deduplication
-            filter_doc_id: Optional document ID to search within
-            
-        Returns:
-            Deduplicated list of SearchResult objects
-        """
         seen_chunks: set[str] = set()
         all_results: list[SearchResult] = []
         
@@ -269,15 +211,6 @@ class ContextualRetrievalService:
         return all_results
 
     def delete_document(self, document_id: str) -> dict[str, int]:
-        """
-        Delete a document from the index.
-        
-        Args:
-            document_id: Document ID to delete
-            
-        Returns:
-            Dict with counts of deleted chunks from each store
-        """
         vector_deleted = self.vector_store.delete_document(document_id)
         bm25_deleted = self.bm25_index.delete_document(document_id)
         
@@ -295,15 +228,6 @@ class ContextualRetrievalService:
         self,
         document_id: str,
     ) -> list[ContextualizedChunk]:
-        """
-        Get all indexed chunks for a document.
-        
-        Args:
-            document_id: Document ID
-            
-        Returns:
-            List of ContextualizedChunk objects
-        """
         chunk_data = self.vector_store.get_document_chunks(document_id)
         
         chunks = []
@@ -323,7 +247,6 @@ class ContextualRetrievalService:
         return sorted(chunks, key=lambda c: c.index)
 
     def get_stats(self) -> dict:
-        """Get statistics about the index."""
         return {
             "vector_store_count": self.vector_store.count(),
             "bm25_index_count": self.bm25_index.count(),
@@ -335,10 +258,7 @@ _service_instance: ContextualRetrievalService | None = None
 
 
 def get_contextual_retrieval_service() -> ContextualRetrievalService:
-    """Get or create the singleton service instance."""
     global _service_instance
-    
     if _service_instance is None:
         _service_instance = ContextualRetrievalService()
-    
     return _service_instance

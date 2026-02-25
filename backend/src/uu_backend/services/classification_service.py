@@ -121,7 +121,6 @@ class ClassificationService:
             reasoning: str = Field(description="Brief explanation of why this classification was chosen")
             key_indicators: list[str] = Field(description="List of key indicators found in the document")
         
-        # Generate JSON schema manually to ensure OpenAI compatibility
         classification_schema = {
             "type": "object",
             "properties": {
@@ -150,14 +149,6 @@ class ClassificationService:
             "additionalProperties": False
         }
         
-        # Debug: print the schema
-        print(f"\n{'='*60}")
-        print("CLASSIFICATION SCHEMA")
-        print(f"{'='*60}")
-        print(json.dumps(classification_schema, indent=2))
-        print(f"{'='*60}\n")
-        
-        # Prepare document content (truncate if too long)
         content = document.content or ""
         if len(content) > 8000:
             content = content[:4000] + "\n\n... [content truncated] ...\n\n" + content[-4000:]
@@ -170,11 +161,8 @@ You must respond with a valid JSON object matching the provided schema. The docu
 
 If the document doesn't clearly match any type, choose the closest match but set a lower confidence score."""
 
-        # Check if we should use vision API (for image-based documents)
         use_vision = False
         image_data = None
-        
-        # Try to get the file path - either from database or reconstruct it
         file_path_to_use = None
         if document.file_path:
             file_path_to_use = Path(document.file_path)
@@ -182,56 +170,42 @@ If the document doesn't clearly match any type, choose the closest match but set
             # Try to reconstruct file path from document ID and file type
             settings = get_settings()
             file_ext = f".{document.file_type.lower()}" if document.file_type else ""
-            potential_path = settings.file_storage_path / f"{document.id}{file_ext}"
+                potential_path = settings.file_storage_path / f"{document.id}{file_ext}"
             if potential_path.exists():
                 file_path_to_use = potential_path
-                print(f"Reconstructed file path: {file_path_to_use}")
         
         if file_path_to_use and file_path_to_use.exists():
-            # Use vision API for PDFs and images
             if document.file_type.lower() in ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp']:
                 use_vision = True
                 try:
                     if document.file_type.lower() == 'pdf':
-                        # Convert PDF first page to image
                         if not PDF_SUPPORT:
-                            print("Warning: pdf2image not available, cannot process PDF")
+                            logger.warning("pdf2image not available, cannot process PDF")
                             use_vision = False
                         else:
-                            # Convert first page of PDF to image
                             images = convert_from_path(str(file_path_to_use), first_page=1, last_page=1, dpi=150)
                             if images:
-                                # Convert PIL Image to bytes
                                 img_byte_arr = io.BytesIO()
                                 images[0].save(img_byte_arr, format='PNG')
                                 image_bytes = img_byte_arr.getvalue()
                                 image_data = base64.b64encode(image_bytes).decode('utf-8')
                             else:
-                                print("Warning: Could not convert PDF to image")
+                                logger.warning("Could not convert PDF to image")
                                 use_vision = False
                     else:
-                        # Read image file directly
                         with open(file_path_to_use, 'rb') as f:
                             image_bytes = f.read()
                             image_data = base64.b64encode(image_bytes).decode('utf-8')
                 except Exception as e:
-                    print(f"Warning: Could not read/convert file for vision API: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    logger.warning(f"Could not read/convert file for vision API: {e}")
                     use_vision = False
         
-        print(f"\n{'='*60}")
-        print("AUTO-CLASSIFICATION PROMPT")
-        print(f"{'='*60}")
-        print(f"Document: {document.filename}")
-        print(f"File type: {document.file_type}")
-        print(f"Using vision API: {use_vision}")
-        print(f"Types available: {[t.name for t in doc_types]}")
-        print(f"{'='*60}\n")
+        logger.info(
+            f"Classifying document: {document.filename} (type={document.file_type}, vision={use_vision})"
+        )
         
         # Build messages based on whether we're using vision
         if use_vision and image_data:
-            # Use vision API with image
             user_prompt_text = f"""## Available Document Types
 
 {types_text}
@@ -259,7 +233,6 @@ Please analyze the document image and classify it into one of the available type
                 }
             ]
         else:
-            # Use text-only classification
             user_prompt_text = f"""## Available Document Types
 
 {types_text}
@@ -298,23 +271,16 @@ Classify this document into one of the available types based on its content and 
             
             result_text = response.choices[0].message.content
             result = json.loads(result_text)
-            
-            # Validate against Pydantic model
             validated = ClassificationResponse.model_validate(result)
             
-            print(f"Classification result: {result}")
-            
-            # Get the matched document type
             matched_type_id = validated.document_type_id
             matched_type = next((dt for dt in doc_types if dt.id == matched_type_id), None)
             
             if not matched_type:
                 raise ValueError(f"LLM returned unknown document type ID: {matched_type_id}")
             
-            # Add document type name to result
             result["document_type_name"] = matched_type.name
             
-            # Save classification if auto_save is enabled
             if auto_save:
                 classification = await sync_to_async(repository.classify_document)(
                     document_id=document_id,
@@ -329,20 +295,10 @@ Classify this document into one of the available types based on its content and 
             return result
             
         except json.JSONDecodeError as e:
-            error_msg = f"Failed to parse LLM response: {e}"
-            print(f"[ERROR] {error_msg}")
-            raise ValueError(error_msg)
+            logger.error(f"Failed to parse LLM response: {e}")
+            raise ValueError(f"Failed to parse LLM response: {e}")
         except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
-            print(f"\n{'='*60}")
-            print("CLASSIFICATION ERROR")
-            print(f"{'='*60}")
-            print(f"Error type: {type(e).__name__}")
-            print(f"Error message: {str(e)}")
-            print(f"\nFull traceback:")
-            print(error_details)
-            print(f"{'='*60}\n")
+            logger.error(f"Classification failed: {e}", exc_info=True)
             raise
 
     async def suggest_classification(self, document_id: str) -> dict:

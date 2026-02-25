@@ -25,16 +25,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tag } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
-// Recursive property type for nested objects and arrays
 interface NestedProperty {
   name: string;
   type: FieldType;
   description?: string;
-  items_type?: FieldType;  // For array sub-properties
-  properties?: NestedProperty[];  // For object or array-of-object sub-properties
+  items_type?: FieldType;
+  properties?: NestedProperty[];
 }
 
-// Helper to convert NestedProperty[] to SchemaField properties format
 function nestedPropertiesToSchemaProperties(props: NestedProperty[]): Record<string, SchemaField> {
   const result: Record<string, SchemaField> = {};
   props.forEach((prop, index) => {
@@ -42,20 +40,18 @@ function nestedPropertiesToSchemaProperties(props: NestedProperty[]): Record<str
       name: prop.name,
       type: prop.type,
       description: prop.description,
-      order: index,  // Preserve order explicitly
+      order: index,
     };
     if (prop.type === "object" && prop.properties && prop.properties.length > 0) {
       field.properties = nestedPropertiesToSchemaProperties(prop.properties);
     }
     if (prop.type === "array" && prop.properties && prop.properties.length > 0) {
-      // Array of objects with nested properties
       field.items = {
         name: "item",
         type: "object",
         properties: nestedPropertiesToSchemaProperties(prop.properties),
       };
     } else if (prop.type === "array" && prop.items_type) {
-      // Array of simple types
       field.items = {
         name: "item",
         type: prop.items_type,
@@ -66,9 +62,7 @@ function nestedPropertiesToSchemaProperties(props: NestedProperty[]): Record<str
   return result;
 }
 
-// Helper to convert SchemaField properties to NestedProperty[]
 function schemaPropertiesToNestedProperties(props: Record<string, SchemaField>): NestedProperty[] {
-  // Convert to array and sort by order field if present
   const entries = Object.entries(props);
   entries.sort(([, a], [, b]) => {
     const orderA = a.order ?? Number.MAX_SAFE_INTEGER;
@@ -99,7 +93,6 @@ function schemaPropertiesToNestedProperties(props: Record<string, SchemaField>):
   });
 }
 
-// Helper to convert AI assistant property suggestions to NestedProperty[]
 function assistantPropertiesToNestedProperties(props: FieldAssistantProperty[]): NestedProperty[] {
   return props.map((prop) => {
     const nested: NestedProperty = {
@@ -108,18 +101,14 @@ function assistantPropertiesToNestedProperties(props: FieldAssistantProperty[]):
       description: prop.description,
     };
     
-    // Handle object type with nested properties
     if (prop.type === "object" && prop.properties && prop.properties.length > 0) {
       nested.properties = assistantPropertiesToNestedProperties(prop.properties);
     }
     
-    // Handle array type
     if (prop.type === "array") {
       if (prop.items_type === "object" && prop.properties && prop.properties.length > 0) {
-        // Array of objects with nested properties
         nested.properties = assistantPropertiesToNestedProperties(prop.properties);
       } else if (prop.items_type && prop.items_type !== "object") {
-        // Array of simple types
         nested.items_type = prop.items_type;
       }
     }
@@ -128,7 +117,6 @@ function assistantPropertiesToNestedProperties(props: FieldAssistantProperty[]):
   });
 }
 
-// Helper to generate example JSON output for nested properties
 function generateExampleOutput(props: NestedProperty[], indent: number = 0): string {
   const pad = "  ".repeat(indent);
   const lines: string[] = [];
@@ -137,24 +125,20 @@ function generateExampleOutput(props: NestedProperty[], indent: number = 0): str
     const comma = idx < props.length - 1 ? "," : "";
     
     if (prop.type === "object" && prop.properties && prop.properties.length > 0) {
-      // Nested object
       lines.push(`${pad}"${prop.name}": {`);
       lines.push(generateExampleOutput(prop.properties, indent + 1));
       lines.push(`${pad}}${comma}`);
     } else if (prop.type === "array" && prop.properties && prop.properties.length > 0) {
-      // Array of objects
       lines.push(`${pad}"${prop.name}": [`);
       lines.push(`${pad}  {`);
       lines.push(generateExampleOutput(prop.properties, indent + 2));
       lines.push(`${pad}  }`);
       lines.push(`${pad}]${comma}`);
     } else if (prop.type === "array") {
-      // Array of simple types
       const itemType = prop.items_type || "string";
       const exampleVal = itemType === "number" ? "0" : itemType === "boolean" ? "true" : '"value"';
       lines.push(`${pad}"${prop.name}": [${exampleVal}]${comma}`);
     } else {
-      // Simple type
       const exampleVal = prop.type === "number" ? "0" : prop.type === "boolean" ? "true" : prop.type === "date" ? '"2024-01-01"' : '"value"';
       lines.push(`${pad}"${prop.name}": ${exampleVal}${comma}`);
     }
@@ -163,7 +147,6 @@ function generateExampleOutput(props: NestedProperty[], indent: number = 0): str
   return lines.join("\n");
 }
 
-// Recursive Property Editor Component
 interface PropertyEditorProps {
   properties: NestedProperty[];
   onChange: (properties: NestedProperty[]) => void;
@@ -351,7 +334,6 @@ function PropertyEditor({ properties, onChange, depth = 0, maxDepth = 3 }: Prope
                 </Select>
               </div>
               
-              {/* Nested properties for array of objects */}
               {(prop.properties && prop.properties.length > 0) || (!prop.items_type || prop.items_type === "object" as FieldType) ? (
                 <Collapsible defaultOpen={true}>
                   <div className="flex items-center gap-2">
@@ -495,14 +477,10 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
 
   const setSelectedType = (typeId: string | null) => {
     setSelectedTypeId(typeId);
-    try {
-      if (typeId) {
-        localStorage.setItem(selectedTypeStorageKey, typeId);
-      } else {
-        localStorage.removeItem(selectedTypeStorageKey);
-      }
-    } catch {
-      // Ignore localStorage errors in restricted environments
+    if (typeId) {
+      localStorage.setItem(selectedTypeStorageKey, typeId);
+    } else {
+      localStorage.removeItem(selectedTypeStorageKey);
     }
   };
 
@@ -515,10 +493,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
 
     const availableIds = new Set(availableTypes.map((type) => type.id));
     
-    // If we already have a selected type that exists, check if we need to resync due to server update
     if (selectedTypeId && availableIds.has(selectedTypeId)) {
       const currentType = availableTypes.find((t) => t.id === selectedTypeId);
-      // Resync if the schema version changed (meaning server data updated)
       if (currentType && currentType.schema_version_id !== lastSyncedSchemaVersionId) {
         setSystemPrompt(currentType.system_prompt || "");
         setPostProcessing(currentType.post_processing || "");
@@ -528,13 +504,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       return;
     }
 
-    let storedTypeId: string | null = null;
-    try {
-      storedTypeId = localStorage.getItem(selectedTypeStorageKey);
-    } catch {
-      storedTypeId = null;
-    }
-
+    const storedTypeId = localStorage.getItem(selectedTypeStorageKey);
     const nextTypeId =
       storedTypeId && availableIds.has(storedTypeId)
         ? storedTypeId
@@ -588,7 +558,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["document-types"] });
       queryClient.invalidateQueries({ queryKey: ["labels"] });
-      // Sync local state with server response to ensure consistency
       if (result.type && result.type.id === selectedTypeId) {
         setSystemPrompt(result.type.system_prompt || "");
         setPostProcessing(result.type.post_processing || "");
@@ -635,7 +604,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       if (suggestion.type === "array") {
         setNewFieldArrayItemType((suggestion.items_type || "string") as FieldType);
         if ((suggestion.items_type || "").toString() === "object") {
-          // Convert AI properties to NestedProperty format (supports nested structures)
           setNewFieldObjectProperties(
             assistantPropertiesToNestedProperties(suggestion.object_properties || [])
           );
@@ -644,7 +612,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
         }
       } else if (suggestion.type === "object") {
         setNewFieldArrayItemType("string");
-        // Convert AI properties to NestedProperty format (supports nested structures)
         setNewFieldObjectProperties(
           assistantPropertiesToNestedProperties(suggestion.object_properties || [])
         );
@@ -793,28 +760,23 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       type: newFieldType,
       description: newFieldDescription || undefined,
       extraction_prompt: newFieldPrompt.trim() || undefined,
-      // Include visual analysis data if available
       visual_content_type: visualAnalysis?.visual_content_type,
       visual_guidance: visualAnalysis?.extraction_guidance,
       visual_features: visualAnalysis?.distinguishing_features,
     };
 
-    // Handle object type with properties (supports nested objects)
     if (newFieldType === "object" && newFieldObjectProperties.length > 0) {
       newField.properties = nestedPropertiesToSchemaProperties(newFieldObjectProperties);
     }
     
-    // Handle array type with items
     if (newFieldType === "array") {
       if (newFieldArrayItemType === "object" && newFieldObjectProperties.length > 0) {
-        // Array of objects (supports nested objects)
         newField.items = {
           name: "item",
           type: "object",
           properties: nestedPropertiesToSchemaProperties(newFieldObjectProperties),
         };
       } else {
-        // Array of simple types
         newField.items = {
           name: "item",
           type: newFieldArrayItemType,
@@ -940,20 +902,22 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     if (!selectedTypeId || !selectedType) return;
     
     const updatedFields = selectedType.schema_fields.map(f => {
-      if (f.name === fieldName && f.type === "array" && f.items?.type === "object") {
-        return {
-          ...f,
-          items: {
-            ...f.items,
+      if (f.name === fieldName) {
+        if (f.type === "array" && f.items?.type === "object") {
+          return {
+            ...f,
+            items: {
+              ...f.items,
+              properties: nestedPropertiesToSchemaProperties(properties),
+            },
+          };
+        }
+        if (f.type === "object") {
+          return {
+            ...f,
             properties: nestedPropertiesToSchemaProperties(properties),
-          },
-        };
-      }
-      if (f.name === fieldName && f.type === "object") {
-        return {
-          ...f,
-          properties: nestedPropertiesToSchemaProperties(properties),
-        };
+          };
+        }
       }
       return f;
     });
@@ -1233,7 +1197,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                   <p className="text-xs text-muted-foreground mb-2">{field.description}</p>
                 )}
                 
-                {/* Show nested structure for object and array of objects */}
                 {(field.type === "object" && field.properties) ||
                 (field.type === "array" && field.items?.type === "object" && field.items.properties) ? (
                   <div className="mb-3 p-2 bg-muted/30 rounded border text-xs space-y-1">
@@ -1294,7 +1257,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
         </div>
       </div>
       
-      {/* Create Document Type Dialog */}
       <Dialog open={isCreating} onOpenChange={setIsCreating}>
         <DialogContent>
           <DialogHeader>
@@ -1338,7 +1300,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Document Type Dialog */}
       <Dialog open={isEditingType} onOpenChange={setIsEditingType}>
         <DialogContent>
           <DialogHeader>
@@ -1389,7 +1350,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
         </DialogContent>
       </Dialog>
       
-      {/* Add Field Dialog */}
       <Dialog
         open={isAddingField}
         onOpenChange={(open) => {
@@ -1436,7 +1396,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 className="min-h-[80px]"
               />
               
-              {/* Screenshot upload/preview */}
               <div className="flex items-center gap-2">
                 <input
                   type="file"
@@ -1503,7 +1462,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 </div>
               )}
               
-              {/* Visual Analysis Results */}
               {visualAnalysis && (
                 <div className="p-3 border rounded-lg bg-accent/10 space-y-2">
                   <div className="flex items-center gap-2">
@@ -1583,7 +1541,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
               </Select>
             </div>
             
-            {/* Object / Array Configuration */}
             {(newFieldType === "object" || newFieldType === "array") && (
               <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
                 <div className="flex items-center gap-2 text-sm font-medium">
@@ -1613,7 +1570,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                   </div>
                 )}
                 
-                {/* Object Properties for object and array<object> - supports nested objects */}
                 {(newFieldType === "object" || (newFieldType === "array" && newFieldArrayItemType === "object")) && (
                   <div className="space-y-3">
                     <label className="text-sm font-medium">Object Properties</label>
@@ -1648,7 +1604,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
               />
             </div>
             
-            {/* Example Preview */}
             {(newFieldType === "object" || (newFieldType === "array" && newFieldArrayItemType === "object")) && newFieldObjectProperties.length > 0 && (
               <div className="p-3 bg-muted/50 rounded border text-xs space-y-2">
                 <div className="font-medium">Example Output:</div>
@@ -1686,7 +1641,6 @@ ${generateExampleOutput(newFieldObjectProperties, 3)}
         </DialogContent>
       </Dialog>
       
-      {/* Edit Field Prompt Dialog */}
       <Dialog open={!!editingField} onOpenChange={(open) => {
         if (!open) closeEditField();
       }}>
@@ -1810,7 +1764,6 @@ ${generateExampleOutput(newFieldObjectProperties, 3)}
         </DialogContent>
       </Dialog>
 
-      {/* Edit Field Properties Dialog */}
       <Dialog open={!!editingFieldProperties} onOpenChange={() => {
         setEditingFieldProperties(null);
         setEditedProperties([]);
@@ -1855,7 +1808,6 @@ ${generateExampleOutput(newFieldObjectProperties, 3)}
     </div>
         </TabsContent>
         
-        {/* Labels Tab */}
         <TabsContent value="labels" className="h-[calc(100%-3rem)] overflow-auto">
           <div className="space-y-6">
             <Card className="border-none shadow-none bg-background">

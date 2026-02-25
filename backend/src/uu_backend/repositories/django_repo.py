@@ -33,8 +33,6 @@ from uu_backend.models.taxonomy import (
 
 
 class DjangoORMRepository:
-    """Repository adapter backed by Django ORM models."""
-
     @staticmethod
     def _parse_incremental_version(name: Optional[str]) -> Optional[int]:
         if not name:
@@ -689,7 +687,6 @@ class DjangoORMRepository:
     # Ground Truth Annotation Methods
     
     def _ground_truth_annotation_from_model(self, model: orm.GroundTruthAnnotationModel):
-        """Convert Django ORM model to Pydantic model."""
         from uu_backend.models.annotation import GroundTruthAnnotation, AnnotationType
         
         return GroundTruthAnnotation(
@@ -707,7 +704,6 @@ class DjangoORMRepository:
         )
     
     def save_ground_truth_annotation(self, annotation_data: dict[str, Any]) -> str:
-        """Save a ground truth annotation."""
         annotation_id = annotation_data.get("id") or str(uuid4())
         
         orm.GroundTruthAnnotationModel.objects.update_or_create(
@@ -727,12 +723,10 @@ class DjangoORMRepository:
         return annotation_id
     
     def get_ground_truth_annotation(self, annotation_id: str):
-        """Get a single ground truth annotation by ID."""
         model = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).first()
         return self._ground_truth_annotation_from_model(model) if model else None
     
     def get_ground_truth_annotations(self, document_id: str) -> list:
-        """Get all ground truth annotations for a document."""
         models = orm.GroundTruthAnnotationModel.objects.filter(
             document_id=document_id
         ).order_by("created_at")
@@ -740,7 +734,6 @@ class DjangoORMRepository:
         return [self._ground_truth_annotation_from_model(model) for model in models]
     
     def get_ground_truth_by_field(self, document_id: str, field_name: str) -> list:
-        """Get ground truth annotations for a specific field in a document."""
         models = orm.GroundTruthAnnotationModel.objects.filter(
             document_id=document_id,
             field_name=field_name
@@ -749,7 +742,6 @@ class DjangoORMRepository:
         return [self._ground_truth_annotation_from_model(model) for model in models]
     
     def update_ground_truth_annotation(self, annotation_id: str, updates: dict[str, Any]) -> bool:
-        """Update a ground truth annotation."""
         model = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).first()
         if not model:
             return False
@@ -767,12 +759,10 @@ class DjangoORMRepository:
         return False
     
     def delete_ground_truth_annotation(self, annotation_id: str) -> bool:
-        """Delete a ground truth annotation."""
         deleted, _ = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).delete()
         return deleted > 0
     
     def approve_annotation(self, annotation_id: str, edited_value: Optional[Any] = None) -> bool:
-        """Approve an AI suggestion and convert it to ground truth."""
         model = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).first()
         if not model:
             return False

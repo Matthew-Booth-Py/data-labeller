@@ -29,14 +29,9 @@ export default function Dashboard() {
   const totalDocs = ingestStatus?.documents || 0;
   const classifiedDocs = ingestStatus?.classified_documents || 0;
   
-  // Get projects from localStorage
   const projects = (() => {
-    try {
-      const stored = localStorage.getItem("uu-projects");
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
+    const stored = localStorage.getItem("uu-projects");
+    return stored ? JSON.parse(stored) : [];
   })();
 
   return (

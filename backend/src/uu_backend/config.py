@@ -1,11 +1,4 @@
-"""Configuration management for Unstructured Unlocked.
-
-Settings precedence (highest to lowest):
-1. Runtime environment variables
-2. `.env` file (if present)
-3. `settings.yml` (if present)
-4. In-code defaults
-"""
+"""Configuration management for Unstructured Unlocked."""
 
 import json
 import os
@@ -18,25 +11,14 @@ from pydantic import BaseModel
 
 
 class Settings(BaseModel):
-    """Application settings."""
-
-    # API Settings
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     api_prefix: str = "/api/v1"
     debug: bool = False
-
-    # File Storage Settings
     file_storage_directory: str = "./data/files"
-
-    # CORS Settings
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
-
-    # Celery Settings
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
-
-    # OpenAI Settings
     openai_api_key: str = ""
     openai_model: str = "gpt-5-mini"
     openai_tagging_model: str = ""
@@ -46,22 +28,18 @@ class Settings(BaseModel):
 
     @property
     def effective_tagging_model(self) -> str:
-        """Model used for extraction/tagging flows."""
         return self.openai_tagging_model or self.openai_model
 
     @property
     def effective_context_model(self) -> str:
-        """Model used for contextual retrieval chunk context generation."""
         return self.context_model or self.openai_model
 
     @property
     def effective_summary_model(self) -> str:
-        """Model used for page summarization in contextual retrieval."""
         return self.summary_model or self.effective_context_model
 
     @property
     def file_storage_path(self) -> Path:
-        """Return file storage directory as Path."""
         path = Path(self.file_storage_directory)
         path.mkdir(parents=True, exist_ok=True)
         return path
@@ -85,7 +63,6 @@ _ENV_TO_FIELD = {
 
 
 def _coerce_value(field_name: str, raw: str) -> Any:
-    """Coerce env/.env string values into typed settings values."""
     if field_name in {
         "api_port",
     }:
@@ -103,7 +80,6 @@ def _coerce_value(field_name: str, raw: str) -> Any:
 
 
 def _read_dotenv_file(path: Path) -> dict[str, str]:
-    """Read a simple KEY=VALUE dotenv file."""
     if not path.exists():
         return {}
 
@@ -121,7 +97,6 @@ def _read_dotenv_file(path: Path) -> dict[str, str]:
 
 
 def _read_settings_yaml() -> dict[str, Any]:
-    """Load settings.yml from cwd or backend root."""
     env_path = os.getenv("SETTINGS_FILE")
     candidates = []
     if env_path:
@@ -139,13 +114,9 @@ def _read_settings_yaml() -> dict[str, Any]:
 
 
 def _build_settings_payload() -> dict[str, Any]:
-    """Merge defaults + settings.yml + .env + runtime environment."""
     payload = Settings().model_dump()
-
-    # settings.yml
     payload.update(_read_settings_yaml())
 
-    # .env - check current directory and parent directory
     dotenv_values = {}
     for env_path in [Path.cwd() / ".env", Path.cwd().parent / ".env"]:
         if env_path.exists():
@@ -157,7 +128,6 @@ def _build_settings_payload() -> dict[str, Any]:
         if raw is not None:
             payload[field_name] = _coerce_value(field_name, raw)
 
-    # runtime env
     for env_key, field_name in _ENV_TO_FIELD.items():
         raw = os.getenv(env_key)
         if raw is not None and raw != "":
@@ -168,5 +138,4 @@ def _build_settings_payload() -> dict[str, Any]:
 
 @lru_cache
 def get_settings() -> Settings:
-    """Get cached settings instance."""
     return Settings(**_build_settings_payload())

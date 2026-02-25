@@ -17,8 +17,6 @@ logger = logging.getLogger(__name__)
 
 
 class ContentType(str, Enum):
-    """Detected content type from visual analysis."""
-    
     TABLE = "table"
     FORM = "form"
     LIST = "list"
@@ -28,8 +26,6 @@ class ContentType(str, Enum):
 
 
 class RowHierarchy(BaseModel):
-    """Detected row hierarchy structure in tables."""
-    
     has_hierarchy: bool = Field(..., description="Whether table has nested row structure")
     depth: Optional[int] = Field(None, description="Maximum nesting depth (2-5)")
     example_paths: Optional[list[list[str]]] = Field(
@@ -41,8 +37,6 @@ class RowHierarchy(BaseModel):
 
 
 class VisualAnalysis(BaseModel):
-    """Result of visual structure analysis."""
-    
     content_type: ContentType = Field(..., description="Detected content type")
     structure_description: str = Field(..., description="Description of the visual layout")
     extraction_guidance: str = Field(..., description="Specific instructions for extraction")
@@ -65,8 +59,6 @@ class VisualAnalysis(BaseModel):
 
 
 class ImageAwarePromptGenerator:
-    """Analyze reference images to generate structure-aware extraction prompts."""
-
     ANALYSIS_PROMPT = """Analyze this document image and describe its visual structure for data extraction.
 
 Focus on identifying:
@@ -117,14 +109,6 @@ Be specific and practical - the extraction_guidance will be used directly in pro
         self._model = model or settings.effective_tagging_model
 
     def analyze_image(self, image_base64: str) -> VisualAnalysis:
-        """Analyze a base64-encoded image and return visual structure analysis.
-        
-        Args:
-            image_base64: Base64-encoded image data (PNG, JPG, etc.)
-            
-        Returns:
-            VisualAnalysis with content type and extraction guidance
-        """
         logger.info(f"Analyzing image for visual structure using {self._model}")
         
         messages = [
@@ -157,7 +141,6 @@ Be specific and practical - the extraction_guidance will be used directly in pro
             
             logger.info(f"Visual analysis complete: content_type={payload.get('content_type')}")
             
-            # Parse row_hierarchy if present
             row_hierarchy = None
             hierarchy_data = payload.get("row_hierarchy")
             if hierarchy_data and isinstance(hierarchy_data, dict):
@@ -192,14 +175,6 @@ Be specific and practical - the extraction_guidance will be used directly in pro
             )
 
     def analyze_image_file(self, image_path: str | Path) -> VisualAnalysis:
-        """Analyze an image file and return visual structure analysis.
-        
-        Args:
-            image_path: Path to the image file
-            
-        Returns:
-            VisualAnalysis with content type and extraction guidance
-        """
         path = Path(image_path)
         if not path.exists():
             raise FileNotFoundError(f"Image file not found: {path}")
@@ -216,16 +191,6 @@ Be specific and practical - the extraction_guidance will be used directly in pro
         field_name: str,
         field_description: Optional[str] = None,
     ) -> str:
-        """Generate an extraction prompt based on visual analysis.
-        
-        Args:
-            analysis: VisualAnalysis from analyze_image
-            field_name: Name of the schema field
-            field_description: Optional field description for context
-            
-        Returns:
-            Generated extraction prompt string
-        """
         field_label = field_name.replace("_", " ")
         
         if analysis.content_type == ContentType.TABLE:
@@ -286,7 +251,6 @@ Be specific and practical - the extraction_guidance will be used directly in pro
             return "\n".join(prompt_parts)
         
         else:
-            # PARAGRAPH, MIXED, or UNKNOWN
             prompt_parts = [
                 f"Extract '{field_label}' from the document.",
             ]
@@ -305,42 +269,22 @@ Be specific and practical - the extraction_guidance will be used directly in pro
         field_name: str,
         field_description: Optional[str] = None,
     ) -> str:
-        """Generate a retrieval query optimized for finding the right content.
-        
-        This generates a query for semantic search that is more likely to
-        match the actual content rather than explanatory text.
-        
-        Uses the field name/description as PRIMARY context, then adds visual cues.
-        
-        Args:
-            analysis: VisualAnalysis from analyze_image
-            field_name: Name of the schema field (e.g., "forward_looking_estimates")
-            field_description: Optional field description (e.g., "Forward Looking Estimates table")
-            
-        Returns:
-            Query string for retrieval
-        """
         query_parts = []
         
-        # Start with field name and description (primary context from user)
         if field_description:
             query_parts.append(field_description)
         query_parts.append(field_name.replace("_", " "))
         
         if analysis.content_type == ContentType.TABLE:
-            # Add structure description for context
             if analysis.structure_description:
                 query_parts.append(analysis.structure_description)
             
-            # For tables, include column headers and sample row labels
-            # These are more likely to appear in the actual table than in prose
             if analysis.column_headers:
-                query_parts.extend(analysis.column_headers[:3])  # Limit to top 3
+                query_parts.extend(analysis.column_headers[:3])
             
             if analysis.row_labels:
-                query_parts.extend(analysis.row_labels[:3])  # Limit to 3 samples
+                query_parts.extend(analysis.row_labels[:3])
             
-            # Add data type indicators
             if analysis.data_types:
                 for dt in analysis.data_types:
                     if dt == "currency":
@@ -351,19 +295,16 @@ Be specific and practical - the extraction_guidance will be used directly in pro
                         query_parts.append("time period dates")
         
         elif analysis.content_type == ContentType.FORM:
-            # For forms, the field labels are good search terms
             if analysis.distinguishing_features:
                 query_parts.extend(analysis.distinguishing_features[:3])
         
         return " ".join(query_parts)
 
 
-# Singleton instance
 _prompt_generator: Optional[ImageAwarePromptGenerator] = None
 
 
 def get_prompt_generator() -> ImageAwarePromptGenerator:
-    """Get or create the prompt generator singleton."""
     global _prompt_generator
     if _prompt_generator is None:
         _prompt_generator = ImageAwarePromptGenerator()

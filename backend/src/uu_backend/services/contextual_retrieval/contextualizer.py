@@ -37,19 +37,6 @@ USER_PROMPT = """Provide a short context for this chunk:
 
 
 class ChunkContextualizer:
-    """
-    Generate context for each chunk using an LLM.
-    
-    This prepends explanatory context to each chunk before embedding,
-    which improves retrieval accuracy by 35% according to Anthropic's research.
-    
-    Supports both sync and async operations. Async is recommended for batch
-    processing as it enables concurrent API calls.
-    
-    Leverages OpenAI's automatic prompt caching:
-    - Document excerpt (static prefix) is cached after first request
-    - Subsequent requests with same prefix get 50% cost reduction
-    """
 
     def __init__(
         self,
@@ -65,7 +52,6 @@ class ChunkContextualizer:
         self.max_context_chars = max_context_chars
         self.max_concurrency = int(os.getenv("MAX_CONCURRENCY", str(max_concurrency)))
         
-        # Check if using Azure OpenAI or regular OpenAI
         use_azure = os.getenv("USE_AZURE_OPENAI", "false").lower() == "true"
         
         if use_azure:
@@ -102,9 +88,6 @@ class ChunkContextualizer:
         self._completed_count = 0
 
     def _get_document_excerpt(self, document: str) -> str:
-        """
-        Get document excerpt, cached for reuse across all chunks.
-        """
         if self._cached_doc_excerpt is not None:
             return self._cached_doc_excerpt
         
@@ -116,12 +99,6 @@ class ChunkContextualizer:
         return self._cached_doc_excerpt
 
     def _get_cached_system_prompt(self, document: str) -> str:
-        """
-        Get the system prompt with document, cached for reuse.
-        
-        Caching ensures the EXACT same string is sent every time,
-        which is required for OpenAI prompt caching to work.
-        """
         if self._cached_system_prompt is not None:
             return self._cached_system_prompt
         
@@ -130,9 +107,6 @@ class ChunkContextualizer:
         return self._cached_system_prompt
 
     def contextualize(self, document: str, chunk: str) -> str:
-        """
-        Generate context for a single chunk (synchronous).
-        """
         system_prompt = self._get_cached_system_prompt(document)
         
         response = self.client.chat.completions.create(
@@ -152,12 +126,6 @@ class ChunkContextualizer:
         document: str,
         chunk: str,
     ) -> str:
-        """
-        Generate context for a single chunk (asynchronous with retry).
-        
-        Uses tenacity for exponential backoff on rate limits.
-        Uses system message for document (better for caching).
-        """
         system_prompt = self._get_cached_system_prompt(document)
         
         @retry(
@@ -182,7 +150,6 @@ class ChunkContextualizer:
         return await _call_api()
 
     def _track_cache_stats(self, usage) -> None:
-        """Track cache statistics from API response."""
         if usage:
             self._total_prompt_tokens += usage.prompt_tokens
             if hasattr(usage, 'prompt_tokens_details'):
@@ -191,7 +158,6 @@ class ChunkContextualizer:
                     self._total_cached_tokens += details.cached_tokens or 0
 
     def get_cache_stats(self) -> dict:
-        """Get cumulative cache statistics."""
         return {
             "total_prompt_tokens": self._total_prompt_tokens,
             "total_cached_tokens": self._total_cached_tokens,
@@ -202,7 +168,6 @@ class ChunkContextualizer:
         }
 
     def reset_stats(self) -> None:
-        """Reset cache statistics and document cache for a new document."""
         self._total_cached_tokens = 0
         self._total_prompt_tokens = 0
         self._completed_count = 0
@@ -214,7 +179,6 @@ class ChunkContextualizer:
         document: str,
         chunk: Chunk,
     ) -> ContextualizedChunk:
-        """Generate context for a chunk (synchronous)."""
         context = self.contextualize(document, chunk.text)
         
         return ContextualizedChunk(
@@ -235,7 +199,6 @@ class ChunkContextualizer:
         progress_callback: Callable[[int, int], None] | None = None,
         total: int = 0,
     ) -> ContextualizedChunk:
-        """Generate context for a chunk (asynchronous with semaphore)."""
         async with semaphore:
             context = await self.acontextualize(document, chunk.text)
             
@@ -259,11 +222,6 @@ class ChunkContextualizer:
         chunks: list[Chunk],
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[ContextualizedChunk]:
-        """
-        Contextualize multiple chunks (synchronous, sequential).
-        
-        For better performance, use contextualize_chunks_async instead.
-        """
         contextualized = []
         total = len(chunks)
         
@@ -282,17 +240,10 @@ class ChunkContextualizer:
         chunks: list[Chunk],
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[ContextualizedChunk]:
-        """
-        Contextualize multiple chunks concurrently (asynchronous).
-        
-        Uses a semaphore to limit concurrent requests to max_concurrency.
-        This is much faster than sequential processing.
-        """
         self._completed_count = 0
         total = len(chunks)
         semaphore = asyncio.Semaphore(self.max_concurrency)
         
-        # Pre-cache the document excerpt
         self._get_document_excerpt(document)
         
         tasks = [
@@ -303,8 +254,6 @@ class ChunkContextualizer:
         ]
         
         results = await asyncio.gather(*tasks)
-        
-        # Sort by index to maintain original order
         return sorted(results, key=lambda x: x.index)
 
     def contextualize_chunks_async(
@@ -313,19 +262,12 @@ class ChunkContextualizer:
         chunks: list[Chunk],
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[ContextualizedChunk]:
-        """
-        Sync wrapper for async batch contextualization.
-        
-        Works in both regular Python and Jupyter notebooks.
-        """
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
         
         if loop and loop.is_running():
-            # Already in an async context (e.g., Jupyter)
-            # Use nest_asyncio if available, otherwise fall back to sync
             try:
                 import nest_asyncio
                 nest_asyncio.apply()
@@ -333,7 +275,6 @@ class ChunkContextualizer:
                     self.acontextualize_chunks(document, chunks, progress_callback)
                 )
             except ImportError:
-                # nest_asyncio not available, use thread-based approach
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(
