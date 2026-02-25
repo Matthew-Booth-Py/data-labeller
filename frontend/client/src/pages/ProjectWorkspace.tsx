@@ -97,19 +97,6 @@ export default function ProjectWorkspace() {
       // Ignore parse errors
     }
     
-    // Special case: if this is the tutorial project and it doesn't exist, create it
-    if (id === "tutorial") {
-      return {
-        id: "tutorial",
-        name: "Tutorial Project",
-        description: "Sample insurance documents for the Getting Started tutorial",
-        type: "Insurance",
-        docCount: 0,
-        model: "GPT-5-mini",
-        documentIds: [],
-      };
-    }
-    
     // Return a default project with the URL id
     return {
       id: id || "unknown",

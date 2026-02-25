@@ -1,15 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import {
   FileText,
   Building2,
-  GraduationCap,
-  ArrowRight,
-  Sparkles,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Link } from "wouter";
 import { api } from "@/lib/api";
 
 export default function Dashboard() {
@@ -51,33 +46,6 @@ export default function Dashboard() {
           <h1 className="text-2xl font-semibold tracking-tight">Observability Overview</h1>
           <p className="text-muted-foreground mt-1">System-wide performance and extraction health.</p>
         </div>
-
-        <Card className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border-primary/20">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-xl bg-primary/10">
-                  <GraduationCap className="h-8 w-8 text-primary" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold flex items-center gap-2">
-                    Getting Started Tutorial
-                    <Sparkles className="h-4 w-4 text-amber-500" />
-                  </h3>
-                  <p className="text-sm text-muted-foreground max-w-xl">
-                    Learn how to define schemas, classify documents, and extract structured data from real documents.
-                  </p>
-                </div>
-              </div>
-              <Link href="/getting-started">
-                <Button className="gap-2">
-                  Start Tutorial
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <Card className="bg-background border-muted-foreground/10">

@@ -432,34 +432,6 @@ export interface FieldPromptVersionUpdate {
   is_active?: boolean;
 }
 
-// ============================================================================
-// Tutorial Types
-// ============================================================================
-
-export interface TutorialSetupResponse {
-  success: boolean;
-  document_ids: string[];
-  document_type_ids: string[];
-  label_ids: string[];
-  message: string;
-}
-
-export interface TutorialStatusResponse {
-  is_setup: boolean;
-  document_count: number;
-  document_type_count: number;
-  label_count: number;
-  sample_document_ids: string[];
-}
-
-export interface SampleDocument {
-  id: string;
-  filename: string;
-  file_type: string;
-  expected_type: string;
-  is_sample: boolean;
-}
-
 // Evaluation interfaces
 export type MatchType = 'exact' | 'normalized' | 'fuzzy' | 'semantic' | 'no_match';
 
@@ -866,30 +838,6 @@ class ApiClient {
   async getDocumentExtraction(documentId: string): Promise<ExtractionResult> {
     return this.request(`${API_PREFIX}/documents/${documentId}/extraction`);
   }
-
-
-  // Tutorial
-  async setupTutorial(): Promise<TutorialSetupResponse> {
-    return this.request(`${API_PREFIX}/tutorial/setup`, {
-      method: 'POST',
-    });
-  }
-
-  async getTutorialStatus(): Promise<TutorialStatusResponse> {
-    return this.request(`${API_PREFIX}/tutorial/status`);
-  }
-
-  async resetTutorial(): Promise<{ success: boolean; deleted_documents: number; message: string }> {
-    return this.request(`${API_PREFIX}/tutorial/reset`, {
-      method: 'POST',
-    });
-  }
-
-  async getSampleDocuments(): Promise<{ documents: SampleDocument[]; total: number; expected_total: number }> {
-    return this.request(`${API_PREFIX}/tutorial/sample-documents`);
-  }
-
-
 
   async listFieldPromptVersions(
     documentTypeId: string,

@@ -138,7 +138,6 @@ Runtime request ownership is served directly by Django via `uu_backend.asgi_disp
 | Evaluation | `/api/v1/evaluation*` | Postgres evaluations + annotations + schema metadata, extraction pipeline, LLM (when enabled) |
 | Deployments | `/api/v1/deployments*` | Postgres deployment snapshots, extraction service, active/pinned version resolution, LLM |
 | Timeline/Graph/Search | `/api/v1/timeline`, `/api/v1/graph*`, `/api/v1/search*`, `/api/v1/ask` | ChromaDB, Postgres metadata, LLM (for Q&A) |
-| Tutorial Setup | `/api/v1/tutorial*` | `backend/sample_docs`, Postgres, file storage, converter/chunker |
 
 ### Deployment Endpoint-Specific Requirements
 - `POST /api/v1/deployments/versions`
@@ -203,7 +202,6 @@ Use your `.env` file. Important keys include:
 
 ## Notes
 
-- Tutorial sample PDFs in `backend/sample_docs/` are example documents demonstrating the platform's capabilities
 - The platform is domain-agnostic and works with any document type
 - Use projects to organize different extraction use cases
 - **AI Suggest** requires the document to be indexed for contextual retrieval (ChromaDB); it automatically identifies which pages contain the relevant data before running pdfplumber bounding box analysis

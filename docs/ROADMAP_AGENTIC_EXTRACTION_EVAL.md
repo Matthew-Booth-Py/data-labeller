@@ -140,11 +140,8 @@ Build:
 
 Touchpoints:
 
-- `backend/src/uu_backend/django_api/tutorial.py` (extend or split)
 - `backend/src/uu_backend/services/suggestion_service.py`
 - `backend/src/uu_backend/services/schema_based_suggestion_service.py`
-- `frontend/client/src/components/onboarding/GettingStartedWizard.tsx`
-- `frontend/client/src/pages/GettingStarted.tsx`
 - `frontend/client/src/pages/ProjectWorkspace.tsx`
 
 Acceptance:
