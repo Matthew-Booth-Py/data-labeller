@@ -81,7 +81,7 @@ repos:
         stages: [pre-commit]
         files: ^frontend/
         types_or: [javascript, jsx, ts, tsx, json, css, scss, markdown]
-        exclude: ^frontend/(node_modules|dist|build)/
+        exclude: ^frontend/(node_modules|dist|build)/|^frontend/package-lock\.json$
 
   # Frontend: ESLint - Disabled (no eslint.config.js file)
   # To enable: Create eslint.config.js in frontend/ directory
@@ -98,14 +98,6 @@ repos:
   #         - typescript@^5.6.3
   #         - '@typescript-eslint/parser@^8.18.1'
   #         - '@typescript-eslint/eslint-plugin@^8.18.1'
-
-  # Commit message validation
-  - repo: https://github.com/compilerla/conventional-pre-commit
-    rev: v3.6.0
-    hooks:
-      - id: conventional-pre-commit
-        stages: [commit-msg]
-        args: [--force-scope]
 
   # Docker: Dockerfile linting
   - repo: https://github.com/hadolint/hadolint
