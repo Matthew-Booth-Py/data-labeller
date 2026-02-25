@@ -82,7 +82,7 @@ jobs:
 
       - name: Upload SBOM
         if: github.event_name == 'release'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: backend-sbom
           path: backend-sbom.spdx.json
@@ -148,7 +148,7 @@ jobs:
 
       - name: Upload SBOM
         if: github.event_name == 'release'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: frontend-sbom
           path: frontend-sbom.spdx.json
