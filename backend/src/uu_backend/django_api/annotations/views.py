@@ -47,7 +47,8 @@ class GroundTruthAnnotationListView(APIView):
             # Validate request data
             annotation_create = GroundTruthAnnotationCreate(**request.data)
             print(
-                f"Annotation created: type={annotation_create.annotation_type}, value='{annotation_create.value}'"
+                f"Annotation created: type={annotation_create.annotation_type}, "
+                f"value='{annotation_create.value}'"
             )
 
             # Ensure document_id matches

@@ -11,8 +11,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
-
-logger = logging.getLogger(__name__)
 from uu_backend.llm.openai_client import get_openai_client
 from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.taxonomy import (
@@ -33,6 +31,8 @@ from uu_backend.services.classification_service import get_classification_servic
 from uu_backend.services.extraction_service import get_extraction_service
 from uu_backend.services.prompt_generator import ContentType, get_prompt_generator
 
+logger = logging.getLogger(__name__)
+
 
 def _jsonable(value):
     if hasattr(value, "model_dump"):
@@ -52,10 +52,6 @@ def _bool_query_param(value: str | None, default: bool) -> bool:
     if value is None:
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
-
-    for existing_name, label in existing_by_name.items():
-        if existing_name not in expected_by_name:
-            repository.delete_label(label.id)
 
 
 class TaxonomyPrefixView(APIView):
@@ -158,15 +154,18 @@ class TaxonomyPrefixView(APIView):
             system_prompt = (
                 "You are a document extraction schema assistant.\n"
                 "Generate one field suggestion from user intent.\n"
-                "If a screenshot is provided, use it to understand the document structure and suggest appropriate fields.\n"
+                "If a screenshot is provided, use it to understand the document "
+                "structure and suggest appropriate fields.\n"
                 "Rules:\n"
                 "1) Output valid JSON only.\n"
                 "2) Field name must be snake_case and not collide with existing_field_names.\n"
                 "3) Type must be one of: string, number, date, boolean, object, array.\n"
                 "4) extraction_prompt must enforce RAW extraction (no interpretation).\n"
-                "5) For TABLES with multiple rows, ALWAYS use type=array with items_type=object.\n"
+                "5) For TABLES with multiple rows, ALWAYS use type=array with "
+                "items_type=object.\n"
                 "6) **FIELD NAMES MUST BE GENERIC AND REUSABLE**:\n"
-                "   - NEVER use data-specific values in field names (e.g., 'full_year_2024', 'q1_2023')\n"
+                "   - NEVER use data-specific values in field names "
+                "(e.g., 'full_year_2024', 'q1_2023')\n"
                 "   - Use generic names like 'period_1', 'period_2' or 'column_1', 'column_2'\n"
                 "   - Actual values (dates, years, periods) belong in the DATA, not field names\n"
                 "   - Schema must work for ANY document of this type, not just the current example\n"

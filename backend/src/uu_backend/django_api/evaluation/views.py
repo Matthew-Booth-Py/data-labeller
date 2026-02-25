@@ -69,7 +69,8 @@ def run_evaluation(request):
         logger.info(f"Request data: {data}")
         create_request = EvaluationRunCreate(**data)
         logger.info(
-            f"Parsed request: document_id={create_request.document_id}, run_extraction={create_request.run_extraction}"
+            f"Parsed request: document_id={create_request.document_id}, "
+            f"run_extraction={create_request.run_extraction}"
         )
 
         # Queue evaluation as Celery task
