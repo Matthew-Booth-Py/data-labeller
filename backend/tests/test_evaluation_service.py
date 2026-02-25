@@ -988,3 +988,65 @@ class TestEmptyValueMatching:
         flattened = service._calculate_flattened_metrics(comparisons)
         assert flattened.precision == 1.0
         assert flattened.correct_fields == 2
+
+
+class TestUnmatchedReconciliation:
+    """Tests for reconciling missing+extra duplicates in row-based comparisons."""
+
+    @pytest.fixture
+    def service(self):
+        with patch('uu_backend.services.evaluation_service.get_extraction_service'), \
+             patch('uu_backend.services.evaluation_service.get_document_repository'), \
+             patch('uu_backend.services.evaluation_service.get_openai_client'):
+            return EvaluationService()
+
+    def test_same_instance_missing_and_extra_become_single_incorrect_pair(self, service):
+        """A same-instance mismatch should be one incorrect row, not two duplicate rows."""
+        comparison_schema = {
+            "table.hierarchy_path": {
+                "ground_truth": [{"value": "Non-GAAP capital spending", "instance": 4}],
+                "predicted": [{"value": ["GAAP additions", "Partner contributions, net"], "instance": 4}],
+            }
+        }
+        eval_results = {
+            "table.hierarchy_path": {
+                "matches": [],
+                "missing_gt_indices": [0],
+                "extra_pred_indices": [0],
+            }
+        }
+
+        comparisons = service._build_field_comparisons(comparison_schema, eval_results)
+
+        assert len(comparisons) == 1
+        c = comparisons[0]
+        assert c.instance_num == 4
+        assert c.ground_truth_value == "Non-GAAP capital spending"
+        assert c.predicted_value == ["GAAP additions", "Partner contributions, net"]
+        assert c.is_correct is False
+        assert c.is_missing is False
+        assert c.is_extra is False
+
+    def test_hierarchy_leaf_match_recovers_from_missing_plus_extra(self, service):
+        """Leaf hierarchy matches should be recovered even if LLM omitted the match."""
+        comparison_schema = {
+            "table.hierarchy_path": {
+                "ground_truth": [{"value": "Non-GAAP R&D and MG&A", "instance": 8}],
+                "predicted": [{"value": ["GAAP R&D and MG&A", "Non-GAAP R&D and MG&A"], "instance": 8}],
+            }
+        }
+        eval_results = {
+            "table.hierarchy_path": {
+                "matches": [],
+                "missing_gt_indices": [0],
+                "extra_pred_indices": [0],
+            }
+        }
+
+        comparisons = service._build_field_comparisons(comparison_schema, eval_results)
+
+        assert len(comparisons) == 1
+        c = comparisons[0]
+        assert c.instance_num == 8
+        assert c.is_correct is True
+        assert c.match_result.match_type.value == "exact"
