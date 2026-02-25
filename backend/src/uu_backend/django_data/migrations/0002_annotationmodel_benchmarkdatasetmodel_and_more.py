@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("django_data", "0001_initial"),
     ]
@@ -128,9 +127,7 @@ class Migration(migrations.Migration):
                 ("document_type_id", models.CharField(db_index=True, max_length=64)),
                 (
                     "prompt_version_id",
-                    models.CharField(
-                        blank=True, db_index=True, max_length=64, null=True
-                    ),
+                    models.CharField(blank=True, db_index=True, max_length=64, null=True),
                 ),
                 (
                     "schema_version_id",
@@ -277,9 +274,7 @@ class Migration(migrations.Migration):
                 ("name", models.TextField()),
                 (
                     "document_type_id",
-                    models.CharField(
-                        blank=True, db_index=True, max_length=64, null=True
-                    ),
+                    models.CharField(blank=True, db_index=True, max_length=64, null=True),
                 ),
                 ("system_prompt", models.TextField()),
                 ("user_prompt_template", models.TextField(blank=True, null=True)),
@@ -398,9 +393,7 @@ class Migration(migrations.Migration):
                 ("entity_type", models.TextField(blank=True, null=True)),
                 (
                     "document_type_id",
-                    models.CharField(
-                        blank=True, db_index=True, max_length=64, null=True
-                    ),
+                    models.CharField(blank=True, db_index=True, max_length=64, null=True),
                 ),
                 ("created_at", models.DateTimeField()),
             ],

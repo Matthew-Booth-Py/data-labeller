@@ -1,12 +1,18 @@
 import { useState, useEffect } from "react";
 import { Shell } from "@/components/layout/Shell";
-import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  CardFooter,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { 
-  Plus, 
-  MoreVertical, 
-  FileText, 
+import {
+  Plus,
+  MoreVertical,
+  FileText,
   Play,
   ArrowUpRight,
   Clock,
@@ -28,7 +34,7 @@ interface Project {
   docCount: number;
   model?: string;
   createdAt?: string;
-  documentIds?: string[];  // Track uploaded document IDs
+  documentIds?: string[]; // Track uploaded document IDs
 }
 
 type DriftRisk = "Low" | "Medium" | "High" | "Unknown";
@@ -41,7 +47,7 @@ interface ProjectLiveMetrics {
 
 const getProjectDisplayMetrics = (
   project: Project,
-  live?: ProjectLiveMetrics
+  live?: ProjectLiveMetrics,
 ): ProjectLiveMetrics => ({
   coverage: live?.coverage ?? project.coverage ?? 0,
   lastEval: live?.lastEval ?? project.lastEval ?? "Never",
@@ -51,7 +57,9 @@ const getProjectDisplayMetrics = (
 export default function ProjectsList() {
   const [_, setLocation] = useLocation();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [projectMetrics, setProjectMetrics] = useState<Record<string, ProjectLiveMetrics>>({});
+  const [projectMetrics, setProjectMetrics] = useState<
+    Record<string, ProjectLiveMetrics>
+  >({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -83,7 +91,11 @@ export default function ProjectsList() {
             const documentIds = project.documentIds || [];
             const docCount = documentIds.length || project.docCount || 0;
             if (docCount === 0) {
-              next[project.id] = { coverage: 0, lastEval: "Never", driftRisk: "Unknown" };
+              next[project.id] = {
+                coverage: 0,
+                lastEval: "Never",
+                driftRisk: "Unknown",
+              };
               continue;
             }
 
@@ -97,14 +109,22 @@ export default function ProjectsList() {
             }
 
             const evaluatedDocs = new Set(evals.map((e: any) => e.document_id));
-            const coverage = Math.min(100, Math.round((evaluatedDocs.size / docCount) * 100));
+            const coverage = Math.min(
+              100,
+              Math.round((evaluatedDocs.size / docCount) * 100),
+            );
             const latestEval = evals
               .map((e: any) => e.evaluated_at)
               .filter(Boolean)
-              .sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime())[0];
+              .sort(
+                (a: string, b: string) =>
+                  new Date(b).getTime() - new Date(a).getTime(),
+              )[0];
 
             const sortedByDate = [...evals].sort(
-              (a: any, b: any) => new Date(a.evaluated_at).getTime() - new Date(b.evaluated_at).getTime()
+              (a: any, b: any) =>
+                new Date(a.evaluated_at).getTime() -
+                new Date(b.evaluated_at).getTime(),
             );
             const f1Series = sortedByDate
               .map((e: any) => Number(e.metrics?.f1_score ?? 0))
@@ -114,7 +134,8 @@ export default function ProjectsList() {
             if (f1Series.length >= 2) {
               const recent = f1Series.slice(-5);
               const previous = f1Series.slice(-10, -5);
-              const avg = (arr: number[]) => (arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : 0);
+              const avg = (arr: number[]) =>
+                arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : 0;
               const recentAvg = avg(recent);
               const previousAvg = previous.length ? avg(previous) : recentAvg;
               const delta = Math.abs(recentAvg - previousAvg);
@@ -125,7 +146,9 @@ export default function ProjectsList() {
 
             next[project.id] = {
               coverage,
-              lastEval: latestEval ? new Date(latestEval).toLocaleDateString() : "Never",
+              lastEval: latestEval
+                ? new Date(latestEval).toLocaleDateString()
+                : "Never",
               driftRisk,
             };
           } catch {
@@ -169,14 +192,14 @@ export default function ProjectsList() {
   const deleteProject = async (id: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
-    const project = projects.find(p => p.id === id);
+
+    const project = projects.find((p) => p.id === id);
     if (!project) return;
 
     // Confirm deletion if project has documents
     if (project.documentIds && project.documentIds.length > 0) {
       const confirmed = window.confirm(
-        `This will delete the project and ${project.documentIds.length} uploaded document(s). Continue?`
+        `This will delete the project and ${project.documentIds.length} uploaded document(s). Continue?`,
       );
       if (!confirmed) return;
     }
@@ -187,7 +210,7 @@ export default function ProjectsList() {
       // Note: Individual document deletion disabled - documents remain in system
       // Use database clear operation to remove all documents
       // if (project.documentIds && project.documentIds.length > 0) {
-      //   const deletePromises = project.documentIds.map(docId => 
+      //   const deletePromises = project.documentIds.map(docId =>
       //     api.deleteDocument(docId).catch(err => {
       //       console.warn(`Failed to delete document ${docId}:`, err);
       //       return null; // Continue even if one fails
@@ -197,13 +220,13 @@ export default function ProjectsList() {
       // }
 
       // Remove project from localStorage
-      const updated = projects.filter(p => p.id !== id);
+      const updated = projects.filter((p) => p.id !== id);
       setProjects(updated);
       localStorage.setItem("uu-projects", JSON.stringify(updated));
 
       toast({
         title: "Project deleted",
-        description: project.documentIds?.length 
+        description: project.documentIds?.length
           ? `Deleted project and ${project.documentIds.length} document(s)`
           : "Project removed successfully",
       });
@@ -224,10 +247,14 @@ export default function ProjectsList() {
       <div className="p-8 max-w-7xl mx-auto space-y-8">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-primary">Projects</h1>
-            <p className="text-muted-foreground mt-1">Manage and monitor your document extraction pipelines.</p>
+            <h1 className="text-3xl font-bold tracking-tight text-primary">
+              Projects
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Manage and monitor your document extraction pipelines.
+            </p>
           </div>
-          <Button 
+          <Button
             className="gap-2 bg-accent hover:bg-accent/90"
             onClick={() => setLocation("/projects/new")}
           >
@@ -238,103 +265,123 @@ export default function ProjectsList() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {projects.map((project) => (
-            <Card key={project.id} className="group hover:border-primary/20 transition-all bg-white border-muted shadow-sm flex flex-col relative overflow-visible">
+            <Card
+              key={project.id}
+              className="group hover:border-primary/20 transition-all bg-white border-muted shadow-sm flex flex-col relative overflow-visible"
+            >
               {(() => {
-                const display = getProjectDisplayMetrics(project, projectMetrics[project.id]);
+                const display = getProjectDisplayMetrics(
+                  project,
+                  projectMetrics[project.id],
+                );
                 return (
                   <>
-              <CardHeader className="pb-4">
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                     <div className="flex items-center gap-2 mb-2">
-                        <Badge variant="outline" className="text-xs font-normal border-muted-foreground/20 text-muted-foreground bg-muted/5">
-                          {project.type || "Document Analysis"}
-                        </Badge>
-                        <Badge
-                          variant={
-                            display.driftRisk === "High"
-                              ? "destructive"
-                              : "secondary"
-                          }
-                          className="text-[10px]"
+                    <CardHeader className="pb-4">
+                      <div className="flex items-start justify-between">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge
+                              variant="outline"
+                              className="text-xs font-normal border-muted-foreground/20 text-muted-foreground bg-muted/5"
+                            >
+                              {project.type || "Document Analysis"}
+                            </Badge>
+                            <Badge
+                              variant={
+                                display.driftRisk === "High"
+                                  ? "destructive"
+                                  : "secondary"
+                              }
+                              className="text-[10px]"
+                            >
+                              {display.driftRisk} Risk
+                            </Badge>
+                          </div>
+                          <CardTitle className="text-xl font-bold text-foreground group-hover:text-primary transition-colors flex items-center gap-2">
+                            <Link
+                              href={`/project/${project.id}`}
+                              className="hover:underline underline-offset-4 decoration-primary/30"
+                            >
+                              {project.name}
+                            </Link>
+                            <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground line-clamp-1">
+                            {project.description || "No description"}
+                          </p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10 -mt-1 -mr-2"
+                          onClick={(e) => deleteProject(project.id, e)}
+                          disabled={deletingId === project.id}
+                          title="Delete project"
                         >
-                           {display.driftRisk} Risk
-                        </Badge>
-                     </div>
-                     <CardTitle className="text-xl font-bold text-foreground group-hover:text-primary transition-colors flex items-center gap-2">
-                        <Link href={`/project/${project.id}`} className="hover:underline underline-offset-4 decoration-primary/30">
-                          {project.name}
-                        </Link>
-                        <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                     </CardTitle>
-                     <p className="text-sm text-muted-foreground line-clamp-1">
-                       {project.description || "No description"}
-                     </p>
-                  </div>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10 -mt-1 -mr-2"
-                    onClick={(e) => deleteProject(project.id, e)}
-                    disabled={deletingId === project.id}
-                    title="Delete project"
-                  >
-                    {deletingId === project.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-              </CardHeader>
-              
-              <CardContent className="py-4 border-t border-dashed border-muted">
-                <div className="grid grid-cols-3 gap-8">
-                  <div className="space-y-1">
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Docs</p>
-                    <div className="flex items-center gap-2 font-mono text-sm font-medium">
-                      <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                      {(project.docCount || 0).toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Coverage</p>
-                      <div className="flex items-center gap-2 font-mono text-sm font-medium">
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      {display.coverage}%
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Model</p>
-                    <div className="flex items-center gap-2 font-mono text-sm font-medium truncate" title={project.model}>
-                       {(project.model || "OPENAI_MODEL").split(' ')[0]}
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
+                          {deletingId === project.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </CardHeader>
 
-              <CardFooter className="pt-3 pb-3 bg-muted/5 flex justify-between items-center text-xs text-muted-foreground border-t border-muted">
-                 <div className="flex items-center gap-1.5">
-                    <Clock className="h-3.5 w-3.5" />
-                    {project.createdAt 
-                      ? `Created: ${new Date(project.createdAt).toLocaleDateString()}` 
-                      : `Last eval: ${display.lastEval}`
-                    }
-                 </div>
-                 
-                 <Button 
-                    size="sm"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setLocation(`/project/${project.id}`);
-                    }}
-                    className="h-8 gap-2 bg-accent hover:bg-accent/90 shadow-sm text-white px-4"
-                  >
-                    <Play className="h-3.5 w-3.5 fill-current" />
-                    Open
-                  </Button>
-              </CardFooter>
+                    <CardContent className="py-4 border-t border-dashed border-muted">
+                      <div className="grid grid-cols-3 gap-8">
+                        <div className="space-y-1">
+                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                            Docs
+                          </p>
+                          <div className="flex items-center gap-2 font-mono text-sm font-medium">
+                            <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                            {(project.docCount || 0).toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                            Coverage
+                          </p>
+                          <div className="flex items-center gap-2 font-mono text-sm font-medium">
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            {display.coverage}%
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                            Model
+                          </p>
+                          <div
+                            className="flex items-center gap-2 font-mono text-sm font-medium truncate"
+                            title={project.model}
+                          >
+                            {(project.model || "OPENAI_MODEL").split(" ")[0]}
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+
+                    <CardFooter className="pt-3 pb-3 bg-muted/5 flex justify-between items-center text-xs text-muted-foreground border-t border-muted">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5" />
+                        {project.createdAt
+                          ? `Created: ${new Date(project.createdAt).toLocaleDateString()}`
+                          : `Last eval: ${display.lastEval}`}
+                      </div>
+
+                      <Button
+                        size="sm"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setLocation(`/project/${project.id}`);
+                        }}
+                        className="h-8 gap-2 bg-accent hover:bg-accent/90 shadow-sm text-white px-4"
+                      >
+                        <Play className="h-3.5 w-3.5 fill-current" />
+                        Open
+                      </Button>
+                    </CardFooter>
                   </>
                 );
               })()}
@@ -342,17 +389,19 @@ export default function ProjectsList() {
           ))}
 
           {/* Create New Project Card */}
-          <button 
+          <button
             className="h-full min-h-[220px] border-2 border-dashed rounded-xl border-muted-foreground/10 flex flex-col items-center justify-center gap-3 text-muted-foreground hover:border-accent/50 hover:text-accent hover:bg-accent/5 transition-all group bg-white/50"
             onClick={() => setLocation("/projects/new")}
           >
-             <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center group-hover:bg-accent/10 group-hover:text-accent transition-colors">
-               <Plus className="h-6 w-6" />
-             </div>
-             <div className="text-center">
-                <span className="font-semibold block">Create Project</span>
-                <span className="text-xs text-muted-foreground mt-1">Start a new document analysis project</span>
-             </div>
+            <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center group-hover:bg-accent/10 group-hover:text-accent transition-colors">
+              <Plus className="h-6 w-6" />
+            </div>
+            <div className="text-center">
+              <span className="font-semibold block">Create Project</span>
+              <span className="text-xs text-muted-foreground mt-1">
+                Start a new document analysis project
+              </span>
+            </div>
           </button>
         </div>
 

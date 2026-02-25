@@ -27,7 +27,7 @@ class Reranker(Protocol):
 class AzureCohereReranker:
     """
     Reranker using Azure-hosted Cohere API.
-    
+
     Uses your Azure endpoint instead of the standard Cohere API.
     """
 
@@ -57,12 +57,12 @@ class AzureCohereReranker:
     ) -> list[SearchResult]:
         """
         Rerank search results using Azure Cohere.
-        
+
         Args:
             query: Search query
             results: List of SearchResult objects to rerank
             top_n: Number of top results to return
-            
+
         Returns:
             Reranked list of SearchResult objects
         """
@@ -72,21 +72,25 @@ class AzureCohereReranker:
         if len(results) <= 1:
             return results
 
-        logger.info(f"[Reranker] Reranking {len(results)} candidates with Azure Cohere (top_n={top_n})")
-        
+        logger.info(
+            f"[Reranker] Reranking {len(results)} candidates with Azure Cohere (top_n={top_n})"
+        )
+
         documents = [r.text for r in results]
-        
+
         reranked_indices = self._call_rerank_api(query, documents, top_n)
-        
+
         logger.info(f"[Reranker] Received {len(reranked_indices)} reranked results")
         if reranked_indices:
-            logger.info(f"[Reranker] Top relevance score: {reranked_indices[0]['relevance_score']:.4f}")
-        
+            logger.info(
+                f"[Reranker] Top relevance score: {reranked_indices[0]['relevance_score']:.4f}"
+            )
+
         reranked_results = []
         for item in reranked_indices:
             idx = item["index"]
             relevance_score = item["relevance_score"]
-            
+
             if idx < len(results):
                 result = results[idx]
                 reranked_results.append(
@@ -131,19 +135,19 @@ class AzureCohereReranker:
             json=payload,
             timeout=self.timeout,
         )
-        
+
         if not response.ok:
             print(f"Rerank API error: {response.status_code}")
             print(f"Response: {response.text[:500]}")
             response.raise_for_status()
-        
+
         return response.json().get("results", [])
 
 
 class NoReranker:
     """
     Pass-through reranker that doesn't rerank.
-    
+
     Useful for testing or when reranking is not needed.
     """
 

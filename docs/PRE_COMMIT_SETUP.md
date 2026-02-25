@@ -216,7 +216,7 @@ npm install
 
 **Problem**: Pre-commit hooks take too long.
 
-**Solution**: 
+**Solution**:
 1. Hooks cache results - they'll be faster on subsequent runs
 2. Only changed files are checked (not all files)
 3. Consider moving slow checks to `pre-push` stage:

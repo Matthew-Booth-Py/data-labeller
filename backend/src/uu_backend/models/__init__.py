@@ -1,32 +1,9 @@
 """Pydantic models for Unstructured Unlocked."""
 
-from uu_backend.models.document import (
-    Document,
-    DocumentMetadata,
-    IngestResponse,
-)
-from uu_backend.models.taxonomy import (
-    Classification,
-    ClassificationCreate,
-    ClassificationResponse,
-    DocumentType,
-    DocumentTypeCreate,
-    DocumentTypeListResponse,
-    DocumentTypeResponse,
-    DocumentTypeUpdate,
-    ExtractedField,
-    ExtractionResult,
-    FieldType,
-    SchemaField,
-)
-from uu_backend.models.prompt import (
-    PromptVersion,
-    FieldPromptVersion,
-)
 from uu_backend.models.annotation import (
-    AnnotationType,
     AnnotationSuggestion,
     AnnotationSuggestionResponse,
+    AnnotationType,
     ApproveAnnotationRequest,
     BoundingBoxData,
     GroundTruthAnnotation,
@@ -37,6 +14,11 @@ from uu_backend.models.annotation import (
     TableRowData,
     TableRowFieldData,
     TextSpanData,
+)
+from uu_backend.models.document import (
+    Document,
+    DocumentMetadata,
+    IngestResponse,
 )
 from uu_backend.models.evaluation import (
     EvaluationMetrics,
@@ -53,6 +35,24 @@ from uu_backend.models.evaluation import (
     InstanceMetrics,
     MatchResult,
     MatchType,
+)
+from uu_backend.models.prompt import (
+    FieldPromptVersion,
+    PromptVersion,
+)
+from uu_backend.models.taxonomy import (
+    Classification,
+    ClassificationCreate,
+    ClassificationResponse,
+    DocumentType,
+    DocumentTypeCreate,
+    DocumentTypeListResponse,
+    DocumentTypeResponse,
+    DocumentTypeUpdate,
+    ExtractedField,
+    ExtractionResult,
+    FieldType,
+    SchemaField,
 )
 
 __all__ = [

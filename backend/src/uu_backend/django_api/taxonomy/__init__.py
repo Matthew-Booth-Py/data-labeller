@@ -1,2 +1,1 @@
 """Taxonomy endpoint group."""
-

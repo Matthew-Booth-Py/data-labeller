@@ -12,7 +12,7 @@ from .models import ContextualizedChunk, SearchResult
 class ChromaVectorStore:
     """
     ChromaDB-based vector store for storing and searching embeddings.
-    
+
     Uses one collection per document for isolation and reliability.
     Uses cosine similarity by default for semantic search.
     """
@@ -25,16 +25,16 @@ class ChromaVectorStore:
         self.persist_directory = persist_directory or os.getenv(
             "CHROMA_PERSIST_DIRECTORY", "./data/chroma"
         )
-        
+
         self.client = chromadb.PersistentClient(
             path=self.persist_directory,
             settings=Settings(anonymized_telemetry=False),
         )
-    
+
     def _get_collection_name(self, doc_id: str) -> str:
         """Get collection name for a document."""
         return f"doc_{doc_id.replace('-', '_')}"
-    
+
     def _get_or_create_collection(self, doc_id: str):
         """Get or create collection for a document."""
         collection_name = self._get_collection_name(doc_id)
@@ -50,7 +50,7 @@ class ChromaVectorStore:
     ) -> None:
         """
         Add contextualized chunks with their embeddings to the store.
-        
+
         Args:
             chunks: List of ContextualizedChunk objects
             embeddings: Corresponding embedding vectors
@@ -63,20 +63,20 @@ class ChromaVectorStore:
                 f"Number of chunks ({len(chunks)}) must match "
                 f"number of embeddings ({len(embeddings)})"
             )
-        
+
         # Group chunks by document
         doc_chunks = {}
         for i, chunk in enumerate(chunks):
             if chunk.doc_id not in doc_chunks:
                 doc_chunks[chunk.doc_id] = []
             doc_chunks[chunk.doc_id].append((chunk, embeddings[i]))
-        
+
         # Add to separate collections per document
         for doc_id, chunk_embedding_pairs in doc_chunks.items():
             collection = self._get_or_create_collection(doc_id)
             doc_chunks_list = [pair[0] for pair in chunk_embedding_pairs]
             doc_embeddings = [pair[1] for pair in chunk_embedding_pairs]
-            
+
             collection.add(
                 ids=[chunk.chunk_id for chunk in doc_chunks_list],
                 embeddings=doc_embeddings,
@@ -102,31 +102,33 @@ class ChromaVectorStore:
     ) -> list[SearchResult]:
         """
         Search for similar chunks using vector similarity.
-        
+
         Args:
             query_embedding: Query embedding vector
             top_k: Number of results to return
             filter_doc_id: Optional document ID to search within (required for per-doc collections)
-            
+
         Returns:
             List of SearchResult objects sorted by similarity
         """
         if not filter_doc_id:
             import logging
+
             logger = logging.getLogger(__name__)
             logger.warning("No filter_doc_id provided - cannot search without document ID")
             return []
-        
+
         try:
             collection = self._get_or_create_collection(filter_doc_id)
-            
+
             # Check if collection has any data
             if collection.count() == 0:
                 import logging
+
                 logger = logging.getLogger(__name__)
                 logger.warning(f"Collection for document {filter_doc_id} is empty")
                 return []
-            
+
             results = collection.query(
                 query_embeddings=[query_embedding],
                 n_results=top_k,
@@ -138,6 +140,7 @@ class ChromaVectorStore:
             # Handle ChromaDB internal errors (often corruption)
             if "Error finding id" in error_msg or "Internal error" in error_msg:
                 import logging
+
                 logger = logging.getLogger(__name__)
                 logger.error(f"ChromaDB search error (possibly corrupted index): {e}")
                 if filter_doc_id:
@@ -148,7 +151,7 @@ class ChromaVectorStore:
     def _format_results(self, results: dict[str, Any]) -> list[SearchResult]:
         """Convert ChromaDB results to SearchResult objects."""
         search_results = []
-        
+
         if not results["ids"] or not results["ids"][0]:
             return search_results
 
@@ -161,7 +164,7 @@ class ChromaVectorStore:
             metadata = metadatas[i] if i < len(metadatas) else {}
             distance = distances[i] if i < len(distances) else 0.0
             score = 1 - distance
-            
+
             search_results.append(
                 SearchResult(
                     doc_id=metadata.get("doc_id", ""),
@@ -179,10 +182,10 @@ class ChromaVectorStore:
     def delete_document(self, doc_id: str) -> int:
         """
         Delete all chunks for a document by deleting its collection.
-        
+
         Args:
             doc_id: Document ID to delete
-            
+
         Returns:
             Number of chunks deleted
         """
@@ -198,10 +201,10 @@ class ChromaVectorStore:
     def get_document_chunks(self, doc_id: str) -> list[dict[str, Any]]:
         """
         Get all chunks for a document.
-        
+
         Args:
             doc_id: Document ID
-            
+
         Returns:
             List of chunk data dictionaries
         """
@@ -210,15 +213,17 @@ class ChromaVectorStore:
             results = collection.get(
                 include=["documents", "metadatas"],
             )
-            
+
             chunks = []
             for i, chunk_id in enumerate(results["ids"]):
-                chunks.append({
-                    "chunk_id": chunk_id,
-                    "text": results["documents"][i] if results["documents"] else "",
-                    "metadata": results["metadatas"][i] if results["metadatas"] else {},
-                })
-            
+                chunks.append(
+                    {
+                        "chunk_id": chunk_id,
+                        "text": results["documents"][i] if results["documents"] else "",
+                        "metadata": results["metadatas"][i] if results["metadatas"] else {},
+                    }
+                )
+
             return chunks
         except Exception:
             return []

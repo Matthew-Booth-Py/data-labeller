@@ -4,8 +4,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend import __version__
-from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.llm.openai_client import get_openai_client
+from uu_backend.repositories.document_repository import get_document_repository
 
 
 class HealthView(APIView):

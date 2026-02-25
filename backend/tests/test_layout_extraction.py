@@ -1,7 +1,8 @@
 """Test layout-preserving PDF extraction."""
 
-import pdfplumber
 import sys
+
+import pdfplumber
 
 
 def table_to_markdown(table: list[list[str | None]]) -> str:
@@ -66,11 +67,14 @@ def extract_pdf_with_layout(pdf_path: str) -> tuple[str, int]:
                     page_content.append(f"\n{text}\n")
             else:
                 # Use layout-preserving extraction
-                text = page.extract_text(
-                    layout=True,
-                    x_tolerance=2,
-                    y_tolerance=2,
-                ) or ""
+                text = (
+                    page.extract_text(
+                        layout=True,
+                        x_tolerance=2,
+                        y_tolerance=2,
+                    )
+                    or ""
+                )
 
                 if text.strip():
                     if page_count > 1:

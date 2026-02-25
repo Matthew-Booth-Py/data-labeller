@@ -27,7 +27,7 @@ jobs:
     outputs:
       environment: ${{ steps.set-env.outputs.environment }}
       version: ${{ steps.set-version.outputs.version }}
-    
+
     steps:
       - name: Determine environment
         id: set-env
@@ -60,7 +60,7 @@ jobs:
     environment:
       name: staging
       url: https://staging.example.com
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -101,7 +101,7 @@ jobs:
     environment:
       name: production
       url: https://app.example.com
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -161,7 +161,7 @@ jobs:
     needs: [deploy-staging, deploy-production]
     environment:
       name: ${{ needs.prepare.outputs.environment }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

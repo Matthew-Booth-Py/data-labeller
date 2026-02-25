@@ -13,11 +13,7 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 const SidebarLogo = () => (
-  <img 
-    src="/logo.svg" 
-    alt="Intelligent Ingestion Logo" 
-    className="h-8 w-8"
-  />
+  <img src="/logo.svg" alt="Intelligent Ingestion Logo" className="h-8 w-8" />
 );
 
 export function Sidebar() {
@@ -42,9 +38,10 @@ export function Sidebar() {
       <div className="px-3 py-4 flex-1">
         <nav className="space-y-1">
           {navItems.map((item) => {
-            const isActive = location === item.href ||
+            const isActive =
+              location === item.href ||
               (item.href === "/projects" && location.startsWith("/project/"));
-            
+
             return (
               <Link
                 key={item.href}

@@ -28,9 +28,9 @@ Related to #
 
 <!-- List the main changes in bullet points -->
 
-- 
-- 
-- 
+-
+-
+-
 
 ## Testing
 
@@ -47,9 +47,9 @@ Related to #
 - [ ] Manual testing completed
 
 ### How to Test
-1. 
-2. 
-3. 
+1.
+2.
+3.
 
 ## Screenshots/Videos
 
@@ -95,9 +95,9 @@ Related to #
 - [ ] Requires manual deployment steps
 
 ### Migration Steps (if needed)
-1. 
-2. 
-3. 
+1.
+2.
+3.
 
 ## Additional Context
 

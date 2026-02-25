@@ -150,19 +150,19 @@ $claimDocs = $docs.documents | Select-Object -First 10
 # Step 3: Process each document
 foreach ($doc in $claimDocs) {
     Write-Host "Processing $($doc.filename)..."
-    
+
     # Classify
     Invoke-RestMethod `
       -Uri "http://localhost:8000/api/v1/taxonomy/documents/$($doc.id)/classify" `
       -Method POST `
       -ContentType "application/json" `
       -Body (@{document_type_id=$typeId} | ConvertTo-Json)
-    
+
     # Create ground truth (auto-accept suggestions)
     Invoke-RestMethod `
       -Uri "http://localhost:8000/api/v1/documents/$($doc.id)/suggest-annotations?auto_accept=true" `
       -Method POST
-    
+
     # Run evaluation
     $eval = Invoke-RestMethod `
       -Uri "http://localhost:8000/api/v1/evaluation/run" `
@@ -172,7 +172,7 @@ foreach ($doc in $claimDocs) {
         document_id=$doc.id
         use_structured_output=$true
       } | ConvertTo-Json)
-    
+
     Write-Host "F1 Score: $($eval.evaluation.metrics.aggregate_metrics.f1_score)"
 }
 

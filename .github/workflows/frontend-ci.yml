@@ -27,7 +27,7 @@ jobs:
     defaults:
       run:
         working-directory: frontend
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -60,7 +60,7 @@ jobs:
     defaults:
       run:
         working-directory: frontend
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -100,7 +100,7 @@ jobs:
     defaults:
       run:
         working-directory: frontend
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -141,7 +141,7 @@ jobs:
     defaults:
       run:
         working-directory: frontend
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -170,7 +170,7 @@ jobs:
     name: Build Docker Image
     runs-on: ubuntu-latest
     needs: [lint, build]
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -195,7 +195,7 @@ jobs:
     defaults:
       run:
         working-directory: frontend
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -227,7 +227,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint, test, build, security, docker-build]
     if: always()
-    
+
     steps:
       - name: Check all job statuses
         run: |

@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import Callable
+from collections.abc import Callable
 
 from uu_backend.config import get_settings
 
@@ -16,12 +16,10 @@ from .reranker import AzureCohereReranker, NoReranker
 from .retriever import HybridRetriever
 from .vector_store import ChromaVectorStore
 
-
 logger = logging.getLogger(__name__)
 
 
 class ContextualRetrievalService:
-
     def __init__(
         self,
         chunk_size: int | None = None,
@@ -52,29 +50,29 @@ class ContextualRetrievalService:
                 chunk_overlap=chunk_overlap,
             )
             logger.info(f"Chunking strategy: fixed-size ({chunk_size} chars)")
-        
+
         context_model = context_model or settings.effective_context_model
         self.contextualizer = ChunkContextualizer(model=context_model)
-        
+
         summary_model = settings.effective_summary_model
         self.page_summarizer = PageSummarizer(model=summary_model)
-        
+
         self.embedder = OpenAIEmbedder(model=embedding_model)
-        
+
         self.vector_store = ChromaVectorStore(
             persist_directory=chroma_persist_directory,
             collection_name=chroma_collection_name or "contextual_chunks",
         )
-        
+
         self.bm25_index = BM25Index(storage_path=bm25_index_path)
-        
+
         if use_reranking and os.getenv("CO_API_KEY"):
             self.reranker = AzureCohereReranker()
             logger.info("✓ Reranker enabled: Azure Cohere")
         else:
             self.reranker = NoReranker()
             logger.info("✗ Reranker disabled (no CO_API_KEY or use_reranking=False)")
-        
+
         self.retriever = HybridRetriever(
             vector_store=self.vector_store,
             bm25_index=self.bm25_index,
@@ -90,19 +88,19 @@ class ContextualRetrievalService:
         progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> int:
         logger.info(f"Indexing document {document_id}")
-        
+
         chunks = self.chunker.chunk_with_metadata(
             document_id=document_id,
             content=content,
             metadata=metadata or {},
         )
-        
+
         if not chunks:
             logger.warning(f"No chunks generated for document {document_id}")
             return 0
 
         logger.info(f"Generated {len(chunks)} chunks for document {document_id}")
-        
+
         if progress_callback:
             progress_callback("summarizing", 0, len(chunks))
 
@@ -114,9 +112,9 @@ class ContextualRetrievalService:
             chunks=chunks,
             progress_callback=summary_progress,
         )
-        
+
         logger.info(f"Generated {len(page_summaries)} page summaries")
-        
+
         if progress_callback:
             progress_callback("contextualizing", 0, len(chunks))
 
@@ -125,44 +123,43 @@ class ContextualRetrievalService:
                 progress_callback("contextualizing", current, total)
 
         self.contextualizer.reset_stats()
-        
+
         contextualized = self.contextualizer.contextualize_chunks_async(
             document=content,
             chunks=chunks,
             progress_callback=context_progress,
         )
-        
+
         cache_stats = self.contextualizer.get_cache_stats()
         logger.info(
-            f"Context generation complete. "
-            f"Cache hit rate: {cache_stats['cache_hit_rate']:.1f}%"
+            f"Context generation complete. " f"Cache hit rate: {cache_stats['cache_hit_rate']:.1f}%"
         )
-        
+
         logger.info(f"Contextualized {len(contextualized)} chunks")
-        
+
         for chunk, summary in zip(contextualized, page_summaries):
             chunk.page_summary = summary
             chunk.contextualized_text = f"{summary}\n\n{chunk.context}\n\n{chunk.original_text}"
-        
-        logger.info(f"Merged page summaries into contextualized chunks")
-        
+
+        logger.info("Merged page summaries into contextualized chunks")
+
         if progress_callback:
             progress_callback("embedding", 0, len(contextualized))
 
         texts = [c.contextualized_text for c in contextualized]
         embeddings = self.embedder.embed(texts)
-        
+
         logger.info(f"Generated {len(embeddings)} embeddings")
-        
+
         if progress_callback:
             progress_callback("storing", 0, len(contextualized))
 
         self.vector_store.add(contextualized, embeddings)
-        
+
         self.bm25_index.add(contextualized)
-        
+
         logger.info(f"Indexed {len(contextualized)} chunks for document {document_id}")
-        
+
         return len(contextualized)
 
     def search(
@@ -172,15 +169,17 @@ class ContextualRetrievalService:
         filter_doc_id: str | None = None,
         use_reranking: bool = True,
     ) -> list[SearchResult]:
-        logger.info(f"Search query: '{query[:100]}...' | top_k={top_k} | doc_filter={filter_doc_id} | rerank={use_reranking}")
-        
+        logger.info(
+            f"Search query: '{query[:100]}...' | top_k={top_k} | doc_filter={filter_doc_id} | rerank={use_reranking}"
+        )
+
         results = self.retriever.retrieve(
             query=query,
             top_k_final=top_k,
             filter_doc_id=filter_doc_id,
             use_reranking=use_reranking,
         )
-        
+
         logger.info(f"Search returned {len(results)} results")
         return results
 
@@ -192,33 +191,32 @@ class ContextualRetrievalService:
     ) -> list[SearchResult]:
         seen_chunks: set[str] = set()
         all_results: list[SearchResult] = []
-        
+
         for query in queries:
             results = self.search(
                 query=query,
                 top_k=top_k_per_query,
                 filter_doc_id=filter_doc_id,
             )
-            
+
             for result in results:
                 chunk_id = f"{result.doc_id}_{result.chunk_index}"
                 if chunk_id not in seen_chunks:
                     seen_chunks.add(chunk_id)
                     all_results.append(result)
-        
+
         all_results.sort(key=lambda r: r.score, reverse=True)
-        
+
         return all_results
 
     def delete_document(self, document_id: str) -> dict[str, int]:
         vector_deleted = self.vector_store.delete_document(document_id)
         bm25_deleted = self.bm25_index.delete_document(document_id)
-        
+
         logger.info(
-            f"Deleted document {document_id}: "
-            f"vector={vector_deleted}, bm25={bm25_deleted}"
+            f"Deleted document {document_id}: " f"vector={vector_deleted}, bm25={bm25_deleted}"
         )
-        
+
         return {
             "vector_store": vector_deleted,
             "bm25_index": bm25_deleted,
@@ -229,7 +227,7 @@ class ContextualRetrievalService:
         document_id: str,
     ) -> list[ContextualizedChunk]:
         chunk_data = self.vector_store.get_document_chunks(document_id)
-        
+
         chunks = []
         for data in chunk_data:
             metadata = data.get("metadata", {})
@@ -243,7 +241,7 @@ class ContextualRetrievalService:
                     metadata=metadata,
                 )
             )
-        
+
         return sorted(chunks, key=lambda c: c.index)
 
     def get_stats(self) -> dict:

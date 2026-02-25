@@ -9,10 +9,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
-from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.ingestion.converter import get_converter
 from uu_backend.ingestion.dates import extract_date
 from uu_backend.models.document import Document, IngestResponse
+from uu_backend.repositories.document_repository import get_document_repository
 
 logger = logging.getLogger(__name__)
 
@@ -75,19 +75,21 @@ class IngestView(APIView):
                     document_repo.add_document(document)
                 except Exception as store_error:
                     original_file_path.unlink(missing_ok=True)
-                    errors.append(
-                        f"{filename}: Failed to store: {store_error}"
-                    )
+                    errors.append(f"{filename}: Failed to store: {store_error}")
                     continue
 
                 # Queue contextual retrieval indexing for uploaded documents.
                 try:
-                    from uu_backend.tasks.contextual_retrieval_tasks import index_document_for_retrieval
+                    from uu_backend.tasks.contextual_retrieval_tasks import (
+                        index_document_for_retrieval,
+                    )
 
                     index_document_for_retrieval.delay(doc_id)
                     logger.info(f"Queued retrieval indexing for {filename}")
                 except Exception as index_error:
-                    logger.error(f"Failed to queue retrieval indexing for {filename}: {index_error}")
+                    logger.error(
+                        f"Failed to queue retrieval indexing for {filename}: {index_error}"
+                    )
                     # Don't fail the upload, just log the error
 
                 documents_processed += 1
@@ -124,9 +126,10 @@ class IngestStatusView(APIView):
     def get(self, request):
         document_repo = get_document_repository()
         total_count = document_repo.count()
-        
+
         # Also count classified documents (those actively in use)
         from uu_backend.django_data import models as orm
+
         classified_count = orm.ClassificationModel.objects.count()
 
         return Response(

@@ -44,6 +44,7 @@ class Settings(BaseModel):
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+
 _ENV_TO_FIELD = {
     "API_HOST": "api_host",
     "API_PORT": "api_port",
@@ -122,7 +123,7 @@ def _build_settings_payload() -> dict[str, Any]:
         if env_path.exists():
             dotenv_values = _read_dotenv_file(env_path)
             break
-    
+
     for env_key, field_name in _ENV_TO_FIELD.items():
         raw = dotenv_values.get(env_key)
         if raw is not None:

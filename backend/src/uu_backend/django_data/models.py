@@ -5,6 +5,7 @@ from django.db import models
 
 class DocumentModel(models.Model):
     """Document storage model - replaces vector store."""
+
     id = models.CharField(primary_key=True, max_length=64)
     filename = models.CharField(max_length=255, db_index=True)
     file_type = models.CharField(max_length=50)
@@ -15,15 +16,19 @@ class DocumentModel(models.Model):
     file_path = models.CharField(max_length=512, blank=True, null=True)
 
     # Contextual retrieval indexing status
-    retrieval_index_status = models.CharField(max_length=20, default="pending")  # pending, processing, completed, failed
+    retrieval_index_status = models.CharField(
+        max_length=20, default="pending"
+    )  # pending, processing, completed, failed
     retrieval_chunks_count = models.IntegerField(blank=True, null=True)
-    retrieval_index_progress = models.IntegerField(blank=True, null=True)  # Current chunk being processed
+    retrieval_index_progress = models.IntegerField(
+        blank=True, null=True
+    )  # Current chunk being processed
     retrieval_index_total = models.IntegerField(blank=True, null=True)  # Total chunks to process
-    
+
     # Metadata fields
     page_count = models.IntegerField(blank=True, null=True)
     word_count = models.IntegerField(blank=True, null=True)
-    
+
     class Meta:
         db_table = "documents"
         ordering = ["-created_at"]
@@ -60,8 +65,6 @@ class ClassificationModel(models.Model):
 
     class Meta:
         db_table = "classifications"
-
-
 
 
 class ModelStatusModel(models.Model):
@@ -121,8 +124,6 @@ class FieldPromptVersionModel(models.Model):
         db_table = "field_prompt_versions"
 
 
-
-
 class SchemaVersionModel(models.Model):
     id = models.CharField(primary_key=True, max_length=64)
     document_type_id = models.CharField(max_length=64, db_index=True)
@@ -157,7 +158,9 @@ class DeploymentVersionModel(models.Model):
     class Meta:
         db_table = "deployment_versions"
         constraints = [
-            models.UniqueConstraint(fields=["project_id", "version"], name="idx_deployment_versions_project_version"),
+            models.UniqueConstraint(
+                fields=["project_id", "version"], name="idx_deployment_versions_project_version"
+            ),
         ]
         indexes = [
             models.Index(fields=["project_id", "is_active"], name="idx_deploy_project_active"),
@@ -213,6 +216,7 @@ class GlobalFieldModel(models.Model):
 
 class GroundTruthAnnotationModel(models.Model):
     """Ground truth annotations for data labelling."""
+
     id = models.CharField(primary_key=True, max_length=64)
     document_id = models.CharField(max_length=64, db_index=True)
     field_name = models.CharField(max_length=255, db_index=True)
@@ -236,23 +240,24 @@ class GroundTruthAnnotationModel(models.Model):
 
 class EvaluationRunModel(models.Model):
     """Evaluation run storage - compares ground truth vs predictions."""
+
     id = models.CharField(primary_key=True, max_length=64)
     document_id = models.CharField(max_length=64, db_index=True)
     project_id = models.CharField(max_length=64, blank=True, null=True, db_index=True)
-    
+
     # Evaluation results (stored as JSON for flexibility)
     metrics = models.JSONField()  # EvaluationMetrics
     field_comparisons = models.JSONField()  # List of FieldComparison
     instance_comparisons = models.JSONField(default=dict)  # Dict of InstanceComparison lists
-    
+
     # Performance metrics
     extraction_time_ms = models.FloatField(blank=True, null=True)
     evaluation_time_ms = models.FloatField(blank=True, null=True)
-    
+
     # Metadata
     notes = models.TextField(blank=True, null=True)
     evaluated_at = models.DateTimeField(auto_now_add=True)
-    
+
     class Meta:
         db_table = "evaluation_runs"
         ordering = ["-evaluated_at"]

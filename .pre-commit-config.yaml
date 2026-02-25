@@ -2,7 +2,7 @@
 # See https://pre-commit.com for more information
 
 default_install_hook_types: [pre-commit, pre-push]
-default_stages: [commit]
+default_stages: [pre-commit]
 
 repos:
   # General file checks
@@ -10,27 +10,27 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
-        stages: [commit]
+        stages: [pre-commit]
       - id: end-of-file-fixer
-        stages: [commit]
+        stages: [pre-commit]
       - id: check-yaml
-        stages: [commit]
+        stages: [pre-commit]
         args: ['--unsafe']  # Allow custom YAML tags
       - id: check-json
-        stages: [commit]
+        stages: [pre-commit]
       - id: check-toml
-        stages: [commit]
+        stages: [pre-commit]
       - id: check-added-large-files
-        stages: [commit]
+        stages: [pre-commit]
         args: ['--maxkb=1000']
       - id: check-merge-conflict
-        stages: [commit]
+        stages: [pre-commit]
       - id: check-case-conflict
-        stages: [commit]
+        stages: [pre-commit]
       - id: detect-private-key
-        stages: [commit]
+        stages: [pre-commit]
       - id: mixed-line-ending
-        stages: [commit]
+        stages: [pre-commit]
         args: ['--fix=lf']
 
   # Backend: Python formatting and linting
@@ -39,12 +39,12 @@ repos:
     hooks:
       # Run the linter
       - id: ruff
-        stages: [commit]
+        stages: [pre-commit]
         args: [--fix]
         files: ^backend/
       # Run the formatter
       - id: ruff-format
-        stages: [commit]
+        stages: [pre-commit]
         files: ^backend/
 
   # Backend: Type checking with mypy
@@ -52,7 +52,7 @@ repos:
     rev: v1.13.0
     hooks:
       - id: mypy
-        stages: [commit]
+        stages: [pre-commit]
         files: ^backend/src/
         args: [--ignore-missing-imports, --no-strict-optional]
         additional_dependencies:
@@ -67,7 +67,7 @@ repos:
     rev: 1.8.0
     hooks:
       - id: bandit
-        stages: [commit]
+        stages: [pre-commit]
         args: [-c, backend/pyproject.toml, -r, backend/src/]
         files: ^backend/src/
 
@@ -76,7 +76,7 @@ repos:
     rev: v4.0.0-alpha.8
     hooks:
       - id: prettier
-        stages: [commit]
+        stages: [pre-commit]
         files: ^frontend/
         types_or: [javascript, jsx, ts, tsx, json, css, scss, markdown]
         exclude: ^frontend/(node_modules|dist|build)/
@@ -86,7 +86,7 @@ repos:
     rev: v9.17.0
     hooks:
       - id: eslint
-        stages: [commit]
+        stages: [pre-commit]
         files: ^frontend/.*\.[jt]sx?$
         types: [file]
         args: [--fix, --max-warnings=0]
@@ -109,7 +109,7 @@ repos:
     rev: v2.12.0
     hooks:
       - id: hadolint-docker
-        stages: [commit]
+        stages: [pre-commit]
         args: [--ignore, DL3008, --ignore, DL3009]
 
   # Secrets detection
@@ -117,7 +117,7 @@ repos:
     rev: v1.5.0
     hooks:
       - id: detect-secrets
-        stages: [commit]
+        stages: [pre-commit]
         args: ['--baseline', '.secrets.baseline']
         exclude: package-lock.json
 
@@ -129,7 +129,7 @@ repos:
         name: Backend Tests
         entry: bash -c 'cd backend && uv run pytest tests/ -v --tb=short'
         language: system
-        stages: [push]
+        stages: [pre-push]
         pass_filenames: false
         files: ^backend/
 
@@ -138,7 +138,7 @@ repos:
         name: Backend Coverage Check
         entry: bash -c 'cd backend && uv run pytest tests/ --cov=src/uu_backend --cov-fail-under=70 --cov-report=term-missing:skip-covered -q'
         language: system
-        stages: [push]
+        stages: [pre-push]
         pass_filenames: false
         files: ^backend/
 
@@ -147,7 +147,7 @@ repos:
         name: Frontend Type Check
         entry: bash -c 'cd frontend && npm run check'
         language: system
-        stages: [push]
+        stages: [pre-push]
         pass_filenames: false
         files: ^frontend/
 
@@ -156,7 +156,7 @@ repos:
         name: Frontend Tests
         entry: bash -c 'cd frontend && if grep -q "\"test\":" package.json; then npm test -- --run; else echo "No tests configured, skipping..."; fi'
         language: system
-        stages: [push]
+        stages: [pre-push]
         pass_filenames: false
         files: ^frontend/
 
@@ -165,7 +165,7 @@ repos:
         name: Docker Compose Validation
         entry: docker compose config -q
         language: system
-        stages: [commit]
+        stages: [pre-commit]
         files: docker-compose\.yml
         pass_filenames: false
 

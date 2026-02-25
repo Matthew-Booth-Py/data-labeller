@@ -41,7 +41,9 @@ def _run_deployment_extract(project_id: str, deployment_version: dict, file_obj:
     if not conversion.success:
         return None, Response({"detail": f"File conversion failed: {conversion.error}"}, status=400)
 
-    schema_fields = [SchemaField.model_validate(field) for field in deployment_version["schema_fields"]]
+    schema_fields = [
+        SchemaField.model_validate(field) for field in deployment_version["schema_fields"]
+    ]
     extracted_data = extraction_service.extract_structured_from_snapshot(
         content=conversion.content,
         filename=file_obj.filename,
@@ -89,12 +91,21 @@ class DeploymentsPrefixView(APIView):
             except ValueError as exc:
                 return Response({"detail": str(exc)}, status=400)
             except Exception as exc:
-                return Response({"detail": f"Failed to create deployment version: {exc}"}, status=500)
+                return Response(
+                    {"detail": f"Failed to create deployment version: {exc}"}, status=500
+                )
 
-        if len(parts) == 5 and parts[0] == "projects" and parts[2] == "versions" and parts[4] == "activate":
+        if (
+            len(parts) == 5
+            and parts[0] == "projects"
+            and parts[2] == "versions"
+            and parts[4] == "activate"
+        ):
             activated = repository.activate_deployment_version(parts[1], parts[3])
             if not activated:
-                return Response({"detail": "Deployment version not found for this project"}, status=404)
+                return Response(
+                    {"detail": "Deployment version not found for this project"}, status=404
+                )
             return Response({"status": "activated", "active_version": _jsonable(activated)})
 
         if len(parts) == 3 and parts[0] == "projects" and parts[2] == "extract":
@@ -103,20 +114,33 @@ class DeploymentsPrefixView(APIView):
                 return Response({"detail": "file is required"}, status=422)
             active = repository.get_active_deployment_version(parts[1])
             if not active:
-                return Response({"detail": "No active deployment version found for this project"}, status=404)
-            payload, error_response = _run_deployment_extract(parts[1], active, _UploadFileShim(upload))
+                return Response(
+                    {"detail": "No active deployment version found for this project"}, status=404
+                )
+            payload, error_response = _run_deployment_extract(
+                parts[1], active, _UploadFileShim(upload)
+            )
             if error_response:
                 return error_response
             return Response(payload)
 
-        if len(parts) == 5 and parts[0] == "projects" and parts[2] == "versions" and parts[4] == "extract":
+        if (
+            len(parts) == 5
+            and parts[0] == "projects"
+            and parts[2] == "versions"
+            and parts[4] == "extract"
+        ):
             upload = request.FILES.get("file")
             if upload is None:
                 return Response({"detail": "file is required"}, status=422)
             version = repository.get_deployment_version(parts[3])
             if not version or version.get("project_id") != parts[1]:
-                return Response({"detail": "Deployment version not found for this project"}, status=404)
-            payload, error_response = _run_deployment_extract(parts[1], version, _UploadFileShim(upload))
+                return Response(
+                    {"detail": "Deployment version not found for this project"}, status=404
+                )
+            payload, error_response = _run_deployment_extract(
+                parts[1], version, _UploadFileShim(upload)
+            )
             if error_response:
                 return error_response
             return Response(payload)
@@ -127,8 +151,12 @@ class DeploymentsPrefixView(APIView):
                 return Response({"detail": "file is required"}, status=422)
             deployment_version = repository.get_deployment_version_by_name(parts[1], parts[3])
             if not deployment_version:
-                return Response({"detail": "Named deployment version not found for this project"}, status=404)
-            payload, error_response = _run_deployment_extract(parts[1], deployment_version, _UploadFileShim(upload))
+                return Response(
+                    {"detail": "Named deployment version not found for this project"}, status=404
+                )
+            payload, error_response = _run_deployment_extract(
+                parts[1], deployment_version, _UploadFileShim(upload)
+            )
             if error_response:
                 return error_response
             return Response(payload)
@@ -144,6 +172,8 @@ class DeploymentsPrefixView(APIView):
         if len(parts) == 3 and parts[0] == "projects" and parts[2] == "active":
             active = repository.get_active_deployment_version(parts[1])
             if not active:
-                return Response({"detail": "No active deployment version found for this project"}, status=404)
+                return Response(
+                    {"detail": "No active deployment version found for this project"}, status=404
+                )
             return Response({"version": _jsonable(active)})
         return Response({"detail": "Not Found"}, status=404)

@@ -4,11 +4,28 @@
 
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type EvaluationRun, type EvaluationSummary, type FieldComparison } from "@/lib/api";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  api,
+  type EvaluationRun,
+  type EvaluationSummary,
+  type FieldComparison,
+} from "@/lib/api";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -18,14 +35,24 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Play, Download, CheckCircle2, XCircle, AlertCircle, TrendingUp, Trash2 } from "lucide-react";
+import {
+  Play,
+  Download,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  TrendingUp,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 export function EvaluateView() {
   const queryClient = useQueryClient();
   const [selectedDocument, setSelectedDocument] = useState<string>("");
-  const [selectedEvaluation, setSelectedEvaluation] = useState<string | null>(null);
+  const [selectedEvaluation, setSelectedEvaluation] = useState<string | null>(
+    null,
+  );
   const [localStorageVersion, setLocalStorageVersion] = useState(0);
 
   const projectId = localStorage.getItem("selected-project") || "all";
@@ -40,17 +67,19 @@ export function EvaluateView() {
     if (!documentsData?.documents || !projectId || projectId === "all") {
       return [];
     }
-    
+
     try {
       const stored = localStorage.getItem("uu-projects");
       if (!stored) return [];
-      
+
       const projects = JSON.parse(stored);
       const project = projects.find((p: { id: string }) => p.id === projectId);
       if (!project) return [];
-      
+
       const projectDocumentIds = project.documentIds || [];
-      return documentsData.documents.filter(doc => projectDocumentIds.includes(doc.id));
+      return documentsData.documents.filter((doc) =>
+        projectDocumentIds.includes(doc.id),
+      );
     } catch (error) {
       console.error("Error filtering documents:", error);
       return [];
@@ -60,29 +89,42 @@ export function EvaluateView() {
   // Fetch evaluation runs
   const { data: evaluationsData } = useQuery({
     queryKey: ["evaluations", projectId],
-    queryFn: () => api.listEvaluations(projectId !== "all" ? projectId : undefined),
+    queryFn: () =>
+      api.listEvaluations(projectId !== "all" ? projectId : undefined),
     enabled: !!projectId,
   });
 
   // Fetch evaluation summary
   const { data: summaryData } = useQuery({
     queryKey: ["evaluation-summary", projectId],
-    queryFn: () => api.getEvaluationSummary(projectId !== "all" ? projectId : undefined),
+    queryFn: () =>
+      api.getEvaluationSummary(projectId !== "all" ? projectId : undefined),
     enabled: !!projectId,
   });
 
   // Fetch selected evaluation details
   const { data: selectedEvaluationData } = useQuery({
     queryKey: ["evaluation-details", selectedEvaluation],
-    queryFn: () => selectedEvaluation ? api.getEvaluationDetails(selectedEvaluation) : Promise.resolve(null),
+    queryFn: () =>
+      selectedEvaluation
+        ? api.getEvaluationDetails(selectedEvaluation)
+        : Promise.resolve(null),
     enabled: !!selectedEvaluation,
   });
 
   // Run evaluation mutation
   const runEvaluationMutation = useMutation({
     mutationFn: async (documentId: string) => {
-      console.log("Running evaluation for document:", documentId, "project:", projectId);
-      return api.runEvaluation(documentId, projectId !== "all" ? projectId : undefined);
+      console.log(
+        "Running evaluation for document:",
+        documentId,
+        "project:",
+        projectId,
+      );
+      return api.runEvaluation(
+        documentId,
+        projectId !== "all" ? projectId : undefined,
+      );
     },
     onSuccess: (data) => {
       console.log("Evaluation completed:", data);
@@ -115,7 +157,10 @@ export function EvaluateView() {
     },
   });
 
-  const handleDeleteEvaluation = (evaluationId: string, e: React.MouseEvent) => {
+  const handleDeleteEvaluation = (
+    evaluationId: string,
+    e: React.MouseEvent,
+  ) => {
     e.stopPropagation();
     if (confirm("Delete this evaluation run?")) {
       deleteEvaluationMutation.mutate(evaluationId);
@@ -123,26 +168,33 @@ export function EvaluateView() {
   };
 
   const handleRunEvaluation = async () => {
-    console.log("handleRunEvaluation called, selectedDocument:", selectedDocument);
+    console.log(
+      "handleRunEvaluation called, selectedDocument:",
+      selectedDocument,
+    );
     if (!selectedDocument) {
       toast.error("Please select a document");
       return;
     }
-    
+
     // Check if document has ground truth annotations
     try {
       const gtData = await api.getGroundTruthAnnotations(selectedDocument);
       if (!gtData.annotations || gtData.annotations.length === 0) {
-        toast.error("This document has no ground truth annotations. Please label it first in the Data Labeller tab.");
+        toast.error(
+          "This document has no ground truth annotations. Please label it first in the Data Labeller tab.",
+        );
         return;
       }
-      console.log(`Document has ${gtData.annotations.length} ground truth annotations`);
+      console.log(
+        `Document has ${gtData.annotations.length} ground truth annotations`,
+      );
     } catch (error) {
       console.error("Error checking ground truth:", error);
       toast.error("Failed to check ground truth annotations");
       return;
     }
-    
+
     console.log("Starting evaluation mutation...");
     runEvaluationMutation.mutate(selectedDocument);
   };
@@ -151,13 +203,20 @@ export function EvaluateView() {
     if (!selectedEvaluationData) return;
 
     const evaluation = selectedEvaluationData.run;
-    const headers = ["Field Name", "Ground Truth", "Predicted", "Match", "Match Type", "Confidence"];
+    const headers = [
+      "Field Name",
+      "Ground Truth",
+      "Predicted",
+      "Match",
+      "Match Type",
+      "Confidence",
+    ];
     const rows = evaluation.result.field_comparisons
       .filter((fc) => {
-        const leaf = fc.field_name.split('.').pop() || fc.field_name;
-        return !leaf.includes('_header');
+        const leaf = fc.field_name.split(".").pop() || fc.field_name;
+        return !leaf.includes("_header");
       })
-      .map(fc => [
+      .map((fc) => [
         fc.field_name,
         String(fc.ground_truth_value || ""),
         String(fc.predicted_value || ""),
@@ -168,14 +227,16 @@ export function EvaluateView() {
 
     const csv = [
       headers.join(","),
-      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      ...rows.map((row) =>
+        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","),
+      ),
     ].join("\n");
 
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `evaluation-${evaluation.id}-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `evaluation-${evaluation.id}-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -205,7 +266,13 @@ export function EvaluateView() {
       no_match: "bg-red-100 text-red-800",
     };
     return (
-      <Badge variant="secondary" className={cn("text-xs", colors[matchType as keyof typeof colors] || "")}>
+      <Badge
+        variant="secondary"
+        className={cn(
+          "text-xs",
+          colors[matchType as keyof typeof colors] || "",
+        )}
+      >
         {matchType}
       </Badge>
     );
@@ -213,9 +280,11 @@ export function EvaluateView() {
 
   const evaluation = selectedEvaluationData?.run;
   const summary = summaryData;
-  const flattenedComparisons = (evaluation?.result.field_comparisons || []).filter((fc) => {
-    const leaf = fc.field_name.split('.').pop() || fc.field_name;
-    return !leaf.includes('_header');
+  const flattenedComparisons = (
+    evaluation?.result.field_comparisons || []
+  ).filter((fc) => {
+    const leaf = fc.field_name.split(".").pop() || fc.field_name;
+    return !leaf.includes("_header");
   });
 
   return (
@@ -240,7 +309,10 @@ export function EvaluateView() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-4">
-            <Select value={selectedDocument} onValueChange={setSelectedDocument}>
+            <Select
+              value={selectedDocument}
+              onValueChange={setSelectedDocument}
+            >
               <SelectTrigger className="w-[300px]">
                 <SelectValue placeholder="Select document to evaluate" />
               </SelectTrigger>
@@ -250,7 +322,7 @@ export function EvaluateView() {
                     No documents in this project
                   </div>
                 ) : (
-                  documents.map(doc => (
+                  documents.map((doc) => (
                     <SelectItem key={doc.id} value={doc.id}>
                       {doc.filename}
                     </SelectItem>
@@ -258,15 +330,17 @@ export function EvaluateView() {
                 )}
               </SelectContent>
             </Select>
-            <Button 
-              onClick={handleRunEvaluation} 
+            <Button
+              onClick={handleRunEvaluation}
               disabled={!selectedDocument || runEvaluationMutation.isPending}
             >
               <Play className="h-4 w-4 mr-2" />
-              {runEvaluationMutation.isPending ? "Running..." : "Run Evaluation"}
+              {runEvaluationMutation.isPending
+                ? "Running..."
+                : "Run Evaluation"}
             </Button>
           </div>
-          
+
           {documents.length === 0 && (
             <p className="text-sm text-muted-foreground">
               Add documents to your project first to run evaluations
@@ -276,22 +350,28 @@ export function EvaluateView() {
           {/* Recent evaluations selector */}
           {evaluationsData && evaluationsData.runs.length > 0 && (
             <div className="flex gap-4 items-center">
-              <span className="text-sm text-muted-foreground">Or view recent:</span>
-              <Select value={selectedEvaluation || ""} onValueChange={setSelectedEvaluation}>
+              <span className="text-sm text-muted-foreground">
+                Or view recent:
+              </span>
+              <Select
+                value={selectedEvaluation || ""}
+                onValueChange={setSelectedEvaluation}
+              >
                 <SelectTrigger className="w-[300px]">
                   <SelectValue placeholder="Select evaluation" />
                 </SelectTrigger>
                 <SelectContent>
-                  {evaluationsData.runs.map(run => (
+                  {evaluationsData.runs.map((run) => (
                     <SelectItem key={run.id} value={run.id}>
-                      {run.document_id.slice(0, 8)}... - {new Date(run.evaluated_at).toLocaleString()}
+                      {run.document_id.slice(0, 8)}... -{" "}
+                      {new Date(run.evaluated_at).toLocaleString()}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {selectedEvaluation && (
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="sm"
                   className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
                   onClick={(e) => handleDeleteEvaluation(selectedEvaluation, e)}
@@ -312,7 +392,9 @@ export function EvaluateView() {
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Accuracy</CardDescription>
-              <CardTitle className={cn("text-3xl", getScoreColor(summary.avg_accuracy))}>
+              <CardTitle
+                className={cn("text-3xl", getScoreColor(summary.avg_accuracy))}
+              >
                 {formatPercentage(summary.avg_accuracy)}
               </CardTitle>
             </CardHeader>
@@ -325,18 +407,24 @@ export function EvaluateView() {
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Precision</CardDescription>
-              <CardTitle className={cn("text-3xl", getScoreColor(summary.avg_precision))}>
+              <CardTitle
+                className={cn("text-3xl", getScoreColor(summary.avg_precision))}
+              >
                 {formatPercentage(summary.avg_precision)}
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-xs text-muted-foreground">Correct / Extracted</p>
+              <p className="text-xs text-muted-foreground">
+                Correct / Extracted
+              </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Recall</CardDescription>
-              <CardTitle className={cn("text-3xl", getScoreColor(summary.avg_recall))}>
+              <CardTitle
+                className={cn("text-3xl", getScoreColor(summary.avg_recall))}
+              >
                 {formatPercentage(summary.avg_recall)}
               </CardTitle>
             </CardHeader>
@@ -347,7 +435,9 @@ export function EvaluateView() {
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>F1 Score</CardDescription>
-              <CardTitle className={cn("text-3xl", getScoreColor(summary.avg_f1_score))}>
+              <CardTitle
+                className={cn("text-3xl", getScoreColor(summary.avg_f1_score))}
+              >
                 {formatPercentage(summary.avg_f1_score)}
               </CardTitle>
             </CardHeader>
@@ -364,8 +454,8 @@ export function EvaluateView() {
           <CardHeader>
             <CardTitle>Evaluation Results</CardTitle>
             <CardDescription>
-              Document: {evaluation.document_id.slice(0, 8)}... | 
-              Evaluated: {new Date(evaluation.evaluated_at).toLocaleString()}
+              Document: {evaluation.document_id.slice(0, 8)}... | Evaluated:{" "}
+              {new Date(evaluation.evaluated_at).toLocaleString()}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -389,7 +479,9 @@ export function EvaluateView() {
                     <div className="text-2xl font-bold text-red-600">
                       {evaluation.result.metrics.flattened.incorrect_fields}
                     </div>
-                    <div className="text-xs text-muted-foreground">Incorrect</div>
+                    <div className="text-xs text-muted-foreground">
+                      Incorrect
+                    </div>
                   </div>
                   <div className="text-center">
                     <div className="text-2xl font-bold text-yellow-600">
@@ -419,16 +511,24 @@ export function EvaluateView() {
                   <TableBody>
                     {flattenedComparisons.map((fc, idx) => (
                       <TableRow key={idx}>
-                        <TableCell className="font-mono text-sm">{fc.field_name}</TableCell>
+                        <TableCell className="font-mono text-sm">
+                          {fc.field_name}
+                        </TableCell>
                         <TableCell className="max-w-[200px] truncate">
                           {String(fc.ground_truth_value || "-")}
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate">
                           {String(fc.predicted_value || "-")}
                         </TableCell>
-                        <TableCell>{getMatchIcon(fc.match_result.is_match)}</TableCell>
-                        <TableCell>{getMatchTypeBadge(fc.match_result.match_type)}</TableCell>
-                        <TableCell>{formatPercentage(fc.match_result.confidence)}</TableCell>
+                        <TableCell>
+                          {getMatchIcon(fc.match_result.is_match)}
+                        </TableCell>
+                        <TableCell>
+                          {getMatchTypeBadge(fc.match_result.match_type)}
+                        </TableCell>
+                        <TableCell>
+                          {formatPercentage(fc.match_result.confidence)}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -437,132 +537,180 @@ export function EvaluateView() {
 
               {/* Instance View */}
               <TabsContent value="instance" className="space-y-4">
-                {Object.entries(evaluation.result.instance_comparisons).map(([parentField, instances]) => {
-                  const metrics = evaluation.result.metrics.instance_metrics[parentField];
-                  
-                  // Get all unique field names (columns), excluding headers
-                  const allFields = Array.from(
-                    new Set(
-                      instances.flatMap(inst => 
-                        inst.field_comparisons
-                          .filter(fc => !fc.field_name.includes('_header'))
-                          .map(fc => fc.field_name.split('.').pop() || fc.field_name)
-                      )
-                    )
-                  );
-                  
-                  // Helper to format field values (especially hierarchy_path arrays)
-                  const formatFieldValue = (value: any): string => {
-                    if (value === null || value === undefined) return "-";
-                    if (Array.isArray(value)) {
-                      // For hierarchy_path arrays, show as breadcrumb
-                      return value.join(" > ");
-                    }
-                    return String(value);
-                  };
-                  
-                  return (
-                    <div key={parentField} className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold">{parentField}</h3>
-                        {metrics && (
-                          <div className="flex gap-4 text-sm">
-                            <span>Match Rate: {formatPercentage(metrics.instance_match_rate)}</span>
-                            <span>F1: {formatPercentage(metrics.instance_f1_score)}</span>
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* Table format like extraction output */}
-                      <div className="border rounded-lg overflow-hidden">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead className="w-12">Row</TableHead>
-                              <TableHead className="w-32">Source</TableHead>
-                              {allFields.map(field => (
-                                <TableHead key={field} className="text-xs">
-                                  {field}
-                                </TableHead>
-                              ))}
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {instances.map((inst) => {
-                              // Build a map of field values for this instance
-                              const gtValues: Record<string, any> = {};
-                              const predValues: Record<string, any> = {};
-                              const matchStatus: Record<string, boolean> = {};
-                              
-                              inst.field_comparisons.forEach(fc => {
-                                const fieldKey = fc.field_name.split('.').pop() || fc.field_name;
-                                gtValues[fieldKey] = fc.ground_truth_value;
-                                predValues[fieldKey] = fc.predicted_value;
-                                matchStatus[fieldKey] = fc.match_result.is_match;
-                              });
-                              
-                              return (
-                                <>
-                                  {/* Ground Truth Row */}
-                                  <TableRow key={`${inst.instance_num}-gt`} className="bg-slate-50/70">
-                                    <TableCell className="font-semibold text-xs" rowSpan={2}>
-                                      {inst.instance_num}
-                                    </TableCell>
-                                    <TableCell className="text-xs">
-                                      <Badge variant="secondary" className="bg-slate-200 text-slate-800">
-                                        Ground Truth
-                                      </Badge>
-                                    </TableCell>
-                                    {allFields.map(field => (
-                                      <TableCell 
-                                        key={field} 
-                                        className={cn(
-                                          "text-xs",
-                                          matchStatus[field] === false && gtValues[field] ? "bg-red-50" : ""
-                                        )}
+                {Object.entries(evaluation.result.instance_comparisons).map(
+                  ([parentField, instances]) => {
+                    const metrics =
+                      evaluation.result.metrics.instance_metrics[parentField];
+
+                    // Get all unique field names (columns), excluding headers
+                    const allFields = Array.from(
+                      new Set(
+                        instances.flatMap((inst) =>
+                          inst.field_comparisons
+                            .filter((fc) => !fc.field_name.includes("_header"))
+                            .map(
+                              (fc) =>
+                                fc.field_name.split(".").pop() || fc.field_name,
+                            ),
+                        ),
+                      ),
+                    );
+
+                    // Helper to format field values (especially hierarchy_path arrays)
+                    const formatFieldValue = (value: any): string => {
+                      if (value === null || value === undefined) return "-";
+                      if (Array.isArray(value)) {
+                        // For hierarchy_path arrays, show as breadcrumb
+                        return value.join(" > ");
+                      }
+                      return String(value);
+                    };
+
+                    return (
+                      <div key={parentField} className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-lg font-semibold">
+                            {parentField}
+                          </h3>
+                          {metrics && (
+                            <div className="flex gap-4 text-sm">
+                              <span>
+                                Match Rate:{" "}
+                                {formatPercentage(metrics.instance_match_rate)}
+                              </span>
+                              <span>
+                                F1:{" "}
+                                {formatPercentage(metrics.instance_f1_score)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Table format like extraction output */}
+                        <div className="border rounded-lg overflow-hidden">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="w-12">Row</TableHead>
+                                <TableHead className="w-32">Source</TableHead>
+                                {allFields.map((field) => (
+                                  <TableHead key={field} className="text-xs">
+                                    {field}
+                                  </TableHead>
+                                ))}
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {instances.map((inst) => {
+                                // Build a map of field values for this instance
+                                const gtValues: Record<string, any> = {};
+                                const predValues: Record<string, any> = {};
+                                const matchStatus: Record<string, boolean> = {};
+
+                                inst.field_comparisons.forEach((fc) => {
+                                  const fieldKey =
+                                    fc.field_name.split(".").pop() ||
+                                    fc.field_name;
+                                  gtValues[fieldKey] = fc.ground_truth_value;
+                                  predValues[fieldKey] = fc.predicted_value;
+                                  matchStatus[fieldKey] =
+                                    fc.match_result.is_match;
+                                });
+
+                                return (
+                                  <>
+                                    {/* Ground Truth Row */}
+                                    <TableRow
+                                      key={`${inst.instance_num}-gt`}
+                                      className="bg-slate-50/70"
+                                    >
+                                      <TableCell
+                                        className="font-semibold text-xs"
+                                        rowSpan={2}
                                       >
-                                        {formatFieldValue(gtValues[field])}
+                                        {inst.instance_num}
                                       </TableCell>
-                                    ))}
-                                  </TableRow>
-                                  {/* Predicted Row */}
-                                  <TableRow key={`${inst.instance_num}-pred`} className="bg-emerald-50/70 border-b-2">
-                                    <TableCell className="text-xs">
-                                      <Badge variant="secondary" className="bg-emerald-200 text-emerald-800">
-                                        Prediction
-                                      </Badge>
-                                    </TableCell>
-                                    {allFields.map(field => {
-                                      const isMatch = matchStatus[field];
-                                      const hasPred = predValues[field] !== null && predValues[field] !== undefined && predValues[field] !== "";
-                                      
-                                      return (
-                                        <TableCell 
-                                          key={field} 
+                                      <TableCell className="text-xs">
+                                        <Badge
+                                          variant="secondary"
+                                          className="bg-slate-200 text-slate-800"
+                                        >
+                                          Ground Truth
+                                        </Badge>
+                                      </TableCell>
+                                      {allFields.map((field) => (
+                                        <TableCell
+                                          key={field}
                                           className={cn(
                                             "text-xs",
-                                            isMatch && hasPred ? "bg-green-50" : "",
-                                            !isMatch && hasPred ? "bg-red-50" : ""
+                                            matchStatus[field] === false &&
+                                              gtValues[field]
+                                              ? "bg-red-50"
+                                              : "",
                                           )}
                                         >
-                                          <div className="flex items-center gap-1">
-                                            {formatFieldValue(predValues[field])}
-                                            {isMatch && hasPred && <CheckCircle2 className="w-3 h-3 text-green-600" />}
-                                            {!isMatch && hasPred && <XCircle className="w-3 h-3 text-red-600" />}
-                                          </div>
+                                          {formatFieldValue(gtValues[field])}
                                         </TableCell>
-                                      );
-                                    })}
-                                  </TableRow>
-                                </>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
+                                      ))}
+                                    </TableRow>
+                                    {/* Predicted Row */}
+                                    <TableRow
+                                      key={`${inst.instance_num}-pred`}
+                                      className="bg-emerald-50/70 border-b-2"
+                                    >
+                                      <TableCell className="text-xs">
+                                        <Badge
+                                          variant="secondary"
+                                          className="bg-emerald-200 text-emerald-800"
+                                        >
+                                          Prediction
+                                        </Badge>
+                                      </TableCell>
+                                      {allFields.map((field) => {
+                                        const isMatch = matchStatus[field];
+                                        const hasPred =
+                                          predValues[field] !== null &&
+                                          predValues[field] !== undefined &&
+                                          predValues[field] !== "";
+
+                                        return (
+                                          <TableCell
+                                            key={field}
+                                            className={cn(
+                                              "text-xs",
+                                              isMatch && hasPred
+                                                ? "bg-green-50"
+                                                : "",
+                                              !isMatch && hasPred
+                                                ? "bg-red-50"
+                                                : "",
+                                            )}
+                                          >
+                                            <div className="flex items-center gap-1">
+                                              {formatFieldValue(
+                                                predValues[field],
+                                              )}
+                                              {isMatch && hasPred && (
+                                                <CheckCircle2 className="w-3 h-3 text-green-600" />
+                                              )}
+                                              {!isMatch && hasPred && (
+                                                <XCircle className="w-3 h-3 text-red-600" />
+                                              )}
+                                            </div>
+                                          </TableCell>
+                                        );
+                                      })}
+                                    </TableRow>
+                                  </>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  },
+                )}
               </TabsContent>
 
               {/* Field Summary */}
@@ -579,22 +727,28 @@ export function EvaluateView() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {Object.values(evaluation.result.metrics.field_metrics).map((fm) => (
-                      <TableRow key={fm.field_name}>
-                        <TableCell className="font-mono text-sm">{fm.field_name}</TableCell>
-                        <TableCell>{fm.total_occurrences}</TableCell>
-                        <TableCell className={getScoreColor(fm.accuracy)}>
-                          {formatPercentage(fm.accuracy)}
-                        </TableCell>
-                        <TableCell className={getScoreColor(fm.precision)}>
-                          {formatPercentage(fm.precision)}
-                        </TableCell>
-                        <TableCell className={getScoreColor(fm.recall)}>
-                          {formatPercentage(fm.recall)}
-                        </TableCell>
-                        <TableCell>{formatPercentage(fm.avg_confidence)}</TableCell>
-                      </TableRow>
-                    ))}
+                    {Object.values(evaluation.result.metrics.field_metrics).map(
+                      (fm) => (
+                        <TableRow key={fm.field_name}>
+                          <TableCell className="font-mono text-sm">
+                            {fm.field_name}
+                          </TableCell>
+                          <TableCell>{fm.total_occurrences}</TableCell>
+                          <TableCell className={getScoreColor(fm.accuracy)}>
+                            {formatPercentage(fm.accuracy)}
+                          </TableCell>
+                          <TableCell className={getScoreColor(fm.precision)}>
+                            {formatPercentage(fm.precision)}
+                          </TableCell>
+                          <TableCell className={getScoreColor(fm.recall)}>
+                            {formatPercentage(fm.recall)}
+                          </TableCell>
+                          <TableCell>
+                            {formatPercentage(fm.avg_confidence)}
+                          </TableCell>
+                        </TableRow>
+                      ),
+                    )}
                   </TableBody>
                 </Table>
               </TabsContent>

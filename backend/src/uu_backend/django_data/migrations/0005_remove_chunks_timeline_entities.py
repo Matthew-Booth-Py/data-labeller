@@ -4,9 +4,8 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('django_data', '0004_remove_labelling_tables'),
+        ("django_data", "0004_remove_labelling_tables"),
     ]
 
     operations = [

@@ -4,9 +4,9 @@
 
 Successfully implemented a comprehensive CI/CD pipeline infrastructure following 2026 best practices. The new system provides automated testing, security scanning, quality gates, and deployment automation.
 
-**Pull Request**: [#14](https://github.com/Matthew-Booth-Py/data-labeller/pull/14)  
-**Branch**: `improve-cicd-pipelines-2026`  
-**Files Changed**: 14 files, 2,800+ lines added  
+**Pull Request**: [#14](https://github.com/Matthew-Booth-Py/data-labeller/pull/14)
+**Branch**: `improve-cicd-pipelines-2026`
+**Files Changed**: 14 files, 2,800+ lines added
 
 ## What Was Implemented
 
@@ -310,6 +310,6 @@ For questions or issues:
 
 ---
 
-**Implementation Date**: February 25, 2026  
-**Status**: ✅ Complete - Ready for Review  
+**Implementation Date**: February 25, 2026
+**Status**: ✅ Complete - Ready for Review
 **Pull Request**: [#14](https://github.com/Matthew-Booth-Py/data-labeller/pull/14)

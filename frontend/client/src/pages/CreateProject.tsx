@@ -1,5 +1,11 @@
 import { Shell } from "@/components/layout/Shell";
-import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  CardFooter,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,14 +22,19 @@ export default function CreateProject() {
 
   const handleCreate = async () => {
     if (!name.trim()) return;
-    
+
     setIsCreating(true);
-    
+
     // Generate a URL-friendly ID from the name
-    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    
+    const id = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+
     // Store project in localStorage for persistence
-    const existingProjects = JSON.parse(localStorage.getItem("uu-projects") || "[]");
+    const existingProjects = JSON.parse(
+      localStorage.getItem("uu-projects") || "[]",
+    );
     const newProject = {
       id,
       name: name.trim(),
@@ -35,10 +46,10 @@ export default function CreateProject() {
       docCount: 0,
       createdAt: new Date().toISOString(),
     };
-    
+
     existingProjects.push(newProject);
     localStorage.setItem("uu-projects", JSON.stringify(existingProjects));
-    
+
     // Navigate to the new project workspace
     setLocation(`/project/${id}`);
   };
@@ -46,8 +57,8 @@ export default function CreateProject() {
   return (
     <Shell>
       <div className="p-8 max-w-2xl mx-auto space-y-6">
-        <Button 
-          variant="ghost" 
+        <Button
+          variant="ghost"
           className="gap-2 -ml-2"
           onClick={() => setLocation("/projects")}
         >
@@ -64,7 +75,7 @@ export default function CreateProject() {
               Create New Project
             </CardTitle>
           </CardHeader>
-          
+
           <CardContent className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="name" className="text-sm font-medium">
@@ -101,8 +112,13 @@ export default function CreateProject() {
               <ul className="text-sm text-muted-foreground space-y-1">
                 <li>• Upload documents to your project</li>
                 <li>• Open Schema → Document Types → Fields Definition</li>
-                <li>• Click Add Field and use AI Field Assistant to generate field + Extraction Prompt</li>
-                <li>• Classify one document manually to set a strong baseline</li>
+                <li>
+                  • Click Add Field and use AI Field Assistant to generate field
+                  + Extraction Prompt
+                </li>
+                <li>
+                  • Classify one document manually to set a strong baseline
+                </li>
                 <li>• Classify remaining documents with the LLM</li>
                 <li>• Annotate with AI suggestions and confirm labels</li>
                 <li>• Run extraction and inspect raw output</li>
@@ -111,13 +127,10 @@ export default function CreateProject() {
           </CardContent>
 
           <CardFooter className="border-t bg-muted/5 flex justify-end gap-3 pt-4">
-            <Button 
-              variant="outline" 
-              onClick={() => setLocation("/projects")}
-            >
+            <Button variant="outline" onClick={() => setLocation("/projects")}>
               Cancel
             </Button>
-            <Button 
+            <Button
               className="bg-accent hover:bg-accent/90 gap-2"
               onClick={handleCreate}
               disabled={!name.trim() || isCreating}

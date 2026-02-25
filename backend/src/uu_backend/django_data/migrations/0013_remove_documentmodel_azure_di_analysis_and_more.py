@@ -2,7 +2,6 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("django_data", "0012_add_retrieval_progress_fields"),
     ]
@@ -17,4 +16,3 @@ class Migration(migrations.Migration):
             name="azure_di_status",
         ),
     ]
-

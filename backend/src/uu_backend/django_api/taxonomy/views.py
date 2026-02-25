@@ -13,11 +13,10 @@ from rest_framework.views import APIView
 from uu_backend.config import get_settings
 
 logger = logging.getLogger(__name__)
-from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.llm.openai_client import get_openai_client
+from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.taxonomy import (
     ClassificationCreate,
-    DocumentType,
     DocumentTypeCreate,
     DocumentTypeResponse,
     DocumentTypeUpdate,
@@ -28,12 +27,11 @@ from uu_backend.models.taxonomy import (
     GlobalFieldCreate,
     GlobalFieldListResponse,
     GlobalFieldUpdate,
-    VisualContentType,
 )
 from uu_backend.repositories import get_repository
 from uu_backend.services.classification_service import get_classification_service
 from uu_backend.services.extraction_service import get_extraction_service
-from uu_backend.services.prompt_generator import get_prompt_generator, ContentType
+from uu_backend.services.prompt_generator import ContentType, get_prompt_generator
 
 
 def _jsonable(value):
@@ -54,8 +52,6 @@ def _bool_query_param(value: str | None, default: bool) -> bool:
     if value is None:
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
-
-
 
     for existing_name, label in existing_by_name.items():
         if existing_name not in expected_by_name:
@@ -98,7 +94,9 @@ class TaxonomyPrefixView(APIView):
             if not doc_type:
                 return Response({"detail": f"Document type {parts[1]} not found"}, status=404)
             versions = repository.list_schema_versions(parts[1])
-            return Response({"document_type_id": parts[1], "versions": versions, "total": len(versions)})
+            return Response(
+                {"document_type_id": parts[1], "versions": versions, "total": len(versions)}
+            )
 
         if len(parts) == 3 and parts[0] == "types" and parts[2] == "documents":
             limit_raw = request.query_params.get("limit", "100")
@@ -146,10 +144,16 @@ class TaxonomyPrefixView(APIView):
             if not settings.openai_api_key:
                 return Response({"detail": "OPENAI_API_KEY is not configured"}, status=400)
 
-            doc_type = repository.get_document_type(parsed.document_type_id) if parsed.document_type_id else None
+            doc_type = (
+                repository.get_document_type(parsed.document_type_id)
+                if parsed.document_type_id
+                else None
+            )
             existing_names = parsed.existing_field_names or []
             if doc_type:
-                existing_names = sorted({*(f.name for f in (doc_type.schema_fields or [])), *existing_names})
+                existing_names = sorted(
+                    {*(f.name for f in (doc_type.schema_fields or [])), *existing_names}
+                )
 
             system_prompt = (
                 "You are a document extraction schema assistant.\n"
@@ -265,37 +269,40 @@ class TaxonomyPrefixView(APIView):
                 try:
                     prompt_generator = get_prompt_generator()
                     visual_analysis = prompt_generator.analyze_image(parsed.screenshot_base64)
-                    
+
                     # Add hierarchy context to prompt if detected
                     hierarchy_hint = ""
-                    if (visual_analysis.content_type == ContentType.TABLE and 
-                        visual_analysis.row_hierarchy and 
-                        visual_analysis.row_hierarchy.has_hierarchy):
-                        
+                    if (
+                        visual_analysis.content_type == ContentType.TABLE
+                        and visual_analysis.row_hierarchy
+                        and visual_analysis.row_hierarchy.has_hierarchy
+                    ):
                         depth = visual_analysis.row_hierarchy.depth or 3
                         example_paths = visual_analysis.row_hierarchy.example_paths or []
                         structure_desc = visual_analysis.row_hierarchy.structure_description or ""
-                        
+
                         hierarchy_hint = (
                             f"\n\n**IMPORTANT - HIERARCHICAL TABLE DETECTED**:\n"
                             f"This table has a HIERARCHICAL row structure with approximately {depth} nesting levels.\n"
                             f"Structure: {structure_desc}\n"
                         )
-                        
+
                         if example_paths:
-                            hierarchy_hint += f"Example hierarchical paths from the table:\n"
+                            hierarchy_hint += "Example hierarchical paths from the table:\n"
                             for path in example_paths[:2]:  # Show first 2 examples
                                 hierarchy_hint += f"  - {' > '.join(path)}\n"
-                        
+
                         hierarchy_hint += (
                             f"\nYou MUST use a 'hierarchy_path' field (type=array, items_type=string).\n"
                             f"This array will contain the full path from root to leaf (approximately {depth} levels).\n"
                             f"For example: ['GAAP additions to property', 'Proceeds from capital-related incentives'].\n"
                             f"This scales automatically to any depth without needing predefined level fields.\n"
                         )
-                        
-                        logger.info(f"[Field Assistant] Detected hierarchical table: depth={depth}, examples={len(example_paths)}")
-                    
+
+                        logger.info(
+                            f"[Field Assistant] Detected hierarchical table: depth={depth}, examples={len(example_paths)}"
+                        )
+
                     # Multimodal message with image and hierarchy context
                     user_content = [
                         {"type": "text", "text": user_prompt_text + hierarchy_hint},
@@ -309,7 +316,9 @@ class TaxonomyPrefixView(APIView):
                     ]
                 except Exception as e:
                     # If analysis fails, proceed without hierarchy hint
-                    logger.warning(f"[Field Assistant] Image analysis failed: {e}, proceeding without hierarchy detection")
+                    logger.warning(
+                        f"[Field Assistant] Image analysis failed: {e}, proceeding without hierarchy detection"
+                    )
                     user_content = [
                         {"type": "text", "text": user_prompt_text},
                         {
@@ -324,8 +333,12 @@ class TaxonomyPrefixView(APIView):
                 user_content = user_prompt_text
 
             # Use document type's extraction model if available, otherwise fall back to global settings
-            model = (doc_type.extraction_model if doc_type and doc_type.extraction_model else None) or settings.effective_tagging_model
-            print(f"[Field Assistant] Model: {model} | DocType: {doc_type.name if doc_type else 'N/A'} | Input: {parsed.user_input[:50]}...")
+            model = (
+                doc_type.extraction_model if doc_type and doc_type.extraction_model else None
+            ) or settings.effective_tagging_model
+            print(
+                f"[Field Assistant] Model: {model} | DocType: {doc_type.name if doc_type else 'N/A'} | Input: {parsed.user_input[:50]}..."
+            )
             print(f"[Field Assistant] USE_AZURE_OPENAI: {os.getenv('USE_AZURE_OPENAI')}")
             print(f"[Field Assistant] AZURE_OPENAI_ENDPOINT: {os.getenv('AZURE_OPENAI_ENDPOINT')}")
             try:
@@ -376,18 +389,18 @@ class TaxonomyPrefixView(APIView):
                         if not prop_name:
                             continue
                         prop_type = FieldType(str(prop.get("type", "string")).strip().lower())
-                        
+
                         # Parse items_type for array sub-properties
                         prop_items_raw = prop.get("items_type")
                         prop_items_type = None
                         if prop_items_raw is not None and str(prop_items_raw).lower() != "null":
                             prop_items_type = FieldType(str(prop_items_raw).strip().lower())
-                        
+
                         # Recursively parse nested properties
                         nested_props = None
                         if prop.get("properties"):
                             nested_props = parse_properties(prop.get("properties", []))
-                        
+
                         result.append(
                             FieldPropertySuggestion(
                                 name=prop_name,
@@ -418,20 +431,20 @@ class TaxonomyPrefixView(APIView):
             image_base64 = body.get("image_base64")
             field_name = body.get("field_name", "")
             field_description = body.get("field_description")
-            
+
             if not image_base64:
                 return Response({"detail": "image_base64 is required"}, status=400)
-            
+
             settings = get_settings()
             if not settings.openai_api_key:
                 return Response({"detail": "OPENAI_API_KEY is not configured"}, status=400)
-            
+
             try:
                 prompt_generator = get_prompt_generator()
-                
+
                 # Analyze the image
                 analysis = prompt_generator.analyze_image(image_base64)
-                
+
                 # Generate extraction prompt and retrieval query
                 extraction_prompt = prompt_generator.generate_extraction_prompt(
                     analysis=analysis,
@@ -443,18 +456,20 @@ class TaxonomyPrefixView(APIView):
                     field_name=field_name,
                     field_description=field_description,
                 )
-                
-                return Response({
-                    "visual_content_type": analysis.content_type.value,
-                    "structure_description": analysis.structure_description,
-                    "extraction_guidance": analysis.extraction_guidance,
-                    "distinguishing_features": analysis.distinguishing_features,
-                    "column_headers": analysis.column_headers,
-                    "row_labels": analysis.row_labels,
-                    "data_types": analysis.data_types,
-                    "generated_extraction_prompt": extraction_prompt,
-                    "generated_retrieval_query": retrieval_query,
-                })
+
+                return Response(
+                    {
+                        "visual_content_type": analysis.content_type.value,
+                        "structure_description": analysis.structure_description,
+                        "extraction_guidance": analysis.extraction_guidance,
+                        "distinguishing_features": analysis.distinguishing_features,
+                        "column_headers": analysis.column_headers,
+                        "row_labels": analysis.row_labels,
+                        "data_types": analysis.data_types,
+                        "generated_extraction_prompt": extraction_prompt,
+                        "generated_retrieval_query": retrieval_query,
+                    }
+                )
             except Exception as exc:
                 return Response({"detail": f"Image analysis failed: {exc}"}, status=500)
 
@@ -464,7 +479,9 @@ class TaxonomyPrefixView(APIView):
             except ValidationError as exc:
                 return _validation_error_response(exc)
             if repository.get_global_field_by_name(parsed.name):
-                return Response({"detail": f"Global field '{parsed.name}' already exists"}, status=400)
+                return Response(
+                    {"detail": f"Global field '{parsed.name}' already exists"}, status=400
+                )
             try:
                 created = repository.create_global_field(parsed)
             except Exception as exc:
@@ -479,11 +496,16 @@ class TaxonomyPrefixView(APIView):
 
             existing = repository.get_document_type_by_name(parsed.name)
             if existing:
-                return Response({"detail": f"Document type with name '{parsed.name}' already exists"}, status=400)
+                return Response(
+                    {"detail": f"Document type with name '{parsed.name}' already exists"},
+                    status=400,
+                )
 
             try:
                 doc_type = repository.create_document_type(parsed)
-                return Response(DocumentTypeResponse(type=doc_type).model_dump(mode="json"), status=201)
+                return Response(
+                    DocumentTypeResponse(type=doc_type).model_dump(mode="json"), status=201
+                )
             except IntegrityError as exc:
                 return Response({"detail": str(exc)}, status=400)
             except Exception as exc:
@@ -504,7 +526,9 @@ class TaxonomyPrefixView(APIView):
             if parsed.name:
                 existing = repository.get_global_field_by_name(parsed.name)
                 if existing and existing.id != parts[1]:
-                    return Response({"detail": f"Global field '{parsed.name}' already exists"}, status=400)
+                    return Response(
+                        {"detail": f"Global field '{parsed.name}' already exists"}, status=400
+                    )
             updated = repository.update_global_field(parts[1], parsed)
             if not updated:
                 return Response({"detail": "Global field not found"}, status=404)
@@ -589,6 +613,7 @@ class AutoClassifyDocumentView(APIView):
 
     def post(self, request, document_id: str):
         import traceback
+
         save = _bool_query_param(request.query_params.get("save"), default=True)
         service = get_classification_service()
         try:
@@ -596,7 +621,7 @@ class AutoClassifyDocumentView(APIView):
             print(f"AUTO-CLASSIFY REQUEST for document: {document_id}")
             print(f"Save: {save}")
             print(f"{'='*60}\n")
-            
+
             if save:
                 result = async_to_sync(service.classify_document)(document_id, auto_save=True)
             else:
@@ -608,7 +633,7 @@ class AutoClassifyDocumentView(APIView):
             print(f"AUTO-CLASSIFY ValueError for {document_id}")
             print(f"{'='*60}")
             print(f"Error: {str(exc)}")
-            print(f"\nTraceback:")
+            print("\nTraceback:")
             print(tb)
             print(f"{'='*60}\n")
             return Response({"detail": str(exc)}, status=400)
@@ -619,10 +644,12 @@ class AutoClassifyDocumentView(APIView):
             print(f"AUTO-CLASSIFY Exception for {document_id}")
             print(f"{'='*60}")
             print(f"Error: {str(exc)}")
-            print(f"\nTraceback:")
+            print("\nTraceback:")
             print(tb)
             print(f"{'='*60}\n")
-            return Response({"detail": f"Auto-classification failed: {exc}", "traceback": tb}, status=500)
+            return Response(
+                {"detail": f"Auto-classification failed: {exc}", "traceback": tb}, status=500
+            )
 
 
 class DocumentClassificationView(APIView):
@@ -633,14 +660,18 @@ class DocumentClassificationView(APIView):
         repository = get_repository()
         classification = repository.get_classification(document_id)
         if not classification:
-            return Response({"detail": f"No classification found for document {document_id}"}, status=404)
+            return Response(
+                {"detail": f"No classification found for document {document_id}"}, status=404
+            )
         return Response({"classification": _jsonable(classification)})
 
     def delete(self, request, document_id: str):
         repository = get_repository()
         deleted = repository.delete_classification(document_id)
         if not deleted:
-            return Response({"detail": f"No classification found for document {document_id}"}, status=404)
+            return Response(
+                {"detail": f"No classification found for document {document_id}"}, status=404
+            )
         return Response({"status": "success", "message": "Classification removed"})
 
 
@@ -650,9 +681,13 @@ class ExtractDocumentView(APIView):
 
     def post(self, request, document_id: str):
         use_llm = _bool_query_param(request.query_params.get("use_llm"), default=True)
-        use_structured_output = _bool_query_param(request.query_params.get("use_structured_output"), default=False)
+        use_structured_output = _bool_query_param(
+            request.query_params.get("use_structured_output"), default=False
+        )
         use_retrieval = _bool_query_param(request.query_params.get("use_retrieval"), default=False)
-        use_retrieval_vision = _bool_query_param(request.query_params.get("use_retrieval_vision"), default=False)
+        use_retrieval_vision = _bool_query_param(
+            request.query_params.get("use_retrieval_vision"), default=False
+        )
         service = get_extraction_service()
 
         try:
@@ -693,12 +728,16 @@ class DocumentExtractionView(APIView):
         repository = get_repository()
         result = repository.get_extraction(document_id)
         if not result:
-            return Response({"detail": f"No extraction found for document {document_id}"}, status=404)
+            return Response(
+                {"detail": f"No extraction found for document {document_id}"}, status=404
+            )
         return Response(_jsonable(result))
 
     def delete(self, request, document_id: str):
         repository = get_repository()
         deleted = repository.delete_extraction(document_id)
         if not deleted:
-            return Response({"detail": f"No extraction found for document {document_id}"}, status=404)
+            return Response(
+                {"detail": f"No extraction found for document {document_id}"}, status=404
+            )
         return Response({"status": "success", "message": "Extraction deleted"})

@@ -20,7 +20,7 @@ class FieldType(str, Enum):
 
 class VisualContentType(str, Enum):
     """Detected content type from visual analysis."""
-    
+
     TABLE = "table"
     FORM = "form"
     LIST = "list"
@@ -34,34 +34,30 @@ class SchemaField(BaseModel):
 
     name: str = Field(..., description="Field name/key")
     type: FieldType = Field(..., description="Field data type")
-    description: Optional[str] = Field(None, description="Field description")
+    description: str | None = Field(None, description="Field description")
     required: bool = Field(False, description="Whether field is required")
-    extraction_prompt: Optional[str] = Field(
-        None, description="LLM prompt for extracting this field"
-    )
-    order: Optional[int] = Field(
+    extraction_prompt: str | None = Field(None, description="LLM prompt for extracting this field")
+    order: int | None = Field(
         None, description="Display order for nested properties (lower = first)"
     )
-    properties: Optional[dict[str, "SchemaField"]] = Field(
+    properties: dict[str, "SchemaField"] | None = Field(
         None, description="Nested properties for object types"
     )
-    items: Optional["SchemaField"] = Field(
-        None, description="Item schema for array types"
-    )
-    template_field_id: Optional[str] = Field(
+    items: Optional["SchemaField"] = Field(None, description="Item schema for array types")
+    template_field_id: str | None = Field(
         None, description="Optional linked global field template ID"
     )
     # Visual analysis fields (auto-populated from reference image)
-    visual_content_type: Optional[VisualContentType] = Field(
+    visual_content_type: VisualContentType | None = Field(
         None, description="Detected content type from reference image analysis"
     )
-    visual_guidance: Optional[str] = Field(
+    visual_guidance: str | None = Field(
         None, description="Auto-generated extraction guidance from visual analysis"
     )
-    visual_features: Optional[list[str]] = Field(
+    visual_features: list[str] | None = Field(
         None, description="Distinguishing visual features for retrieval"
     )
-    reference_image_hash: Optional[str] = Field(
+    reference_image_hash: str | None = Field(
         None, description="Hash of the reference image used for analysis"
     )
 
@@ -70,34 +66,28 @@ class DocumentTypeCreate(BaseModel):
     """Request model for creating a document type."""
 
     name: str = Field(..., description="Document type name", min_length=1, max_length=100)
-    description: Optional[str] = Field(None, description="Document type description")
+    description: str | None = Field(None, description="Document type description")
     schema_fields: list[SchemaField] = Field(
         default_factory=list, description="Schema field definitions"
     )
-    system_prompt: Optional[str] = Field(
-        None, description="System prompt for LLM extraction"
-    )
-    post_processing: Optional[str] = Field(
-        None, description="Post-processing code (Python/JS)"
-    )
-    extraction_model: Optional[str] = Field(
+    system_prompt: str | None = Field(None, description="System prompt for LLM extraction")
+    post_processing: str | None = Field(None, description="Post-processing code (Python/JS)")
+    extraction_model: str | None = Field(
         None, description="LLM model used for extraction for this document type"
     )
-    ocr_engine: Optional[str] = Field(
-        None, description="OCR engine selection for this document type"
-    )
+    ocr_engine: str | None = Field(None, description="OCR engine selection for this document type")
 
 
 class DocumentTypeUpdate(BaseModel):
     """Request model for updating a document type."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    description: Optional[str] = None
-    schema_fields: Optional[list[SchemaField]] = None
-    system_prompt: Optional[str] = None
-    post_processing: Optional[str] = None
-    extraction_model: Optional[str] = None
-    ocr_engine: Optional[str] = None
+    name: str | None = Field(None, min_length=1, max_length=100)
+    description: str | None = None
+    schema_fields: list[SchemaField] | None = None
+    system_prompt: str | None = None
+    post_processing: str | None = None
+    extraction_model: str | None = None
+    ocr_engine: str | None = None
 
 
 class DocumentType(BaseModel):
@@ -105,23 +95,17 @@ class DocumentType(BaseModel):
 
     id: str = Field(..., description="Unique identifier")
     name: str = Field(..., description="Document type name")
-    description: Optional[str] = Field(None, description="Document type description")
+    description: str | None = Field(None, description="Document type description")
     schema_fields: list[SchemaField] = Field(
         default_factory=list, description="Schema field definitions"
     )
-    system_prompt: Optional[str] = Field(
-        None, description="System prompt for LLM extraction"
-    )
-    post_processing: Optional[str] = Field(
-        None, description="Post-processing code (Python/JS)"
-    )
-    extraction_model: Optional[str] = Field(
+    system_prompt: str | None = Field(None, description="System prompt for LLM extraction")
+    post_processing: str | None = Field(None, description="Post-processing code (Python/JS)")
+    extraction_model: str | None = Field(
         None, description="LLM model used for extraction for this document type"
     )
-    ocr_engine: Optional[str] = Field(
-        None, description="OCR engine selection for this document type"
-    )
-    schema_version_id: Optional[str] = Field(
+    ocr_engine: str | None = Field(None, description="OCR engine selection for this document type")
+    schema_version_id: str | None = Field(
         None, description="Current schema/config version ID for this document type"
     )
     created_at: datetime = Field(..., description="Creation timestamp")
@@ -145,10 +129,10 @@ class ClassificationCreate(BaseModel):
     """Request model for classifying a document."""
 
     document_type_id: str = Field(..., description="Document type ID to assign")
-    confidence: Optional[float] = Field(
+    confidence: float | None = Field(
         None, ge=0.0, le=1.0, description="Classification confidence score"
     )
-    labeled_by: Optional[str] = Field(None, description="User who labeled this")
+    labeled_by: str | None = Field(None, description="User who labeled this")
 
 
 class Classification(BaseModel):
@@ -156,9 +140,9 @@ class Classification(BaseModel):
 
     document_id: str = Field(..., description="Document ID")
     document_type_id: str = Field(..., description="Assigned document type ID")
-    document_type_name: Optional[str] = Field(None, description="Document type name")
-    confidence: Optional[float] = Field(None, description="Classification confidence")
-    labeled_by: Optional[str] = Field(None, description="User who labeled this")
+    document_type_name: str | None = Field(None, description="Document type name")
+    confidence: float | None = Field(None, description="Classification confidence")
+    labeled_by: str | None = Field(None, description="User who labeled this")
     created_at: datetime = Field(..., description="Classification timestamp")
 
 
@@ -173,8 +157,8 @@ class ExtractedField(BaseModel):
 
     field_name: str = Field(..., description="Field name from schema")
     value: Any = Field(..., description="Extracted value")
-    confidence: Optional[float] = Field(None, description="Extraction confidence")
-    source_text: Optional[str] = Field(None, description="Source text for extraction")
+    confidence: float | None = Field(None, description="Extraction confidence")
+    source_text: str | None = Field(None, description="Source text for extraction")
 
 
 class ExtractionResult(BaseModel):
@@ -183,8 +167,8 @@ class ExtractionResult(BaseModel):
     document_id: str
     document_type_id: str
     fields: list[ExtractedField]
-    schema_version_id: Optional[str] = None
-    prompt_version_id: Optional[str] = None
+    schema_version_id: str | None = None
+    prompt_version_id: str | None = None
     extracted_at: datetime
     # Pages that were actually used for extraction (populated by retrieval-vision path)
     source_page_numbers: list[int] = Field(default_factory=list)
@@ -197,10 +181,10 @@ class GlobalField(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     type: FieldType
     prompt: str = Field(..., min_length=1)
-    description: Optional[str] = None
-    extraction_model: Optional[str] = None
-    ocr_engine: Optional[str] = None
-    created_by: Optional[str] = None
+    description: str | None = None
+    extraction_model: str | None = None
+    ocr_engine: str | None = None
+    created_by: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -211,21 +195,21 @@ class GlobalFieldCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     type: FieldType
     prompt: str = Field(..., min_length=1)
-    description: Optional[str] = None
-    extraction_model: Optional[str] = None
-    ocr_engine: Optional[str] = None
-    created_by: Optional[str] = None
+    description: str | None = None
+    extraction_model: str | None = None
+    ocr_engine: str | None = None
+    created_by: str | None = None
 
 
 class GlobalFieldUpdate(BaseModel):
     """Request model for updating a reusable global field."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    type: Optional[FieldType] = None
-    prompt: Optional[str] = Field(None, min_length=1)
-    description: Optional[str] = None
-    extraction_model: Optional[str] = None
-    ocr_engine: Optional[str] = None
+    name: str | None = Field(None, min_length=1, max_length=100)
+    type: FieldType | None = None
+    prompt: str | None = Field(None, min_length=1)
+    description: str | None = None
+    extraction_model: str | None = None
+    ocr_engine: str | None = None
 
 
 class FieldPropertySuggestion(BaseModel):
@@ -233,9 +217,11 @@ class FieldPropertySuggestion(BaseModel):
 
     name: str = Field(..., min_length=1)
     type: FieldType
-    description: Optional[str] = None
-    items_type: Optional[FieldType] = Field(None, description="For array properties, the type of array items")
-    properties: Optional[list["FieldPropertySuggestion"]] = Field(
+    description: str | None = None
+    items_type: FieldType | None = Field(
+        None, description="For array properties, the type of array items"
+    )
+    properties: list["FieldPropertySuggestion"] | None = Field(
         None, description="Nested properties for object or array-of-object sub-properties"
     )
 
@@ -243,13 +229,15 @@ class FieldPropertySuggestion(BaseModel):
 class FieldAssistantRequest(BaseModel):
     """Request model for AI-assisted field creation."""
 
-    user_input: str = Field(..., min_length=3, description="Natural language description of desired field")
-    document_type_id: Optional[str] = Field(None, description="Optional document type context")
+    user_input: str = Field(
+        ..., min_length=3, description="Natural language description of desired field"
+    )
+    document_type_id: str | None = Field(None, description="Optional document type context")
     existing_field_names: list[str] = Field(
         default_factory=list,
         description="Existing field names to avoid collisions",
     )
-    screenshot_base64: Optional[str] = Field(
+    screenshot_base64: str | None = Field(
         None,
         description="Optional base64-encoded screenshot to help draft the schema",
     )
@@ -260,9 +248,9 @@ class FieldAssistantResponse(BaseModel):
 
     name: str
     type: FieldType
-    description: Optional[str] = None
+    description: str | None = None
     extraction_prompt: str
-    items_type: Optional[FieldType] = None
+    items_type: FieldType | None = None
     object_properties: list[FieldPropertySuggestion] = Field(default_factory=list)
 
 

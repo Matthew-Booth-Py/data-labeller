@@ -9,50 +9,72 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type GroundTruthAnnotation, type TextSpanData, type BoundingBoxData, type AnnotationSuggestion } from "@/lib/api";
-import { TextSpanAnnotator, type EntityType } from "@/components/labeller/TextSpanAnnotator";
+import {
+  api,
+  type GroundTruthAnnotation,
+  type TextSpanData,
+  type BoundingBoxData,
+  type AnnotationSuggestion,
+} from "@/lib/api";
+import {
+  TextSpanAnnotator,
+  type EntityType,
+} from "@/components/labeller/TextSpanAnnotator";
 import { PdfTextAnnotator } from "@/components/labeller/PdfTextAnnotator";
 import { ImageBboxAnnotator } from "@/components/labeller/ImageBboxAnnotator";
 import { toast } from "sonner";
-import { Loader2, FileText, Image, Copy, ChevronDown, Sparkles, Trash2 } from "lucide-react";
+import {
+  Loader2,
+  FileText,
+  Image,
+  Copy,
+  ChevronDown,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { formatAnnotationValue } from "@/lib/utils";
 
 // Color palette for entity types
 const ENTITY_COLORS = [
-  '#7ee787', // green
-  '#58a6ff', // blue
-  '#d2a8ff', // purple
-  '#f0883e', // orange
-  '#ffd33d', // yellow
-  '#f85149', // red
-  '#a5d6ff', // light blue
-  '#ff7b72', // coral
+  "#7ee787", // green
+  "#58a6ff", // blue
+  "#d2a8ff", // purple
+  "#f0883e", // orange
+  "#ffd33d", // yellow
+  "#f85149", // red
+  "#a5d6ff", // light blue
+  "#ff7b72", // coral
 ];
 
-interface DataLabellerV2Props {
-}
+interface DataLabellerV2Props {}
 
 export function DataLabellerV2({}: DataLabellerV2Props) {
   const queryClient = useQueryClient();
   const projectId = localStorage.getItem("selected-project") || "all";
-  
+
   // Persist state in sessionStorage (survives tab switches, cleared when browser closes)
   const [selectedDocId, setSelectedDocId] = useState<string | null>(() => {
     try {
-      return sessionStorage.getItem(`labeller-selected-doc-${projectId}`) || null;
+      return (
+        sessionStorage.getItem(`labeller-selected-doc-${projectId}`) || null
+      );
     } catch {
       return null;
     }
   });
-  
-  const [activeEntityTypeId, setActiveEntityTypeId] = useState<string | null>(() => {
-    try {
-      return sessionStorage.getItem(`labeller-active-entity-${projectId}`) || null;
-    } catch {
-      return null;
-    }
-  });
-  
+
+  const [activeEntityTypeId, setActiveEntityTypeId] = useState<string | null>(
+    () => {
+      try {
+        return (
+          sessionStorage.getItem(`labeller-active-entity-${projectId}`) || null
+        );
+      } catch {
+        return null;
+      }
+    },
+  );
+
   const [activeInstanceNum, setActiveInstanceNum] = useState<number>(() => {
     try {
       const stored = sessionStorage.getItem(`labeller-active-row-${projectId}`);
@@ -61,7 +83,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       return 1;
     }
   });
-  
+
   const [exportMenuVisible, setExportMenuVisible] = useState(false);
   const [localStorageVersion, setLocalStorageVersion] = useState(0);
   const [suggestions, setSuggestions] = useState<AnnotationSuggestion[]>([]);
@@ -79,17 +101,19 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     if (!documentsData?.documents || !projectId || projectId === "all") {
       return [];
     }
-    
+
     try {
       const stored = localStorage.getItem("uu-projects");
       if (!stored) return [];
-      
+
       const projects = JSON.parse(stored);
       const project = projects.find((p: { id: string }) => p.id === projectId);
       if (!project) return [];
-      
+
       const projectDocumentIds = project.documentIds || [];
-      return documentsData.documents.filter(doc => projectDocumentIds.includes(doc.id));
+      return documentsData.documents.filter((doc) =>
+        projectDocumentIds.includes(doc.id),
+      );
     } catch (error) {
       console.error("Error filtering documents:", error);
       return [];
@@ -99,7 +123,10 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   // Persist selected document
   useEffect(() => {
     if (selectedDocId) {
-      sessionStorage.setItem(`labeller-selected-doc-${projectId}`, selectedDocId);
+      sessionStorage.setItem(
+        `labeller-selected-doc-${projectId}`,
+        selectedDocId,
+      );
     } else {
       sessionStorage.removeItem(`labeller-selected-doc-${projectId}`);
     }
@@ -108,7 +135,10 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   // Persist active entity type
   useEffect(() => {
     if (activeEntityTypeId) {
-      sessionStorage.setItem(`labeller-active-entity-${projectId}`, activeEntityTypeId);
+      sessionStorage.setItem(
+        `labeller-active-entity-${projectId}`,
+        activeEntityTypeId,
+      );
     } else {
       sessionStorage.removeItem(`labeller-active-entity-${projectId}`);
     }
@@ -116,38 +146,59 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
 
   // Persist active row number
   useEffect(() => {
-    sessionStorage.setItem(`labeller-active-row-${projectId}`, String(activeInstanceNum));
+    sessionStorage.setItem(
+      `labeller-active-row-${projectId}`,
+      String(activeInstanceNum),
+    );
   }, [activeInstanceNum, projectId]);
 
   // Listen for localStorage changes
   useEffect(() => {
-    const handleStorageChange = () => setLocalStorageVersion(v => v + 1);
+    const handleStorageChange = () => setLocalStorageVersion((v) => v + 1);
     window.addEventListener("storage", handleStorageChange);
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
   // Get selected document
-  const selectedDocument = documents.find(d => d.id === selectedDocId);
+  const selectedDocument = documents.find((d) => d.id === selectedDocId);
 
   // Get schema fields from document type
   const schemaFields = selectedDocument?.document_type?.schema_fields || [];
 
   // Convert schema fields to entity types with colors
   const entityTypes: EntityType[] = useMemo(() => {
-    const flattenFields = (fields: any[], prefix = ''): string[] => {
+    const flattenFields = (fields: any[], prefix = ""): string[] => {
       const result: string[] = [];
       for (const field of fields) {
         const path = prefix ? `${prefix}.${field.name}` : field.name;
-        
-        if (field.type === 'array' && field.items?.type === 'object' && field.items.properties) {
+
+        if (
+          field.type === "array" &&
+          field.items?.type === "object" &&
+          field.items.properties
+        ) {
           // Array of objects - flatten nested properties
-          for (const [propName, propField] of Object.entries(field.items.properties)) {
-            result.push(...flattenFields([{ ...propField as object, name: propName }], path));
+          for (const [propName, propField] of Object.entries(
+            field.items.properties,
+          )) {
+            result.push(
+              ...flattenFields(
+                [{ ...(propField as object), name: propName }],
+                path,
+              ),
+            );
           }
-        } else if (field.type === 'object' && field.properties) {
+        } else if (field.type === "object" && field.properties) {
           // Object - flatten nested properties
-          for (const [propName, propField] of Object.entries(field.properties)) {
-            result.push(...flattenFields([{ ...propField as object, name: propName }], path));
+          for (const [propName, propField] of Object.entries(
+            field.properties,
+          )) {
+            result.push(
+              ...flattenFields(
+                [{ ...(propField as object), name: propName }],
+                path,
+              ),
+            );
           }
         } else {
           // Leaf field
@@ -168,9 +219,9 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   // Group entity types by parent for hierarchical display
   const groupedEntityTypes = useMemo(() => {
     const groups: Record<string, EntityType[]> = {};
-    
-    entityTypes.forEach(et => {
-      const parts = et.name.split('.');
+
+    entityTypes.forEach((et) => {
+      const parts = et.name.split(".");
       if (parts.length > 1) {
         const parent = parts[0];
         if (!groups[parent]) {
@@ -179,19 +230,21 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
         groups[parent].push(et);
       } else {
         // Top-level fields
-        if (!groups['_root']) {
-          groups['_root'] = [];
+        if (!groups["_root"]) {
+          groups["_root"] = [];
         }
-        groups['_root'].push(et);
+        groups["_root"].push(et);
       }
     });
-    
+
     return groups;
   }, [entityTypes]);
 
   // Auto-expand all groups by default
   useEffect(() => {
-    const allGroups = Object.keys(groupedEntityTypes).filter(g => g !== '_root');
+    const allGroups = Object.keys(groupedEntityTypes).filter(
+      (g) => g !== "_root",
+    );
     setExpandedGroups(new Set(allGroups));
   }, [groupedEntityTypes]);
 
@@ -199,25 +252,28 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ctrl/Cmd + Arrow Up: increment row number
-      if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowUp') {
+      if ((e.ctrlKey || e.metaKey) && e.key === "ArrowUp") {
         e.preventDefault();
-        setActiveInstanceNum(prev => Math.min(prev + 1, 20));
+        setActiveInstanceNum((prev) => Math.min(prev + 1, 20));
       }
       // Ctrl/Cmd + Arrow Down: decrement row number
-      if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown') {
+      if ((e.ctrlKey || e.metaKey) && e.key === "ArrowDown") {
         e.preventDefault();
-        setActiveInstanceNum(prev => Math.max(prev - 1, 1));
+        setActiveInstanceNum((prev) => Math.max(prev - 1, 1));
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   // Fetch annotations for selected document
   const { data: annotationsData, refetch: refetchAnnotations } = useQuery({
     queryKey: ["annotations", selectedDocId],
-    queryFn: () => selectedDocId ? api.getGroundTruthAnnotations(selectedDocId) : Promise.resolve({ annotations: [], total: 0 }),
+    queryFn: () =>
+      selectedDocId
+        ? api.getGroundTruthAnnotations(selectedDocId)
+        : Promise.resolve({ annotations: [], total: 0 }),
     enabled: !!selectedDocId,
   });
 
@@ -225,9 +281,14 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
 
   // Create annotation mutation
   const createAnnotationMutation = useMutation({
-    mutationFn: async (data: { fieldName: string; value: string; annotationData: TextSpanData | BoundingBoxData; annotationType: string }) => {
+    mutationFn: async (data: {
+      fieldName: string;
+      value: string;
+      annotationData: TextSpanData | BoundingBoxData;
+      annotationType: string;
+    }) => {
       if (!selectedDocId) throw new Error("No document selected");
-      
+
       return api.createGroundTruthAnnotation(selectedDocId, {
         document_id: selectedDocId,
         field_name: data.fieldName,
@@ -262,58 +323,76 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   });
 
   // Handle annotation creation
-  const handleAnnotationCreate = useCallback((fieldName: string, value: string, data: TextSpanData | BoundingBoxData) => {
-    const annotationType = 'start' in data ? 'text_span' : 'bbox';
-    
-    // Check if this is an array field (contains dot notation like "field.property")
-    const isArrayField = fieldName.includes('.');
-    
-    // Add instance_num to annotation_data if it's an array field
-    const annotationData = isArrayField 
-      ? { ...data, instance_num: activeInstanceNum }
-      : data;
-    
-    createAnnotationMutation.mutate({ fieldName, value, annotationData, annotationType });
-  }, [createAnnotationMutation, activeInstanceNum]);
+  const handleAnnotationCreate = useCallback(
+    (
+      fieldName: string,
+      value: string,
+      data: TextSpanData | BoundingBoxData,
+    ) => {
+      const annotationType = "start" in data ? "text_span" : "bbox";
+
+      // Check if this is an array field (contains dot notation like "field.property")
+      const isArrayField = fieldName.includes(".");
+
+      // Add instance_num to annotation_data if it's an array field
+      const annotationData = isArrayField
+        ? { ...data, instance_num: activeInstanceNum }
+        : data;
+
+      createAnnotationMutation.mutate({
+        fieldName,
+        value,
+        annotationData,
+        annotationType,
+      });
+    },
+    [createAnnotationMutation, activeInstanceNum],
+  );
 
   // Handle annotation deletion
-  const handleAnnotationDelete = useCallback((annotationId: string) => {
-    deleteAnnotationMutation.mutate(annotationId);
-  }, [deleteAnnotationMutation]);
+  const handleAnnotationDelete = useCallback(
+    (annotationId: string) => {
+      deleteAnnotationMutation.mutate(annotationId);
+    },
+    [deleteAnnotationMutation],
+  );
 
   // Focus an annotation in the active document view (text/PDF/image)
-  const focusAnnotationInDocument = useCallback((annotation: GroundTruthAnnotation) => {
-    const annotationType = annotation.annotation_type;
-    if (annotationType === 'bbox') {
-      const bbox = annotation.annotation_data as BoundingBoxData;
-      if (
-        selectedDocument?.file_type?.toLowerCase() === 'pdf' &&
-        typeof bbox?.page === 'number'
-      ) {
-        const pageEl = document.querySelector(
-          `.react-pdf__Page[data-page-number="${bbox.page}"]`
-        ) as HTMLElement | null;
-        if (pageEl) {
-          pageEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const focusAnnotationInDocument = useCallback(
+    (annotation: GroundTruthAnnotation) => {
+      const annotationType = annotation.annotation_type;
+      if (annotationType === "bbox") {
+        const bbox = annotation.annotation_data as BoundingBoxData;
+        if (
+          selectedDocument?.file_type?.toLowerCase() === "pdf" &&
+          typeof bbox?.page === "number"
+        ) {
+          const pageEl = document.querySelector(
+            `.react-pdf__Page[data-page-number="${bbox.page}"]`,
+          ) as HTMLElement | null;
+          if (pageEl) {
+            pageEl.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
         }
       }
-    }
 
-    const target = document.querySelector(
-      `[data-annotation-id="${annotation.id}"]`
-    ) as HTMLElement | null;
-    if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      target.style.outline = '2px solid #58a6ff';
-      setTimeout(() => {
-        target.style.outline = '';
-      }, 1200);
-      return;
-    }
+      const target = document.querySelector(
+        `[data-annotation-id="${annotation.id}"]`,
+      ) as HTMLElement | null;
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        target.style.outline = "2px solid #58a6ff";
+        setTimeout(() => {
+          target.style.outline = "";
+        }, 1200);
+        return;
+      }
 
-    // Text annotator keeps a stable helper for text-span cases.
-    TextSpanAnnotator.scrollToAnnotation(annotation.id);
-  }, [selectedDocument]);
+      // Text annotator keeps a stable helper for text-span cases.
+      TextSpanAnnotator.scrollToAnnotation(annotation.id);
+    },
+    [selectedDocument],
+  );
 
   // Clear suggestions when document changes
   useEffect(() => {
@@ -326,13 +405,14 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     setLoadingSuggestions(true);
     try {
       const result = await api.suggestAnnotations(selectedDocId);
-      const existingFields = new Set(annotations.map(a => a.field_name));
-      const filtered = (result.suggestions || []).filter(s => {
+      const existingFields = new Set(annotations.map((a) => a.field_name));
+      const filtered = (result.suggestions || []).filter((s) => {
         const instanceNum = (s.annotation_data as any)?.instance_num;
         if (instanceNum) {
-          return !annotations.some(a =>
-            a.field_name === s.field_name &&
-            (a.annotation_data as any)?.instance_num === instanceNum
+          return !annotations.some(
+            (a) =>
+              a.field_name === s.field_name &&
+              (a.annotation_data as any)?.instance_num === instanceNum,
           );
         }
         return !existingFields.has(s.field_name);
@@ -340,9 +420,13 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       setSuggestions(filtered);
       const skipped = (result.suggestions?.length || 0) - filtered.length;
       if (skipped > 0) {
-        toast.success(`Generated ${filtered.length} suggestions (${skipped} already labeled)`);
+        toast.success(
+          `Generated ${filtered.length} suggestions (${skipped} already labeled)`,
+        );
       } else {
-        toast.success(`Generated ${filtered.length} suggestion${filtered.length !== 1 ? 's' : ''}`);
+        toast.success(
+          `Generated ${filtered.length} suggestion${filtered.length !== 1 ? "s" : ""}`,
+        );
       }
     } catch (error: any) {
       toast.error(`Failed to generate suggestions: ${error.message}`);
@@ -358,7 +442,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       return api.createGroundTruthAnnotation(selectedDocId, {
         document_id: selectedDocId,
         field_name: suggestion.field_name,
-        value: suggestion.value,  // Keep original type (string or array) - don't stringify
+        value: suggestion.value, // Keep original type (string or array) - don't stringify
         annotation_type: suggestion.annotation_type,
         annotation_data: suggestion.annotation_data,
         labeled_by: "ai_approved",
@@ -366,7 +450,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     },
     onSuccess: (_, suggestion) => {
       refetchAnnotations();
-      setSuggestions(prev => prev.filter(s => s.id !== suggestion.id));
+      setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
       toast.success("Suggestion approved");
     },
     onError: (error: Error) => {
@@ -374,52 +458,59 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     },
   });
 
-  const handleSuggestionApprove = useCallback((suggestion: AnnotationSuggestion) => {
-    approveSuggestionMutation.mutate(suggestion);
-  }, [approveSuggestionMutation]);
+  const handleSuggestionApprove = useCallback(
+    (suggestion: AnnotationSuggestion) => {
+      approveSuggestionMutation.mutate(suggestion);
+    },
+    [approveSuggestionMutation],
+  );
 
   const handleSuggestionReject = useCallback((id: string) => {
-    setSuggestions(prev => prev.filter(s => s.id !== id));
+    setSuggestions((prev) => prev.filter((s) => s.id !== id));
   }, []);
 
   const handleAcceptAllSuggestions = useCallback(async () => {
     if (suggestions.length === 0) return;
-    
+
     toast.promise(
-      Promise.all(suggestions.map(s => approveSuggestionMutation.mutateAsync(s))),
+      Promise.all(
+        suggestions.map((s) => approveSuggestionMutation.mutateAsync(s)),
+      ),
       {
         loading: `Accepting ${suggestions.length} suggestions...`,
         success: () => {
           setSuggestions([]);
           return `Accepted ${suggestions.length} suggestions`;
         },
-        error: 'Failed to accept some suggestions',
-      }
+        error: "Failed to accept some suggestions",
+      },
     );
   }, [suggestions, approveSuggestionMutation]);
 
   const handleDeleteAllAnnotations = useCallback(async () => {
     if (annotations.length === 0) return;
-    
+
     const confirmed = window.confirm(
-      `Are you sure you want to delete all ${annotations.length} annotations? This cannot be undone.`
+      `Are you sure you want to delete all ${annotations.length} annotations? This cannot be undone.`,
     );
-    
+
     if (!confirmed) return;
-    
+
     toast.promise(
-      Promise.all(annotations.map(a => deleteAnnotationMutation.mutateAsync(a.id))),
+      Promise.all(
+        annotations.map((a) => deleteAnnotationMutation.mutateAsync(a.id)),
+      ),
       {
         loading: `Deleting ${annotations.length} annotations...`,
         success: `Deleted ${annotations.length} annotations`,
-        error: 'Failed to delete some annotations',
-      }
+        error: "Failed to delete some annotations",
+      },
     );
   }, [annotations, deleteAnnotationMutation]);
 
   // Calculate stats
   const stats = useMemo(() => {
-    const text = selectedDocument ? '' : ''; // We'd need document content for accurate stats
+    const text = selectedDocument ? "" : ""; // We'd need document content for accurate stats
     const chars = annotations.reduce((sum, ann) => {
       const data = ann.annotation_data as TextSpanData;
       return sum + (data?.text?.length || 0);
@@ -428,13 +519,13 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       const data = ann.annotation_data as TextSpanData;
       return sum + (data?.text?.trim().split(/\s+/).length || 0);
     }, 0);
-    
+
     return {
       documents: documents.length,
       chars,
       words,
       annotations: annotations.length,
-      coverage: '—', // Would need total doc length
+      coverage: "—", // Would need total doc length
     };
   }, [documents, annotations, selectedDocument]);
 
@@ -448,7 +539,9 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   }, [annotations]);
 
   // Get active entity type info
-  const activeEntityType = entityTypes.find(et => et.id === activeEntityTypeId);
+  const activeEntityType = entityTypes.find(
+    (et) => et.id === activeEntityTypeId,
+  );
 
   // Render document viewer based on file type
   const renderDocumentViewer = () => {
@@ -458,7 +551,9 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
           <div className="dl-empty-state">
             <div className="dl-empty-state-icon">📄</div>
             <div className="dl-empty-state-text">No document selected</div>
-            <div className="dl-empty-state-hint">Select a document from the sidebar to start labelling</div>
+            <div className="dl-empty-state-hint">
+              Select a document from the sidebar to start labelling
+            </div>
           </div>
         </div>
       );
@@ -468,7 +563,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     const documentUrl = api.getDocumentFileUrl(selectedDocument.id);
 
     // PDF - render PDF with selectable text layer
-    if (fileType === 'pdf') {
+    if (fileType === "pdf") {
       return (
         <PdfTextAnnotator
           documentId={selectedDocument.id}
@@ -487,7 +582,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     }
 
     // Images - use bounding box annotation
-    if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(fileType)) {
+    if (["png", "jpg", "jpeg", "gif", "webp"].includes(fileType)) {
       return (
         <ImageBboxAnnotator
           documentId={selectedDocument.id}
@@ -512,7 +607,9 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
         <div className="dl-empty-state">
           <div className="dl-empty-state-icon">📝</div>
           <div className="dl-empty-state-text">Text file annotation</div>
-          <div className="dl-empty-state-hint">Text file support coming soon</div>
+          <div className="dl-empty-state-hint">
+            Text file support coming soon
+          </div>
         </div>
       </div>
     );
@@ -521,11 +618,14 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   // Export functions
   const exportAs = (format: string) => {
     setExportMenuVisible(false);
-    
+
     const data = {
-      entity_types: entityTypes.map(et => ({ name: et.name, color: et.color })),
-      document: selectedDocument?.filename || 'unknown',
-      annotations: annotations.map(ann => {
+      entity_types: entityTypes.map((et) => ({
+        name: et.name,
+        color: et.color,
+      })),
+      document: selectedDocument?.filename || "unknown",
+      annotations: annotations.map((ann) => {
         const data = ann.annotation_data as TextSpanData;
         return {
           text: ann.value,
@@ -536,39 +636,43 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       }),
     };
 
-    let content = '';
-    let filename = 'annotations';
-    let mime = 'text/plain';
+    let content = "";
+    let filename = "annotations";
+    let mime = "text/plain";
 
-    if (format === 'json') {
+    if (format === "json") {
       content = JSON.stringify(data, null, 2);
-      filename = 'annotations.json';
-      mime = 'application/json';
-    } else if (format === 'jsonl') {
-      content = annotations.map(ann => {
-        const data = ann.annotation_data as TextSpanData;
-        return JSON.stringify({
-          text: ann.value,
-          label: ann.field_name,
-          start: data?.start,
-          end: data?.end,
-        });
-      }).join('\n');
-      filename = 'annotations.jsonl';
-    } else if (format === 'csv') {
-      const rows = ['text,label,start,end'];
+      filename = "annotations.json";
+      mime = "application/json";
+    } else if (format === "jsonl") {
+      content = annotations
+        .map((ann) => {
+          const data = ann.annotation_data as TextSpanData;
+          return JSON.stringify({
+            text: ann.value,
+            label: ann.field_name,
+            start: data?.start,
+            end: data?.end,
+          });
+        })
+        .join("\n");
+      filename = "annotations.jsonl";
+    } else if (format === "csv") {
+      const rows = ["text,label,start,end"];
       for (const ann of annotations) {
         const data = ann.annotation_data as TextSpanData;
-        rows.push(`"${(ann.value || '').replace(/"/g, '""')}","${ann.field_name}",${data?.start || ''},${data?.end || ''}`);
+        rows.push(
+          `"${(ann.value || "").replace(/"/g, '""')}","${ann.field_name}",${data?.start || ""},${data?.end || ""}`,
+        );
       }
-      content = rows.join('\n');
-      filename = 'annotations.csv';
-      mime = 'text/csv';
+      content = rows.join("\n");
+      filename = "annotations.csv";
+      mime = "text/csv";
     }
 
     const blob = new Blob([content], { type: mime });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
     a.download = filename;
     a.click();
@@ -576,10 +680,12 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   };
 
   const copyAnnotations = () => {
-    const text = annotations.map(ann => {
-      return `${ann.field_name}: "${ann.value}"`;
-    }).join('\n');
-    
+    const text = annotations
+      .map((ann) => {
+        return `${ann.field_name}: "${ann.value}"`;
+      })
+      .join("\n");
+
     navigator.clipboard.writeText(text).then(() => {
       toast.success("Copied to clipboard");
     });
@@ -588,12 +694,12 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   // Generate output summary as JSON
   const outputSummary = useMemo(() => {
     if (annotations.length === 0) {
-      return 'No annotations yet. Select an entity type from the sidebar, then highlight text in the document to label it.';
+      return "No annotations yet. Select an entity type from the sidebar, then highlight text in the document to label it.";
     }
 
     const jsonData = {
-      document: selectedDocument?.filename || 'unknown',
-      annotations: annotations.map(ann => {
+      document: selectedDocument?.filename || "unknown",
+      annotations: annotations.map((ann) => {
         const data = ann.annotation_data as TextSpanData & BoundingBoxData;
         const entry: Record<string, unknown> = {
           field: ann.field_name,
@@ -626,27 +732,45 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
         <div className="dl-sidebar-section">
           <div className="dl-section-title">
             Documents
-            <span style={{ fontSize: '11px', color: '#484f58', textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
+            <span
+              style={{
+                fontSize: "11px",
+                color: "#484f58",
+                textTransform: "none",
+                letterSpacing: 0,
+                fontWeight: 400,
+              }}
+            >
               {documents.length}
             </span>
           </div>
           <div className="dl-section-content">
             {documents.length === 0 ? (
-              <div style={{ fontSize: '12px', color: '#484f58', padding: '4px 0' }}>
+              <div
+                style={{ fontSize: "12px", color: "#484f58", padding: "4px 0" }}
+              >
                 No documents in this project
               </div>
             ) : (
               <div className="dl-documents-list">
-                {documents.map(doc => (
+                {documents.map((doc) => (
                   <div
                     key={doc.id}
-                    className={`dl-document-item ${selectedDocId === doc.id ? 'active' : ''}`}
+                    className={`dl-document-item ${selectedDocId === doc.id ? "active" : ""}`}
                     onClick={() => setSelectedDocId(doc.id)}
                   >
-                    {doc.file_type === 'pdf' ? <FileText size={14} /> : <Image size={14} />}
-                    <span className="dl-document-item-name">{doc.filename}</span>
+                    {doc.file_type === "pdf" ? (
+                      <FileText size={14} />
+                    ) : (
+                      <Image size={14} />
+                    )}
+                    <span className="dl-document-item-name">
+                      {doc.filename}
+                    </span>
                     <span className="dl-document-item-meta">
-                      {annotations.filter(a => a.document_id === doc.id).length || 0} ann.
+                      {annotations.filter((a) => a.document_id === doc.id)
+                        .length || 0}{" "}
+                      ann.
                     </span>
                   </div>
                 ))}
@@ -656,40 +780,58 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
         </div>
 
         {/* Row Number Selector for Array Fields */}
-        <div className="dl-sidebar-section" style={{ borderBottom: '1px solid #21262d', paddingBottom: '12px' }}>
+        <div
+          className="dl-sidebar-section"
+          style={{ borderBottom: "1px solid #21262d", paddingBottom: "12px" }}
+        >
           <div className="dl-section-title">
             Table Row Number
-            <span style={{ fontSize: '11px', color: '#484f58', textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
+            <span
+              style={{
+                fontSize: "11px",
+                color: "#484f58",
+                textTransform: "none",
+                letterSpacing: 0,
+                fontWeight: 400,
+              }}
+            >
               for array fields
             </span>
           </div>
           <div className="dl-section-content">
-            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
                 <button
                   key={num}
                   onClick={() => setActiveInstanceNum(num)}
                   style={{
-                    padding: '6px 12px',
-                    borderRadius: '4px',
-                    border: activeInstanceNum === num ? '2px solid #58a6ff' : '1px solid #30363d',
-                    background: activeInstanceNum === num ? 'rgba(88, 166, 255, 0.15)' : '#21262d',
-                    color: activeInstanceNum === num ? '#58a6ff' : '#c9d1d9',
-                    cursor: 'pointer',
-                    fontSize: '13px',
-                    fontWeight: activeInstanceNum === num ? '600' : '400',
-                    transition: 'all 0.15s ease',
+                    padding: "6px 12px",
+                    borderRadius: "4px",
+                    border:
+                      activeInstanceNum === num
+                        ? "2px solid #58a6ff"
+                        : "1px solid #30363d",
+                    background:
+                      activeInstanceNum === num
+                        ? "rgba(88, 166, 255, 0.15)"
+                        : "#21262d",
+                    color: activeInstanceNum === num ? "#58a6ff" : "#c9d1d9",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    fontWeight: activeInstanceNum === num ? "600" : "400",
+                    transition: "all 0.15s ease",
                   }}
                   onMouseEnter={(e) => {
                     if (activeInstanceNum !== num) {
-                      e.currentTarget.style.borderColor = '#58a6ff';
-                      e.currentTarget.style.background = 'rgba(88, 166, 255, 0.05)';
+                      e.currentTarget.style.borderColor = "#58a6ff";
+                      e.currentTarget.style.background =
+                        "rgba(88, 166, 255, 0.05)";
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (activeInstanceNum !== num) {
-                      e.currentTarget.style.borderColor = '#30363d';
-                      e.currentTarget.style.background = '#21262d';
+                      e.currentTarget.style.borderColor = "#30363d";
+                      e.currentTarget.style.background = "#21262d";
                     }
                   }}
                 >
@@ -697,8 +839,11 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                 </button>
               ))}
             </div>
-            <div style={{ marginTop: '8px', fontSize: '12px', color: '#8b949e' }}>
-              Current row: <strong style={{ color: '#58a6ff' }}>{activeInstanceNum}</strong>
+            <div
+              style={{ marginTop: "8px", fontSize: "12px", color: "#8b949e" }}
+            >
+              Current row:{" "}
+              <strong style={{ color: "#58a6ff" }}>{activeInstanceNum}</strong>
             </div>
           </div>
         </div>
@@ -707,114 +852,182 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
         <div className="dl-sidebar-section">
           <div className="dl-section-title">
             Entity Types
-            <span style={{ fontSize: '11px', color: '#484f58', textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
+            <span
+              style={{
+                fontSize: "11px",
+                color: "#484f58",
+                textTransform: "none",
+                letterSpacing: 0,
+                fontWeight: 400,
+              }}
+            >
               click to activate
             </span>
           </div>
           <div className="dl-section-content">
             {entityTypes.length === 0 ? (
-              <div style={{ fontSize: '12px', color: '#484f58', padding: '4px 0' }}>
+              <div
+                style={{ fontSize: "12px", color: "#484f58", padding: "4px 0" }}
+              >
                 Select a classified document to see schema fields
               </div>
             ) : (
               <div className="dl-entity-types-list">
-                {Object.entries(groupedEntityTypes).map(([groupName, groupTypes]) => {
-                  const isExpanded = expandedGroups.has(groupName);
-                  const isRoot = groupName === '_root';
-                  
-                  return (
-                    <div key={groupName} className="dl-entity-group">
-                      {!isRoot && (
-                        <div
-                          className="dl-entity-group-header"
-                          onClick={() => {
-                            const newExpanded = new Set(expandedGroups);
-                            if (isExpanded) {
-                              newExpanded.delete(groupName);
-                            } else {
-                              newExpanded.add(groupName);
-                            }
-                            setExpandedGroups(newExpanded);
-                          }}
-                          style={{ 
-                            fontSize: '12px', 
-                            fontWeight: 600, 
-                            color: '#8b949e',
-                            padding: '6px 8px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            borderBottom: '1px solid #21262d',
-                            marginBottom: '4px'
-                          }}
-                        >
-                          <ChevronDown 
-                            size={14} 
-                            style={{ 
-                              transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
-                              transition: 'transform 0.15s'
-                            }} 
-                          />
-                          <span>{groupName}</span>
-                          <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#484f58' }}>
-                            {groupTypes.length}
-                          </span>
-                        </div>
-                      )}
-                      {(isRoot || isExpanded) && groupTypes.map((et, i) => {
-                        const globalIndex = entityTypes.findIndex(e => e.id === et.id);
-                        const displayName = et.name.split('.').pop() || et.name;
-                        
-                        return (
+                {Object.entries(groupedEntityTypes).map(
+                  ([groupName, groupTypes]) => {
+                    const isExpanded = expandedGroups.has(groupName);
+                    const isRoot = groupName === "_root";
+
+                    return (
+                      <div key={groupName} className="dl-entity-group">
+                        {!isRoot && (
                           <div
-                            key={et.id}
-                            className={`dl-entity-type-item ${activeEntityTypeId === et.id ? 'active' : ''}`}
-                            style={{
-                              ...(activeEntityTypeId === et.id ? { color: et.color } : undefined),
-                              paddingLeft: isRoot ? '8px' : '24px'
+                            className="dl-entity-group-header"
+                            onClick={() => {
+                              const newExpanded = new Set(expandedGroups);
+                              if (isExpanded) {
+                                newExpanded.delete(groupName);
+                              } else {
+                                newExpanded.add(groupName);
+                              }
+                              setExpandedGroups(newExpanded);
                             }}
-                            onClick={() => setActiveEntityTypeId(activeEntityTypeId === et.id ? null : et.id)}
+                            style={{
+                              fontSize: "12px",
+                              fontWeight: 600,
+                              color: "#8b949e",
+                              padding: "6px 8px",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              borderBottom: "1px solid #21262d",
+                              marginBottom: "4px",
+                            }}
                           >
-                            <div className="dl-entity-color-dot" style={{ background: et.color }} />
-                            <span className="dl-entity-type-name">{displayName}</span>
-                            {globalIndex < 9 && <span className="dl-kbd">{globalIndex + 1}</span>}
-                            <span className="dl-entity-type-count">{entityCounts[et.name] || 0}</span>
+                            <ChevronDown
+                              size={14}
+                              style={{
+                                transform: isExpanded
+                                  ? "rotate(0deg)"
+                                  : "rotate(-90deg)",
+                                transition: "transform 0.15s",
+                              }}
+                            />
+                            <span>{groupName}</span>
+                            <span
+                              style={{
+                                marginLeft: "auto",
+                                fontSize: "11px",
+                                color: "#484f58",
+                              }}
+                            >
+                              {groupTypes.length}
+                            </span>
                           </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
+                        )}
+                        {(isRoot || isExpanded) &&
+                          groupTypes.map((et, i) => {
+                            const globalIndex = entityTypes.findIndex(
+                              (e) => e.id === et.id,
+                            );
+                            const displayName =
+                              et.name.split(".").pop() || et.name;
+
+                            return (
+                              <div
+                                key={et.id}
+                                className={`dl-entity-type-item ${activeEntityTypeId === et.id ? "active" : ""}`}
+                                style={{
+                                  ...(activeEntityTypeId === et.id
+                                    ? { color: et.color }
+                                    : undefined),
+                                  paddingLeft: isRoot ? "8px" : "24px",
+                                }}
+                                onClick={() =>
+                                  setActiveEntityTypeId(
+                                    activeEntityTypeId === et.id ? null : et.id,
+                                  )
+                                }
+                              >
+                                <div
+                                  className="dl-entity-color-dot"
+                                  style={{ background: et.color }}
+                                />
+                                <span className="dl-entity-type-name">
+                                  {displayName}
+                                </span>
+                                {globalIndex < 9 && (
+                                  <span className="dl-kbd">
+                                    {globalIndex + 1}
+                                  </span>
+                                )}
+                                <span className="dl-entity-type-count">
+                                  {entityCounts[et.name] || 0}
+                                </span>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    );
+                  },
+                )}
               </div>
             )}
           </div>
           <div className="dl-shortcut-hint">
-            <span className="dl-kbd">1</span>-<span className="dl-kbd">9</span> activate type · <span className="dl-kbd">Esc</span> deselect · <span className="dl-kbd">Del</span> remove last · <span className="dl-kbd">Ctrl</span>+<span className="dl-kbd">↑</span>/<span className="dl-kbd">↓</span> row
+            <span className="dl-kbd">1</span>-<span className="dl-kbd">9</span>{" "}
+            activate type · <span className="dl-kbd">Esc</span> deselect ·{" "}
+            <span className="dl-kbd">Del</span> remove last ·{" "}
+            <span className="dl-kbd">Ctrl</span>+
+            <span className="dl-kbd">↑</span>/<span className="dl-kbd">↓</span>{" "}
+            row
           </div>
         </div>
 
         {/* Annotations section */}
-        <div className="dl-sidebar-section" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div
+          className="dl-sidebar-section"
+          style={{
+            flex: 1,
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
           <div className="dl-section-title">
             Annotations
-            <span style={{ fontSize: '11px', color: '#484f58', textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
+            <span
+              style={{
+                fontSize: "11px",
+                color: "#484f58",
+                textTransform: "none",
+                letterSpacing: 0,
+                fontWeight: 400,
+              }}
+            >
               {annotations.length}
             </span>
           </div>
-          <div className="dl-section-content" style={{ flex: 1, overflowY: 'auto' }}>
+          <div
+            className="dl-section-content"
+            style={{ flex: 1, overflowY: "auto" }}
+          >
             {annotations.length === 0 ? (
-              <div style={{ fontSize: '12px', color: '#484f58', padding: '4px 0' }}>
+              <div
+                style={{ fontSize: "12px", color: "#484f58", padding: "4px 0" }}
+              >
                 No annotations yet
               </div>
             ) : (
               <div className="dl-annotations-list">
-                {annotations.map(ann => {
-                  const et = entityTypes.find(e => e.name === ann.field_name);
-                  const color = et?.color || '#8b949e';
+                {annotations.map((ann) => {
+                  const et = entityTypes.find((e) => e.name === ann.field_name);
+                  const color = et?.color || "#8b949e";
                   const preview = formatAnnotationValue(ann.value, 30);
-                  const instanceNum = (ann.annotation_data as any)?.instance_num;
-                  
+                  const instanceNum = (ann.annotation_data as any)
+                    ?.instance_num;
+
                   return (
                     <div
                       key={ann.id}
@@ -824,12 +1037,12 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                       {instanceNum && (
                         <span
                           className="dl-annotation-label-chip"
-                          style={{ 
-                            background: '#30363d', 
-                            color: '#8b949e',
-                            fontSize: '10px',
-                            padding: '2px 6px',
-                            fontWeight: 600
+                          style={{
+                            background: "#30363d",
+                            color: "#8b949e",
+                            fontSize: "10px",
+                            padding: "2px 6px",
+                            fontWeight: 600,
                           }}
                         >
                           {instanceNum}
@@ -839,10 +1052,11 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                         className="dl-annotation-label-chip"
                         style={{ background: `${color}30`, color }}
                       >
-                        {ann.field_name.split('.').pop()}
+                        {ann.field_name.split(".").pop()}
                       </span>
                       <span className="dl-annotation-text-preview">
-                        "{preview}{(ann.value?.length || 0) > 30 ? '...' : ''}"
+                        "{preview}
+                        {(ann.value?.length || 0) > 30 ? "..." : ""}"
                       </span>
                       <button
                         className="dl-annotation-remove"
@@ -871,13 +1085,20 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
             {activeEntityType ? (
               <span>
                 Labelling as <strong>{activeEntityType.name}</strong>
-                {selectedDocument && <> in <strong>{selectedDocument.filename}</strong></>}
-                {' '}— highlight text to annotate
+                {selectedDocument && (
+                  <>
+                    {" "}
+                    in <strong>{selectedDocument.filename}</strong>
+                  </>
+                )}{" "}
+                — highlight text to annotate
               </span>
             ) : entityTypes.length === 0 ? (
               <span>Select a classified document to see schema fields</span>
             ) : (
-              <span>Select an entity type, then highlight text to label it</span>
+              <span>
+                Select an entity type, then highlight text to label it
+              </span>
             )}
           </div>
           {selectedDocId && (
@@ -886,22 +1107,26 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
               onClick={handleAISuggest}
               disabled={loadingSuggestions}
               title="Generate AI annotation suggestions"
-              style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+              style={{ display: "flex", alignItems: "center", gap: "4px" }}
             >
-              {loadingSuggestions
-                ? <Loader2 size={12} className="animate-spin" />
-                : <Sparkles size={12} />}
+              {loadingSuggestions ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Sparkles size={12} />
+              )}
               Suggest
               {suggestions.length > 0 && (
-                <span style={{
-                  background: '#f0883e',
-                  color: '#0d1117',
-                  borderRadius: '10px',
-                  padding: '0 5px',
-                  fontSize: '10px',
-                  fontWeight: 700,
-                  marginLeft: 2,
-                }}>
+                <span
+                  style={{
+                    background: "#f0883e",
+                    color: "#0d1117",
+                    borderRadius: "10px",
+                    padding: "0 5px",
+                    fontSize: "10px",
+                    fontWeight: 700,
+                    marginLeft: 2,
+                  }}
+                >
                   {suggestions.length}
                 </span>
               )}
@@ -913,7 +1138,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
               onClick={handleAcceptAllSuggestions}
               disabled={loadingSuggestions}
               title={`Accept all ${suggestions.length} suggestions`}
-              style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+              style={{ display: "flex", alignItems: "center", gap: "4px" }}
             >
               <Sparkles size={12} />
               Accept All ({suggestions.length})
@@ -924,7 +1149,12 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
               className="dl-btn dl-btn-sm"
               onClick={handleDeleteAllAnnotations}
               title={`Delete all ${annotations.length} annotations`}
-              style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#f85149' }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                color: "#f85149",
+              }}
             >
               <Trash2 size={12} />
               Delete All ({annotations.length})
@@ -932,10 +1162,23 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
           )}
           {activeEntityType && (
             <div className="dl-active-label-indicator">
-              <div className="dl-active-label-dot" style={{ background: activeEntityType.color }} />
+              <div
+                className="dl-active-label-dot"
+                style={{ background: activeEntityType.color }}
+              />
               <span>{activeEntityType.name}</span>
-              {activeEntityType.name.includes('.') && (
-                <span style={{ marginLeft: '8px', padding: '2px 6px', background: 'rgba(88, 166, 255, 0.15)', borderRadius: '3px', fontSize: '11px', color: '#58a6ff', fontWeight: 600 }}>
+              {activeEntityType.name.includes(".") && (
+                <span
+                  style={{
+                    marginLeft: "8px",
+                    padding: "2px 6px",
+                    background: "rgba(88, 166, 255, 0.15)",
+                    borderRadius: "3px",
+                    fontSize: "11px",
+                    color: "#58a6ff",
+                    fontWeight: 600,
+                  }}
+                >
                   Row {activeInstanceNum}
                 </span>
               )}
@@ -945,9 +1188,15 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
 
         {/* Stats bar */}
         <div className="dl-stats-bar">
-          <div>Documents: <strong>{stats.documents}</strong></div>
-          <div>Annotations: <strong>{stats.annotations}</strong></div>
-          <div>Words annotated: <strong>{stats.words}</strong></div>
+          <div>
+            Documents: <strong>{stats.documents}</strong>
+          </div>
+          <div>
+            Annotations: <strong>{stats.annotations}</strong>
+          </div>
+          <div>
+            Words annotated: <strong>{stats.words}</strong>
+          </div>
         </div>
 
         {/* Document viewer */}
@@ -967,19 +1216,41 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                 >
                   Export <ChevronDown size={12} style={{ marginLeft: 4 }} />
                 </button>
-                <div className={`dl-export-menu ${exportMenuVisible ? 'visible' : ''}`}>
-                  <button className="dl-export-menu-item" onClick={() => exportAs('json')}>JSON</button>
-                  <button className="dl-export-menu-item" onClick={() => exportAs('jsonl')}>JSONL</button>
-                  <button className="dl-export-menu-item" onClick={() => exportAs('csv')}>CSV</button>
+                <div
+                  className={`dl-export-menu ${exportMenuVisible ? "visible" : ""}`}
+                >
+                  <button
+                    className="dl-export-menu-item"
+                    onClick={() => exportAs("json")}
+                  >
+                    JSON
+                  </button>
+                  <button
+                    className="dl-export-menu-item"
+                    onClick={() => exportAs("jsonl")}
+                  >
+                    JSONL
+                  </button>
+                  <button
+                    className="dl-export-menu-item"
+                    onClick={() => exportAs("csv")}
+                  >
+                    CSV
+                  </button>
                 </div>
               </div>
-              <button className="dl-btn dl-btn-sm dl-btn-primary" onClick={copyAnnotations}>
+              <button
+                className="dl-btn dl-btn-sm dl-btn-primary"
+                onClick={copyAnnotations}
+              >
                 <Copy size={12} style={{ marginRight: 4 }} />
                 Copy
               </button>
             </div>
           </div>
-          <div className={`dl-output-content ${annotations.length > 0 ? 'has-content' : ''}`}>
+          <div
+            className={`dl-output-content ${annotations.length > 0 ? "has-content" : ""}`}
+          >
             {outputSummary}
           </div>
         </div>

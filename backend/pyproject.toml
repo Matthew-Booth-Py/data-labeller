@@ -41,6 +41,7 @@ dependencies = [
     "tenacity>=8.2.0",
     "cohere>=5.20.6",
     "pypdf>=6.7.2",
+    "pre-commit>=4.5.1",
 ]
 
 [project.optional-dependencies]

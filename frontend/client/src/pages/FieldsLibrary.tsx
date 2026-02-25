@@ -3,10 +3,31 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, Trash2, Edit3, BookOpen, Sparkles, Loader2, GripVertical } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Trash2,
+  Edit3,
+  BookOpen,
+  Sparkles,
+  Loader2,
+  GripVertical,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { api, type FieldType, type GlobalField } from "@/lib/api";
 
@@ -37,9 +58,11 @@ export default function FieldsLibrary() {
         (field) =>
           field.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           field.prompt.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (field.description || "").toLowerCase().includes(searchQuery.toLowerCase())
+          (field.description || "")
+            .toLowerCase()
+            .includes(searchQuery.toLowerCase()),
       ),
-    [fields, searchQuery]
+    [fields, searchQuery],
   );
 
   const resetForm = () => {
@@ -122,7 +145,9 @@ export default function FieldsLibrary() {
       return;
     }
 
-    const isDuplicate = fields.some((field) => field.name === normalizedName && field.id !== editingField?.id);
+    const isDuplicate = fields.some(
+      (field) => field.name === normalizedName && field.id !== editingField?.id,
+    );
     if (isDuplicate) {
       toast({ title: "Field name already exists", variant: "destructive" });
       return;
@@ -134,18 +159,28 @@ export default function FieldsLibrary() {
         name: normalizedName,
         type: fieldType,
         description: fieldDescription.trim() || undefined,
-        prompt: fieldPrompt.trim() || `Extract the ${normalizedName.replace(/_/g, " ")} from the document.`,
+        prompt:
+          fieldPrompt.trim() ||
+          `Extract the ${normalizedName.replace(/_/g, " ")} from the document.`,
         ocr_engine: ocrEngine,
       };
 
       if (editingField) {
         const updated = await api.updateGlobalField(editingField.id, payload);
-        setFields((prev) => prev.map((field) => (field.id === editingField.id ? updated : field)));
-        toast({ title: "Field updated", description: `Updated "${normalizedName}"` });
+        setFields((prev) =>
+          prev.map((field) => (field.id === editingField.id ? updated : field)),
+        );
+        toast({
+          title: "Field updated",
+          description: `Updated "${normalizedName}"`,
+        });
       } else {
         const created = await api.createGlobalField(payload);
         setFields((prev) => [...prev, created]);
-        toast({ title: "Field created", description: `Created "${normalizedName}"` });
+        toast({
+          title: "Field created",
+          description: `Created "${normalizedName}"`,
+        });
       }
 
       setIsCreating(false);
@@ -153,7 +188,9 @@ export default function FieldsLibrary() {
       resetForm();
     } catch (error: any) {
       toast({
-        title: editingField ? "Failed to update field" : "Failed to create field",
+        title: editingField
+          ? "Failed to update field"
+          : "Failed to create field",
         description: error.message,
         variant: "destructive",
       });
@@ -186,13 +223,19 @@ export default function FieldsLibrary() {
               <BookOpen className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-primary">Fields Library</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-primary">
+                Fields Library
+              </h1>
               <p className="text-muted-foreground mt-1">
-                Create reusable global fields. Projects can use these alongside project-specific fields.
+                Create reusable global fields. Projects can use these alongside
+                project-specific fields.
               </p>
             </div>
           </div>
-          <Button className="gap-2 bg-primary hover:bg-primary/90" onClick={openCreateDialog}>
+          <Button
+            className="gap-2 bg-primary hover:bg-primary/90"
+            onClick={openCreateDialog}
+          >
             <Plus className="h-4 w-4" />
             Add Field
           </Button>
@@ -213,10 +256,18 @@ export default function FieldsLibrary() {
         <div className="space-y-4">
           <div className="flex items-center justify-between mb-2 mt-1">
             <div className="space-y-1">
-              <h3 className="text-sm font-bold uppercase tracking-widest text-primary">Fields Definition</h3>
-              <p className="text-xs text-muted-foreground">{filteredFields.length} fields defined</p>
+              <h3 className="text-sm font-bold uppercase tracking-widest text-primary">
+                Fields Definition
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                {filteredFields.length} fields defined
+              </p>
             </div>
-            <Button size="sm" className="gap-2 bg-primary hover:bg-primary/90" onClick={openCreateDialog}>
+            <Button
+              size="sm"
+              className="gap-2 bg-primary hover:bg-primary/90"
+              onClick={openCreateDialog}
+            >
               <Plus className="h-4 w-4" /> Add Field
             </Button>
           </div>
@@ -242,14 +293,25 @@ export default function FieldsLibrary() {
                       <GripVertical className="h-4 w-4" />
                     </div>
                     <div className="flex-1 flex items-center gap-2 min-w-0">
-                      <span className="font-mono text-sm font-medium truncate text-primary">{field.name}</span>
-                      <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-mono text-muted-foreground uppercase">
+                      <span className="font-mono text-sm font-medium truncate text-primary">
+                        {field.name}
+                      </span>
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] h-4 px-1.5 font-mono text-muted-foreground uppercase"
+                      >
                         {field.type}
                       </Badge>
-                      <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-mono">
+                      <Badge
+                        variant="secondary"
+                        className="text-[10px] h-4 px-1.5 font-mono"
+                      >
                         {field.extraction_model || DEFAULT_MODEL}
                       </Badge>
-                      <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-mono">
+                      <Badge
+                        variant="secondary"
+                        className="text-[10px] h-4 px-1.5 font-mono"
+                      >
                         {field.ocr_engine || DEFAULT_OCR}
                       </Badge>
                     </div>
@@ -276,12 +338,20 @@ export default function FieldsLibrary() {
                   </div>
 
                   <div className="p-3 bg-background">
-                    {field.description && <p className="text-xs text-muted-foreground mb-2">{field.description}</p>}
+                    {field.description && (
+                      <p className="text-xs text-muted-foreground mb-2">
+                        {field.description}
+                      </p>
+                    )}
                     <div className="relative">
                       <label className="absolute -top-2 left-2 bg-background px-1 text-[9px] font-bold text-muted-foreground uppercase tracking-wider">
                         Extraction Prompt
                       </label>
-                      <Textarea className="min-h-[60px] text-xs resize-none border-muted bg-transparent" value={field.prompt} readOnly />
+                      <Textarea
+                        className="min-h-[60px] text-xs resize-none border-muted bg-transparent"
+                        value={field.prompt}
+                        readOnly
+                      />
                     </div>
                   </div>
                 </div>
@@ -289,8 +359,14 @@ export default function FieldsLibrary() {
 
             {!isLoading && filteredFields.length === 0 && (
               <div className="p-8 text-center text-muted-foreground border border-dashed rounded-lg">
-                <p className="text-sm">{searchQuery ? "No fields match your search." : "No global fields defined yet."}</p>
-                <p className="text-xs mt-2">Create reusable field templates for all projects.</p>
+                <p className="text-sm">
+                  {searchQuery
+                    ? "No fields match your search."
+                    : "No global fields defined yet."}
+                </p>
+                <p className="text-xs mt-2">
+                  Create reusable field templates for all projects.
+                </p>
               </div>
             )}
 
@@ -316,7 +392,9 @@ export default function FieldsLibrary() {
         >
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{editingField ? "Edit Field" : "Add Field"}</DialogTitle>
+              <DialogTitle>
+                {editingField ? "Edit Field" : "Add Field"}
+              </DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-3 p-3 border rounded-lg bg-muted/20">
@@ -330,8 +408,15 @@ export default function FieldsLibrary() {
                   onChange={(e) => setAiFieldInput(e.target.value)}
                   className="min-h-[80px]"
                 />
-                <Button type="button" variant="outline" onClick={suggestField} disabled={!aiFieldInput.trim() || isSuggesting}>
-                  {isSuggesting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={suggestField}
+                  disabled={!aiFieldInput.trim() || isSuggesting}
+                >
+                  {isSuggesting && (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  )}
                   Suggest Field with AI
                 </Button>
               </div>
@@ -349,7 +434,10 @@ export default function FieldsLibrary() {
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Type</label>
-                <Select value={fieldType} onValueChange={(v) => setFieldType(v as FieldType)}>
+                <Select
+                  value={fieldType}
+                  onValueChange={(v) => setFieldType(v as FieldType)}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -381,7 +469,9 @@ export default function FieldsLibrary() {
                 />
               </div>
               <div className="rounded-lg border p-3 space-y-3 bg-muted/10">
-                <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Extraction Engine Settings</div>
+                <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Extraction Engine Settings
+                </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">OCR Engine</label>
                   <Select value={ocrEngine} onValueChange={setOcrEngine}>
@@ -407,7 +497,10 @@ export default function FieldsLibrary() {
               >
                 Cancel
               </Button>
-              <Button onClick={saveField} disabled={!fieldName.trim() || isSaving}>
+              <Button
+                onClick={saveField}
+                disabled={!fieldName.trim() || isSaving}
+              >
                 {isSaving ? (
                   <span className="inline-flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin" />

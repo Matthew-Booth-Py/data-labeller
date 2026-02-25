@@ -4,9 +4,8 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('django_data', '0005_remove_chunks_timeline_entities'),
+        ("django_data", "0005_remove_chunks_timeline_entities"),
     ]
 
     operations = [

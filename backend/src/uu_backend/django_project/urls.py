@@ -2,6 +2,7 @@
 
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+
 from uu_backend.django_api.health.views import HealthView
 
 urlpatterns = [

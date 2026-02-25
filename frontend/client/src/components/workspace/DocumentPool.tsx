@@ -1,19 +1,24 @@
 import { useEffect, useState, useRef, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient, useQueries } from "@tanstack/react-query";
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  useQueries,
+} from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
-  Filter, 
-  Search, 
-  Grid, 
-  List, 
-  MoreVertical, 
-  FileText, 
-  Calendar, 
-  CheckCircle, 
+import {
+  Filter,
+  Search,
+  Grid,
+  List,
+  MoreVertical,
+  FileText,
+  Calendar,
+  CheckCircle,
   AlertTriangle,
   Upload,
   RefreshCw,
@@ -28,39 +33,71 @@ import {
   Network,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { api, DocumentSummary } from "@/lib/api";
 import { format, parseISO } from "date-fns";
 
 interface DocumentPoolProps {
-  projectId?: string;  // Track documents per project
+  projectId?: string; // Track documents per project
 }
 
 export function DocumentPool({ projectId }: DocumentPoolProps) {
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
+  const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [searchQuery, setSearchQuery] = useState("");
   const [localStorageVersion, setLocalStorageVersion] = useState(0);
   const [classifying, setClassifying] = useState(false);
-  const [classifyingDocs, setClassifyingDocs] = useState<Set<string>>(new Set());
+  const [classifyingDocs, setClassifyingDocs] = useState<Set<string>>(
+    new Set(),
+  );
   const [editingDoc, setEditingDoc] = useState<string | null>(null);
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
   const [extracting, setExtracting] = useState(false);
   const [extractingDocs, setExtractingDocs] = useState<Set<string>>(new Set());
-  const [viewingExtraction, setViewingExtraction] = useState<string | null>(null);
+  const [viewingExtraction, setViewingExtraction] = useState<string | null>(
+    null,
+  );
   const [extractionData, setExtractionData] = useState<any>(null);
-  const [classifications, setClassifications] = useState<Map<string, {
-    type: string;
-    typeId: string;
-    confidence: number;
-    reasoning: string;
-    status: 'pending' | 'accepted' | 'rejected';
-  }>>(new Map());
+  const [classifications, setClassifications] = useState<
+    Map<
+      string,
+      {
+        type: string;
+        typeId: string;
+        confidence: number;
+        reasoning: string;
+        status: "pending" | "accepted" | "rejected";
+      }
+    >
+  >(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -73,11 +110,12 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
     refetchInterval: (query) => {
       // Poll every 3s while any document is being indexed
       const docs = query.state.data?.documents;
-      const hasIndexing = docs?.some(doc => doc.retrieval_index_status === 'processing');
+      const hasIndexing = docs?.some(
+        (doc) => doc.retrieval_index_status === "processing",
+      );
       return hasIndexing ? 3000 : false;
     },
   });
-
 
   // Fetch document types for manual classification
   const { data: documentTypesData } = useQuery({
@@ -85,33 +123,39 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
     queryFn: () => api.listDocumentTypes(),
   });
 
-  const documentTypes = Array.isArray(documentTypesData?.types) ? documentTypesData.types : [];
+  const documentTypes = Array.isArray(documentTypesData?.types)
+    ? documentTypesData.types
+    : [];
 
   // Get project's document IDs and filter - use useMemo to ensure recalculation
   const filteredData = useMemo(() => {
     if (!data) return data;
-    
+
     // If no projectId, show nothing (documents must belong to a project)
     if (!projectId) {
       return { ...data, documents: [], total: 0 };
     }
-    
+
     // Get document IDs for this specific project from localStorage
     let projectDocumentIds: string[] = [];
     try {
       const stored = localStorage.getItem("uu-projects");
       if (stored) {
         const projects = JSON.parse(stored);
-        const project = projects.find((p: { id: string }) => p.id === projectId);
+        const project = projects.find(
+          (p: { id: string }) => p.id === projectId,
+        );
         projectDocumentIds = project?.documentIds || [];
       }
     } catch {
       projectDocumentIds = [];
     }
-    
+
     // Filter to only documents that belong to this project
-    const projectDocs = data.documents.filter(doc => projectDocumentIds.includes(doc.id));
-    
+    const projectDocs = data.documents.filter((doc) =>
+      projectDocumentIds.includes(doc.id),
+    );
+
     return {
       ...data,
       documents: projectDocs,
@@ -124,31 +168,35 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
   // Skip sync during indexing to avoid race conditions
   useEffect(() => {
     if (!data || !projectId) return;
-    
+
     try {
       const stored = localStorage.getItem("uu-projects");
       if (!stored) return;
-      
+
       const projects = JSON.parse(stored);
-      const projectIndex = projects.findIndex((p: { id: string }) => p.id === projectId);
+      const projectIndex = projects.findIndex(
+        (p: { id: string }) => p.id === projectId,
+      );
       if (projectIndex < 0) return;
-      
+
       const storedDocIds: string[] = projects[projectIndex].documentIds || [];
       if (storedDocIds.length === 0) return;
-      
+
       // Get all document IDs that actually exist in the API
-      const existingDocIds = new Set(data.documents.map(doc => doc.id));
-      
+      const existingDocIds = new Set(data.documents.map((doc) => doc.id));
+
       // Filter to only IDs that exist in the API
-      const validDocIds = storedDocIds.filter(id => existingDocIds.has(id));
-      
+      const validDocIds = storedDocIds.filter((id) => existingDocIds.has(id));
+
       // Only update if there are stale IDs to remove
       if (validDocIds.length < storedDocIds.length) {
-        console.log(`Syncing localStorage: removed ${storedDocIds.length - validDocIds.length} stale document IDs`);
+        console.log(
+          `Syncing localStorage: removed ${storedDocIds.length - validDocIds.length} stale document IDs`,
+        );
         projects[projectIndex].documentIds = validDocIds;
         projects[projectIndex].docCount = validDocIds.length;
         localStorage.setItem("uu-projects", JSON.stringify(projects));
-        setLocalStorageVersion(v => v + 1); // Trigger re-render
+        setLocalStorageVersion((v) => v + 1); // Trigger re-render
       }
     } catch (err) {
       console.error("Failed to sync localStorage document IDs:", err);
@@ -158,18 +206,21 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
   // Helper to save document IDs to project in localStorage
   const saveDocumentIdsToProject = (docIds: string[]) => {
     if (!projectId || docIds.length === 0) return;
-    
+
     try {
       const stored = localStorage.getItem("uu-projects");
       if (stored) {
         const projects = JSON.parse(stored);
-        const projectIndex = projects.findIndex((p: { id: string }) => p.id === projectId);
+        const projectIndex = projects.findIndex(
+          (p: { id: string }) => p.id === projectId,
+        );
         if (projectIndex >= 0) {
           const existingIds = projects[projectIndex].documentIds || [];
           projects[projectIndex].documentIds = [...existingIds, ...docIds];
-          projects[projectIndex].docCount = projects[projectIndex].documentIds.length;
+          projects[projectIndex].docCount =
+            projects[projectIndex].documentIds.length;
           localStorage.setItem("uu-projects", JSON.stringify(projects));
-          setLocalStorageVersion(v => v + 1); // Trigger re-render
+          setLocalStorageVersion((v) => v + 1); // Trigger re-render
         }
       }
     } catch (err) {
@@ -185,12 +236,12 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
         title: "Documents uploaded",
         description: `Processed ${result.documents_processed} document(s) in ${result.processing_time_seconds}s`,
       });
-      
+
       // Save new document IDs to the project
       if (result.document_ids && result.document_ids.length > 0) {
         saveDocumentIdsToProject(result.document_ids);
       }
-      
+
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["timeline-uploaded"] });
       queryClient.invalidateQueries({ queryKey: ["graph"] });
@@ -209,8 +260,8 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
 
   // Extract all classified documents
   const handleExtractAll = async () => {
-    const classifiedDocs = filteredDocs.filter(d => d.document_type);
-    
+    const classifiedDocs = filteredDocs.filter((d) => d.document_type);
+
     if (classifiedDocs.length === 0) {
       toast({
         title: "No documents to extract",
@@ -221,48 +272,59 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
     }
 
     setExtracting(true);
-    const newExtractingDocs = new Set(classifiedDocs.map(d => d.id));
+    const newExtractingDocs = new Set(classifiedDocs.map((d) => d.id));
     setExtractingDocs(newExtractingDocs);
 
     const startTime = Date.now();
-    console.log(`🚀 Starting parallel extraction of ${classifiedDocs.length} documents`);
-    
+    console.log(
+      `🚀 Starting parallel extraction of ${classifiedDocs.length} documents`,
+    );
+
     const extractionPromises = classifiedDocs.map(async (doc, index) => {
       const docStartTime = Date.now();
-      console.log(`📤 [${index + 1}/${classifiedDocs.length}] Extracting: ${doc.filename}`);
-      
+      console.log(
+        `📤 [${index + 1}/${classifiedDocs.length}] Extracting: ${doc.filename}`,
+      );
+
       try {
         await api.extractDocument(doc.id, false, true); // use structured output
         const elapsed = ((Date.now() - docStartTime) / 1000).toFixed(2);
-        console.log(`✅ [${index + 1}/${classifiedDocs.length}] Completed ${doc.filename} in ${elapsed}s`);
-        
-        setExtractingDocs(prev => {
+        console.log(
+          `✅ [${index + 1}/${classifiedDocs.length}] Completed ${doc.filename} in ${elapsed}s`,
+        );
+
+        setExtractingDocs((prev) => {
           const updated = new Set(prev);
           updated.delete(doc.id);
           return updated;
         });
-        
+
         return { success: true, doc };
       } catch (error) {
         const elapsed = ((Date.now() - docStartTime) / 1000).toFixed(2);
-        console.error(`❌ [${index + 1}/${classifiedDocs.length}] Failed ${doc.filename} after ${elapsed}s:`, error);
-        
-        setExtractingDocs(prev => {
+        console.error(
+          `❌ [${index + 1}/${classifiedDocs.length}] Failed ${doc.filename} after ${elapsed}s:`,
+          error,
+        );
+
+        setExtractingDocs((prev) => {
           const updated = new Set(prev);
           updated.delete(doc.id);
           return updated;
         });
-        
+
         return { success: false, doc, error };
       }
     });
 
     const results = await Promise.all(extractionPromises);
     const totalElapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-    const successCount = results.filter(r => r.success).length;
-    
-    console.log(`🏁 Extraction complete: ${successCount}/${classifiedDocs.length} succeeded in ${totalElapsed}s`);
-    
+    const successCount = results.filter((r) => r.success).length;
+
+    console.log(
+      `🏁 Extraction complete: ${successCount}/${classifiedDocs.length} succeeded in ${totalElapsed}s`,
+    );
+
     toast({
       title: "Extraction complete",
       description: `Successfully extracted ${successCount} of ${classifiedDocs.length} documents in ${totalElapsed}s`,
@@ -295,13 +357,18 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
       const stored = localStorage.getItem("uu-projects");
       if (stored) {
         const projects = JSON.parse(stored);
-        const projectIndex = projects.findIndex((p: { id: string }) => p.id === projectId);
+        const projectIndex = projects.findIndex(
+          (p: { id: string }) => p.id === projectId,
+        );
         if (projectIndex >= 0) {
           const existingIds = projects[projectIndex].documentIds || [];
-          projects[projectIndex].documentIds = existingIds.filter((id: string) => id !== docId);
-          projects[projectIndex].docCount = projects[projectIndex].documentIds.length;
+          projects[projectIndex].documentIds = existingIds.filter(
+            (id: string) => id !== docId,
+          );
+          projects[projectIndex].docCount =
+            projects[projectIndex].documentIds.length;
           localStorage.setItem("uu-projects", JSON.stringify(projects));
-          setLocalStorageVersion(v => v + 1); // Trigger re-render
+          setLocalStorageVersion((v) => v + 1); // Trigger re-render
         }
       }
     } catch (err) {
@@ -324,7 +391,7 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
         description: `${deletedIds.length} document(s) have been removed.`,
       });
       // Remove from project
-      deletedIds.forEach(id => removeDocumentIdFromProject(id));
+      deletedIds.forEach((id) => removeDocumentIdFromProject(id));
       // Clear selection
       setSelectedDocs(new Set());
       // Invalidate queries
@@ -348,7 +415,8 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
     onSuccess: (data) => {
       toast({
         title: "Retrieval indexing queued",
-        description: "Contextual retrieval indexing has been queued for this document.",
+        description:
+          "Contextual retrieval indexing has been queued for this document.",
       });
       queryClient.invalidateQueries({ queryKey: ["documents"] });
     },
@@ -378,9 +446,8 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
 
   // Filter documents by search query
   const filteredDocs = (filteredData?.documents || []).filter((doc) =>
-    doc.filename.toLowerCase().includes(searchQuery.toLowerCase())
+    doc.filename.toLowerCase().includes(searchQuery.toLowerCase()),
   );
-
 
   const formatDate = (dateStr: string | undefined) => {
     if (!dateStr) return "—";
@@ -393,7 +460,7 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
 
   // Auto-classify all unclassified documents asynchronously
   const handleClassifyAll = async () => {
-    const unclassified = filteredDocs.filter(doc => !doc.document_type);
+    const unclassified = filteredDocs.filter((doc) => !doc.document_type);
     if (unclassified.length === 0) {
       toast({
         title: "No Documents to Classify",
@@ -403,78 +470,88 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
     }
 
     setClassifying(true);
-    
+
     // Mark all documents as classifying
-    const newClassifyingDocs = new Set(unclassified.map(doc => doc.id));
+    const newClassifyingDocs = new Set(unclassified.map((doc) => doc.id));
     setClassifyingDocs(newClassifyingDocs);
 
     // Classify all documents in parallel
     const startTime = Date.now();
-    console.log(`🚀 Starting parallel classification of ${unclassified.length} documents at ${new Date().toISOString()}`);
-    
+    console.log(
+      `🚀 Starting parallel classification of ${unclassified.length} documents at ${new Date().toISOString()}`,
+    );
+
     const classificationPromises = unclassified.map(async (doc, index) => {
       const docStartTime = Date.now();
-      console.log(`📤 [${index + 1}/${unclassified.length}] Sending request for: ${doc.filename}`);
-      
+      console.log(
+        `📤 [${index + 1}/${unclassified.length}] Sending request for: ${doc.filename}`,
+      );
+
       try {
         const result = await api.autoClassifyDocument(doc.id, true); // Changed to true to auto-save
         const elapsed = ((Date.now() - docStartTime) / 1000).toFixed(2);
-        console.log(`✅ [${index + 1}/${unclassified.length}] Completed ${doc.filename} in ${elapsed}s -> ${result.document_type_name}`);
-        
+        console.log(
+          `✅ [${index + 1}/${unclassified.length}] Completed ${doc.filename} in ${elapsed}s -> ${result.document_type_name}`,
+        );
+
         // Update classifications map immediately when this doc completes
-        setClassifications(prev => {
+        setClassifications((prev) => {
           const updated = new Map(prev);
           updated.set(doc.id, {
             type: result.document_type_name,
             typeId: result.document_type_id,
             confidence: result.confidence,
             reasoning: result.reasoning || "",
-            status: 'pending',
+            status: "pending",
           });
           return updated;
         });
-        
+
         // Remove from classifying set
-        setClassifyingDocs(prev => {
+        setClassifyingDocs((prev) => {
           const updated = new Set(prev);
           updated.delete(doc.id);
           return updated;
         });
-        
+
         return { success: true, doc };
       } catch (error) {
         const elapsed = ((Date.now() - docStartTime) / 1000).toFixed(2);
-        console.error(`❌ [${index + 1}/${unclassified.length}] Failed ${doc.filename} after ${elapsed}s:`, error);
-        
+        console.error(
+          `❌ [${index + 1}/${unclassified.length}] Failed ${doc.filename} after ${elapsed}s:`,
+          error,
+        );
+
         // Remove from classifying set even on error
-        setClassifyingDocs(prev => {
+        setClassifyingDocs((prev) => {
           const updated = new Set(prev);
           updated.delete(doc.id);
           return updated;
         });
-        
+
         return { success: false, doc, error };
       }
     });
 
     // Wait for all to complete
     const results = await Promise.all(classificationPromises);
-    const successCount = results.filter(r => r.success).length;
+    const successCount = results.filter((r) => r.success).length;
     const totalElapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-    
-    console.log(`🏁 All classifications complete in ${totalElapsed}s (${successCount}/${unclassified.length} successful)`);
-    
+
+    console.log(
+      `🏁 All classifications complete in ${totalElapsed}s (${successCount}/${unclassified.length} successful)`,
+    );
+
     setClassifying(false);
-    
+
     // Refetch documents to show updated classifications
     await queryClient.refetchQueries({ queryKey: ["documents"] });
-    
+
     toast({
       title: "Classification Complete",
       description: `Successfully classified and saved ${successCount} of ${unclassified.length} documents in ${totalElapsed}s`,
     });
   };
-
 
   // Accept a classification
   const acceptMutation = useMutation({
@@ -484,7 +561,10 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
       const newClassifications = new Map(classifications);
       const existing = newClassifications.get(variables.docId);
       if (existing) {
-        newClassifications.set(variables.docId, { ...existing, status: 'accepted' });
+        newClassifications.set(variables.docId, {
+          ...existing,
+          status: "accepted",
+        });
         setClassifications(newClassifications);
       }
       // Force refetch instead of just invalidating
@@ -501,7 +581,7 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
     const newClassifications = new Map(classifications);
     const existing = newClassifications.get(docId);
     if (existing) {
-      newClassifications.set(docId, { ...existing, status: 'rejected' });
+      newClassifications.set(docId, { ...existing, status: "rejected" });
       setClassifications(newClassifications);
     }
   };
@@ -610,15 +690,15 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
         <div className="flex items-center gap-2 flex-1 max-w-md">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search documents..." 
-              className="pl-9" 
+            <Input
+              placeholder="Search documents..."
+              className="pl-9"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <Button 
-            variant="default" 
+          <Button
+            variant="default"
             className="gap-2"
             onClick={handleUploadClick}
             disabled={uploadMutation.isPending}
@@ -630,11 +710,14 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
             )}
             Upload
           </Button>
-          <Button 
+          <Button
             variant="outline"
             className="gap-2"
             onClick={handleClassifyAll}
-            disabled={classifying || filteredDocs.filter(d => !d.document_type).length === 0}
+            disabled={
+              classifying ||
+              filteredDocs.filter((d) => !d.document_type).length === 0
+            }
           >
             {classifying ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -643,11 +726,14 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
             )}
             Classify Documents
           </Button>
-          <Button 
+          <Button
             variant="outline"
             className="gap-2"
             onClick={handleExtractAll}
-            disabled={extracting || filteredDocs.filter(d => d.document_type).length === 0}
+            disabled={
+              extracting ||
+              filteredDocs.filter((d) => d.document_type).length === 0
+            }
           >
             {extracting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -657,11 +743,13 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
             Extract All
           </Button>
           {selectedDocs.size > 0 && (
-            <Button 
+            <Button
               variant="destructive"
               className="gap-2"
               onClick={() => {
-                if (confirm(`Delete ${selectedDocs.size} selected document(s)?`)) {
+                if (
+                  confirm(`Delete ${selectedDocs.size} selected document(s)?`)
+                ) {
                   deleteMutation.mutate(Array.from(selectedDocs));
                 }
               }}
@@ -687,19 +775,25 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
             <RefreshCw className="h-4 w-4" />
           </Button>
           <div className="flex items-center gap-0 border rounded-md p-1 bg-background">
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className={cn("h-8 w-8 rounded-sm", viewMode === 'grid' && "bg-muted")}
-              onClick={() => setViewMode('grid')}
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-8 w-8 rounded-sm",
+                viewMode === "grid" && "bg-muted",
+              )}
+              onClick={() => setViewMode("grid")}
             >
               <Grid className="h-4 w-4" />
             </Button>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className={cn("h-8 w-8 rounded-sm", viewMode === 'list' && "bg-muted")}
-              onClick={() => setViewMode('list')}
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-8 w-8 rounded-sm",
+                viewMode === "list" && "bg-muted",
+              )}
+              onClick={() => setViewMode("list")}
             >
               <List className="h-4 w-4" />
             </Button>
@@ -709,7 +803,10 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
 
       {/* Stats */}
       <div className="flex items-center gap-4 text-sm text-muted-foreground">
-        <span>{filteredData?.total || 0} document{(filteredData?.total || 0) !== 1 ? "s" : ""}</span>
+        <span>
+          {filteredData?.total || 0} document
+          {(filteredData?.total || 0) !== 1 ? "s" : ""}
+        </span>
       </div>
 
       {isLoading ? (
@@ -734,32 +831,40 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
             </Button>
           </div>
         </div>
-      ) : viewMode === 'grid' ? (
+      ) : viewMode === "grid" ? (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {filteredDocs.map((doc) => (
-            <Card 
-              key={doc.id} 
+            <Card
+              key={doc.id}
               className="group overflow-hidden hover:shadow-md transition-all hover:border-accent/50"
             >
               <div className="aspect-[3/4] bg-muted/30 relative border-b flex items-center justify-center">
                 <FileText className="h-12 w-12 text-muted-foreground/50" />
                 <div className="absolute top-2 right-2">
-                  <Badge variant="outline" className="shadow-sm bg-card/90 backdrop-blur-sm">
+                  <Badge
+                    variant="outline"
+                    className="shadow-sm bg-card/90 backdrop-blur-sm"
+                  >
                     {doc.file_type.toUpperCase()}
                   </Badge>
                 </div>
               </div>
               <CardContent className="p-3">
                 <div className="space-y-1">
-                  <p className="font-medium text-sm truncate" title={doc.filename}>
+                  <p
+                    className="font-medium text-sm truncate"
+                    title={doc.filename}
+                  >
                     {doc.filename}
                   </p>
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span className="flex items-center gap-1">
-                      <Calendar className="h-3 w-3" /> 
+                      <Calendar className="h-3 w-3" />
                       {formatDate(doc.date_extracted || doc.created_at)}
                     </span>
-                    <span>{(doc.token_count || 0).toLocaleString()} tokens</span>
+                    <span>
+                      {(doc.token_count || 0).toLocaleString()} tokens
+                    </span>
                   </div>
                 </div>
               </CardContent>
@@ -773,10 +878,13 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
               <TableRow className="bg-muted/5">
                 <TableHead className="w-[50px]">
                   <Checkbox
-                    checked={selectedDocs.size > 0 && selectedDocs.size === filteredDocs.length}
+                    checked={
+                      selectedDocs.size > 0 &&
+                      selectedDocs.size === filteredDocs.length
+                    }
                     onCheckedChange={(checked) => {
                       if (checked) {
-                        setSelectedDocs(new Set(filteredDocs.map(d => d.id)));
+                        setSelectedDocs(new Set(filteredDocs.map((d) => d.id)));
                       } else {
                         setSelectedDocs(new Set());
                       }
@@ -792,10 +900,7 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
             </TableHeader>
             <TableBody>
               {filteredDocs.map((doc) => (
-                <TableRow 
-                  key={doc.id} 
-                  className="group hover:bg-muted/5"
-                >
+                <TableRow key={doc.id} className="group hover:bg-muted/5">
                   <TableCell>
                     <Checkbox
                       checked={selectedDocs.has(doc.id)}
@@ -817,7 +922,10 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                         <FileText className="h-4 w-4 text-muted-foreground" />
                       </div>
                       <div className="flex flex-col gap-1">
-                        <span className="font-medium text-sm truncate max-w-[200px]" title={doc.filename}>
+                        <span
+                          className="font-medium text-sm truncate max-w-[200px]"
+                          title={doc.filename}
+                        >
                           {doc.filename}
                         </span>
                         <div className="flex items-center gap-2">
@@ -842,7 +950,9 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">{doc.file_type.toUpperCase()}</Badge>
+                    <Badge variant="outline">
+                      {doc.file_type.toUpperCase()}
+                    </Badge>
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     {(() => {
@@ -851,7 +961,9 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                         return (
                           <div className="flex items-center gap-2">
                             <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                            <span className="text-sm text-muted-foreground">Classifying...</span>
+                            <span className="text-sm text-muted-foreground">
+                              Classifying...
+                            </span>
                           </div>
                         );
                       }
@@ -862,7 +974,10 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                           <div className="flex items-center gap-2">
                             <Select
                               onValueChange={(typeId) => {
-                                manualClassifyMutation.mutate({ docId: doc.id, typeId });
+                                manualClassifyMutation.mutate({
+                                  docId: doc.id,
+                                  typeId,
+                                });
                                 setEditingDoc(null);
                               }}
                               onOpenChange={(open) => {
@@ -884,13 +999,13 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                           </div>
                         );
                       }
-                      
+
                       const classification = classifications.get(doc.id);
-                      
+
                       // Show existing document type if classified
                       if (doc.document_type) {
                         return (
-                          <div 
+                          <div
                             className="flex items-center gap-2 group cursor-pointer"
                             onClick={() => setEditingDoc(doc.id)}
                           >
@@ -901,7 +1016,7 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                           </div>
                         );
                       }
-                      
+
                       if (!classification) {
                         return (
                           <Button
@@ -915,10 +1030,10 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                           </Button>
                         );
                       }
-                      
-                      if (classification.status === 'accepted') {
+
+                      if (classification.status === "accepted") {
                         return (
-                          <div 
+                          <div
                             className="flex items-center gap-2 group cursor-pointer"
                             onClick={() => setEditingDoc(doc.id)}
                           >
@@ -930,8 +1045,8 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                           </div>
                         );
                       }
-                      
-                      if (classification.status === 'rejected') {
+
+                      if (classification.status === "rejected") {
                         return (
                           <Button
                             variant="ghost"
@@ -944,12 +1059,12 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                           </Button>
                         );
                       }
-                      
+
                       // Pending - show accept/reject buttons
                       return (
                         <div className="flex items-center gap-2">
-                          <Badge 
-                            variant="secondary" 
+                          <Badge
+                            variant="secondary"
                             className="text-xs cursor-pointer hover:bg-secondary/80"
                             onClick={() => setEditingDoc(doc.id)}
                           >
@@ -963,7 +1078,12 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                               size="sm"
                               variant="ghost"
                               className="h-6 w-6 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10"
-                              onClick={() => acceptMutation.mutate({ docId: doc.id, typeId: classification.typeId })}
+                              onClick={() =>
+                                acceptMutation.mutate({
+                                  docId: doc.id,
+                                  typeId: classification.typeId,
+                                })
+                              }
                               disabled={acceptMutation.isPending}
                             >
                               <Check className="h-3 w-3" />
@@ -983,21 +1103,31 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                   </TableCell>
                   <TableCell>
                     <span className="text-sm">
-                      {doc.date_extracted ? formatDate(doc.date_extracted) : "—"}
+                      {doc.date_extracted
+                        ? formatDate(doc.date_extracted)
+                        : "—"}
                     </span>
                   </TableCell>
-                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                  <TableCell
+                    className="text-right"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <div className="flex items-center justify-end gap-2">
                       {/* Retrieval status badge */}
-                      {doc.retrieval_index_status === 'completed' && doc.retrieval_chunks_count != null && (
-                        <Badge variant="secondary" className="text-xs gap-1">
-                          <Network className="h-3 w-3" />
-                          {doc.retrieval_chunks_count} chunks
-                        </Badge>
-                      )}
-                      {doc.retrieval_index_status === 'processing' && (
-                        <Badge variant="outline" className="text-xs gap-1.5 border-primary/50 bg-primary/10 px-2 py-1">
-                          {doc.retrieval_index_total && doc.retrieval_index_total > 0 ? (
+                      {doc.retrieval_index_status === "completed" &&
+                        doc.retrieval_chunks_count != null && (
+                          <Badge variant="secondary" className="text-xs gap-1">
+                            <Network className="h-3 w-3" />
+                            {doc.retrieval_chunks_count} chunks
+                          </Badge>
+                        )}
+                      {doc.retrieval_index_status === "processing" && (
+                        <Badge
+                          variant="outline"
+                          className="text-xs gap-1.5 border-primary/50 bg-primary/10 px-2 py-1"
+                        >
+                          {doc.retrieval_index_total &&
+                          doc.retrieval_index_total > 0 ? (
                             <>
                               <div className="relative h-4 w-4 flex items-center justify-center">
                                 <svg className="h-4 w-4 -rotate-90">
@@ -1023,7 +1153,8 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                                 </svg>
                               </div>
                               <span className="text-primary font-medium">
-                                {doc.retrieval_index_progress}/{doc.retrieval_index_total}
+                                {doc.retrieval_index_progress}/
+                                {doc.retrieval_index_total}
                               </span>
                             </>
                           ) : (
@@ -1034,22 +1165,25 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                           )}
                         </Badge>
                       )}
-                      {doc.retrieval_index_status === 'failed' && (
+                      {doc.retrieval_index_status === "failed" && (
                         <Badge variant="destructive" className="text-xs gap-1">
                           <AlertTriangle className="h-3 w-3" />
                           Index Failed
                         </Badge>
                       )}
                       {/* Reindex retrieval button */}
-                      <Button 
-                        variant="ghost" 
+                      <Button
+                        variant="ghost"
                         size="sm"
                         className="h-8 gap-1 px-2"
                         onClick={(e) => {
                           e.stopPropagation();
                           reindexRetrievalMutation.mutate(doc.id);
                         }}
-                        disabled={reindexRetrievalMutation.isPending || doc.retrieval_index_status === 'processing'}
+                        disabled={
+                          reindexRetrievalMutation.isPending ||
+                          doc.retrieval_index_status === "processing"
+                        }
                         title="Reindex for contextual retrieval"
                       >
                         <Network className="h-3 w-3" />
@@ -1057,8 +1191,8 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                       {extractingDocs.has(doc.id) ? (
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                       ) : doc.document_type ? (
-                        <Button 
-                          variant="ghost" 
+                        <Button
+                          variant="ghost"
                           size="sm"
                           className="h-8 gap-2"
                           onClick={(e) => {
@@ -1080,12 +1214,16 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
       )}
 
       {/* Extraction Viewer Dialog */}
-      <Dialog open={!!viewingExtraction} onOpenChange={() => setViewingExtraction(null)}>
+      <Dialog
+        open={!!viewingExtraction}
+        onOpenChange={() => setViewingExtraction(null)}
+      >
         <DialogContent className="max-w-3xl flex flex-col max-h-[85vh]">
           <DialogHeader className="flex-shrink-0">
             <DialogTitle>Extraction Results</DialogTitle>
             <DialogDescription>
-              {viewingExtraction && filteredDocs.find(d => d.id === viewingExtraction)?.filename}
+              {viewingExtraction &&
+                filteredDocs.find((d) => d.id === viewingExtraction)?.filename}
             </DialogDescription>
           </DialogHeader>
           {extractionData && (
@@ -1093,9 +1231,14 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
               {extractionData.fields && extractionData.fields.length > 0 ? (
                 <div className="space-y-3 pb-4">
                   {extractionData.fields.map((field: any, idx: number) => (
-                    <div key={idx} className="border rounded-lg p-4 space-y-2 bg-card">
+                    <div
+                      key={idx}
+                      className="border rounded-lg p-4 space-y-2 bg-card"
+                    >
                       <div className="flex items-center justify-between">
-                        <span className="font-medium text-sm">{field.field_name}</span>
+                        <span className="font-medium text-sm">
+                          {field.field_name}
+                        </span>
                         {field.confidence && (
                           <Badge variant="secondary" className="text-xs">
                             {Math.round(field.confidence * 100)}%
@@ -1103,12 +1246,14 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                         )}
                       </div>
                       <div className="text-sm">
-                        {typeof field.value === 'object' ? (
+                        {typeof field.value === "object" ? (
                           <pre className="bg-muted p-3 rounded text-xs overflow-x-auto max-h-[200px] overflow-y-auto">
                             {JSON.stringify(field.value, null, 2)}
                           </pre>
                         ) : (
-                          <div className="text-foreground break-words">{String(field.value)}</div>
+                          <div className="text-foreground break-words">
+                            {String(field.value)}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1116,7 +1261,8 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
-                  No extraction data available. Click "Extract All" or run extraction first.
+                  No extraction data available. Click "Extract All" or run
+                  extraction first.
                 </div>
               )}
             </div>

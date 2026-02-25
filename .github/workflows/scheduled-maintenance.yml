@@ -10,7 +10,7 @@ jobs:
   dependency-audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       packages: write
-    
+
     steps:
       - name: Delete old container images
         uses: actions/delete-package-versions@v5
@@ -76,7 +76,7 @@ jobs:
     permissions:
       issues: write
       pull-requests: write
-    
+
     steps:
       - name: Mark stale issues and PRs
         uses: actions/stale@v9
@@ -96,7 +96,7 @@ jobs:
   performance-benchmark:
     name: Performance Benchmarks
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

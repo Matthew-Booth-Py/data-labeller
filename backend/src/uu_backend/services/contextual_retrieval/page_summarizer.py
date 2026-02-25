@@ -3,15 +3,15 @@
 import asyncio
 import logging
 import os
-from typing import Callable
+from collections.abc import Callable
 
-from openai import AsyncOpenAI, AsyncAzureOpenAI, OpenAI, AzureOpenAI, RateLimitError
+from openai import AsyncAzureOpenAI, AsyncOpenAI, AzureOpenAI, OpenAI, RateLimitError
 from tenacity import (
+    before_sleep_log,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    before_sleep_log,
 )
 
 from uu_backend.config import get_settings
@@ -38,7 +38,6 @@ Respond with 2-3 sentences.
 
 
 class PageSummarizer:
-
     def __init__(
         self,
         model: str | None = None,
@@ -50,19 +49,19 @@ class PageSummarizer:
         self.model = model or settings.effective_summary_model
         self.max_completion_tokens = max_completion_tokens
         self.max_concurrency = int(os.getenv("MAX_CONCURRENCY", str(max_concurrency)))
-        
+
         use_azure = os.getenv("USE_AZURE_OPENAI", "false").lower() == "true"
-        
+
         if use_azure:
             azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
             azure_api_key = api_key or os.getenv("AZURE_OPENAI_API_KEY")
             azure_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
-            
+
             if not azure_endpoint or not azure_api_key:
                 raise ValueError(
                     "Azure OpenAI enabled but missing AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_API_KEY"
                 )
-            
+
             logger.info(f"Using Azure OpenAI for page summarization: {azure_endpoint}")
             self.client = AzureOpenAI(
                 api_version=azure_api_version,
@@ -79,7 +78,7 @@ class PageSummarizer:
             api_key = api_key or os.getenv("OPENAI_API_KEY")
             self.client = OpenAI(api_key=api_key)
             self.async_client = AsyncOpenAI(api_key=api_key)
-        
+
         self._completed_count = 0
 
     def summarize(self, page_content: str) -> str:
@@ -90,7 +89,7 @@ class PageSummarizer:
             ],
             max_completion_tokens=self.max_completion_tokens,
         )
-        
+
         return response.choices[0].message.content or ""
 
     async def asummarize(self, page_content: str) -> str:
@@ -110,7 +109,7 @@ class PageSummarizer:
                 max_completion_tokens=self.max_completion_tokens,
             )
             return response.choices[0].message.content or ""
-        
+
         return await _call_api()
 
     def summarize_page(self, chunk: Chunk) -> str:
@@ -125,11 +124,11 @@ class PageSummarizer:
     ) -> str:
         async with semaphore:
             summary = await self.asummarize(chunk.text)
-            
+
             self._completed_count += 1
             if progress_callback:
                 progress_callback(self._completed_count, total)
-            
+
             return summary
 
     def summarize_pages(
@@ -139,14 +138,14 @@ class PageSummarizer:
     ) -> list[str]:
         summaries = []
         total = len(chunks)
-        
+
         for i, chunk in enumerate(chunks):
             summary = self.summarize_page(chunk)
             summaries.append(summary)
-            
+
             if progress_callback:
                 progress_callback(i + 1, total)
-        
+
         return summaries
 
     async def asummarize_pages(
@@ -157,12 +156,11 @@ class PageSummarizer:
         self._completed_count = 0
         total = len(chunks)
         semaphore = asyncio.Semaphore(self.max_concurrency)
-        
+
         tasks = [
-            self.asummarize_page(chunk, semaphore, progress_callback, total)
-            for chunk in chunks
+            self.asummarize_page(chunk, semaphore, progress_callback, total) for chunk in chunks
         ]
-        
+
         return await asyncio.gather(*tasks)
 
     def summarize_pages_async(
@@ -174,23 +172,20 @@ class PageSummarizer:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
-        
+
         if loop and loop.is_running():
             try:
                 import nest_asyncio
+
                 nest_asyncio.apply()
-                return asyncio.run(
-                    self.asummarize_pages(chunks, progress_callback)
-                )
+                return asyncio.run(self.asummarize_pages(chunks, progress_callback))
             except ImportError:
                 import concurrent.futures
+
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(
-                        asyncio.run,
-                        self.asummarize_pages(chunks, progress_callback)
+                        asyncio.run, self.asummarize_pages(chunks, progress_callback)
                     )
                     return future.result()
         else:
-            return asyncio.run(
-                self.asummarize_pages(chunks, progress_callback)
-            )
+            return asyncio.run(self.asummarize_pages(chunks, progress_callback))

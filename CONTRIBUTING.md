@@ -42,7 +42,7 @@ This project adheres to a code of conduct. By participating, you are expected to
    pre-commit install --hook-type pre-push
    pre-commit install --hook-type commit-msg
    ```
-   
+
    See [docs/PRE_COMMIT_SETUP.md](docs/PRE_COMMIT_SETUP.md) for detailed setup.
 
 3. **Set up environment variables**
@@ -57,7 +57,7 @@ This project adheres to a code of conduct. By participating, you are expected to
    ```
 
 5. **Or run locally**
-   
+
    Backend:
    ```bash
    cd backend
@@ -65,7 +65,7 @@ This project adheres to a code of conduct. By participating, you are expected to
    uv run python manage.py migrate
    uv run uvicorn uu_backend.asgi_dispatcher:application --reload
    ```
-   
+
    Frontend:
    ```bash
    cd frontend
@@ -89,7 +89,7 @@ This project adheres to a code of conduct. By participating, you are expected to
    - Update documentation as needed
 
 3. **Pre-commit hooks run automatically**
-   
+
    When you commit, pre-commit hooks will automatically:
    - Format your code (Ruff, Prettier)
    - Run linters (Ruff, ESLint)
@@ -97,7 +97,7 @@ This project adheres to a code of conduct. By participating, you are expected to
    - Scan for security issues (Bandit)
    - Detect secrets
    - Validate commit message format
-   
+
    ```bash
    git add .
    git commit -m "feat: Add new feature"
@@ -105,11 +105,11 @@ This project adheres to a code of conduct. By participating, you are expected to
    ```
 
 4. **Tests run on push**
-   
+
    When you push, additional hooks run:
    - Full test suite with coverage (70% minimum)
    - Complete type checking
-   
+
    ```bash
    git push origin feat/your-feature-name
    # Tests run automatically before push completes
@@ -119,11 +119,11 @@ This project adheres to a code of conduct. By participating, you are expected to
    ```bash
    # Run all pre-commit hooks manually
    pre-commit run --all-files
-   
+
    # Backend tests
    cd backend
    uv run pytest tests/
-   
+
    # Frontend tests
    cd frontend
    npm test
@@ -154,11 +154,11 @@ def process_document(
     options: Optional[dict] = None
 ) -> dict:
     """Process a document with given options.
-    
+
     Args:
         document_id: Unique identifier for the document
         options: Optional processing configuration
-        
+
     Returns:
         Processing result dictionary
     """
@@ -186,10 +186,10 @@ interface DocumentProps {
   onProcess?: (id: string) => void;
 }
 
-export const Document: React.FC<DocumentProps> = ({ 
-  id, 
-  title, 
-  onProcess 
+export const Document: React.FC<DocumentProps> = ({
+  id,
+  title,
+  onProcess
 }) => {
   // Implementation
   return <div>{title}</div>;
@@ -235,10 +235,10 @@ def test_document_processing():
     """Test document processing functionality."""
     # Arrange
     document = create_test_document()
-    
+
     # Act
     result = process_document(document.id)
-    
+
     # Assert
     assert result["status"] == "success"
     assert "data" in result
@@ -312,7 +312,7 @@ All of these must pass before merging:
 2. **PR Title Format**
    ```
    <type>: <description>
-   
+
    Types:
    - feat: New feature
    - fix: Bug fix

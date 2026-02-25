@@ -3,15 +3,15 @@
  */
 
 // Base URL for API calls - configurable via environment variable
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const API_PREFIX = '/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_PREFIX = "/api/v1";
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export interface HealthResponse {
-  status: 'healthy' | 'degraded';
+  status: "healthy" | "degraded";
   version: string;
   services: {
     openai: string;
@@ -20,7 +20,6 @@ export interface HealthResponse {
     documents: number;
   };
 }
-
 
 export interface DocumentMetadata {
   filename: string;
@@ -63,7 +62,7 @@ export interface DocumentSummary {
 }
 
 export interface IngestResponse {
-  status: 'success' | 'partial';
+  status: "success" | "partial";
   documents_processed: number;
   chunks_created: number;
   processing_time_seconds: number;
@@ -132,8 +131,7 @@ export interface DeploymentExtractResponse {
   extracted_data: Record<string, unknown>;
 }
 
-
-export type EntityType = 'Person' | 'Organization' | 'Location' | 'Event';
+export type EntityType = "Person" | "Organization" | "Location" | "Event";
 
 export interface Entity {
   id: string;
@@ -185,9 +183,21 @@ export interface EntityDetailResponse {
 // Taxonomy Types
 // ============================================================================
 
-export type FieldType = 'string' | 'number' | 'date' | 'boolean' | 'object' | 'array';
+export type FieldType =
+  | "string"
+  | "number"
+  | "date"
+  | "boolean"
+  | "object"
+  | "array";
 
-export type VisualContentType = 'table' | 'form' | 'list' | 'paragraph' | 'mixed' | 'unknown';
+export type VisualContentType =
+  | "table"
+  | "form"
+  | "list"
+  | "paragraph"
+  | "mixed"
+  | "unknown";
 
 export interface SchemaField {
   name: string;
@@ -340,7 +350,7 @@ export interface ExtractionResult {
 // Annotation Types
 // ============================================================================
 
-export type AnnotationType = 'text_span' | 'bbox' | 'table_row';
+export type AnnotationType = "text_span" | "bbox" | "table_row";
 
 export interface TextSpanData {
   start: number;
@@ -433,7 +443,12 @@ export interface FieldPromptVersionUpdate {
 }
 
 // Evaluation interfaces
-export type MatchType = 'exact' | 'normalized' | 'fuzzy' | 'semantic' | 'no_match';
+export type MatchType =
+  | "exact"
+  | "normalized"
+  | "fuzzy"
+  | "semantic"
+  | "no_match";
 
 export interface MatchResult {
   is_match: boolean;
@@ -552,30 +567,36 @@ class ApiClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    console.log('[API] request() called:', { url, method: options.method || 'GET' });
-    
+    console.log("[API] request() called:", {
+      url,
+      method: options.method || "GET",
+    });
+
     // Add timeout (3 minutes for vision-based extraction)
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      console.log('[API] Request timeout after 180s');
+      console.log("[API] Request timeout after 180s");
       controller.abort();
     }, 180000);
-    
+
     try {
       const response = await fetch(url, {
         ...options,
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           ...options.headers,
         },
         signal: controller.signal,
       });
 
       clearTimeout(timeoutId);
-      console.log('[API] Response received:', { status: response.status, ok: response.ok });
+      console.log("[API] Response received:", {
+        status: response.status,
+        ok: response.ok,
+      });
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -583,22 +604,25 @@ class ApiClient {
       }
 
       const data = await response.json();
-      console.log('[API] Response data:', data);
+      console.log("[API] Response data:", data);
       return data;
     } catch (error) {
       clearTimeout(timeoutId);
-      console.error('[API] Request failed:', error);
+      console.error("[API] Request failed:", error);
       throw error;
     }
   }
 
   // Health
   async getHealth(): Promise<HealthResponse> {
-    return this.request<HealthResponse>('/health');
+    return this.request<HealthResponse>("/health");
   }
 
   // Documents
-  async listDocuments(): Promise<{ documents: DocumentSummary[]; total: number }> {
+  async listDocuments(): Promise<{
+    documents: DocumentSummary[];
+    total: number;
+  }> {
     return this.request(`${API_PREFIX}/documents`);
   }
 
@@ -606,32 +630,41 @@ class ApiClient {
     return this.request(`${API_PREFIX}/documents/${id}`);
   }
 
-  getDocumentFileUrl(id: string, options: { download?: boolean; ocr?: boolean } = {}): string {
+  getDocumentFileUrl(
+    id: string,
+    options: { download?: boolean; ocr?: boolean } = {},
+  ): string {
     const url = `${this.baseUrl}${API_PREFIX}/documents/${id}/file`;
     const params = new URLSearchParams();
-    if (options.download) params.append('download', 'true');
-    if (options.ocr) params.append('ocr', 'true');
+    if (options.download) params.append("download", "true");
+    if (options.ocr) params.append("ocr", "true");
     const queryString = params.toString();
     return queryString ? `${url}?${queryString}` : url;
   }
 
-  async deleteDocument(id: string): Promise<{ status: string; document_id: string }> {
-    return this.request(`${API_PREFIX}/documents/${id}`, { method: 'DELETE' });
+  async deleteDocument(
+    id: string,
+  ): Promise<{ status: string; document_id: string }> {
+    return this.request(`${API_PREFIX}/documents/${id}`, { method: "DELETE" });
   }
 
-  async reindexDocumentRetrieval(id: string): Promise<{ status: string; document_id: string; message: string }> {
-    return this.request(`${API_PREFIX}/documents/${id}/reindex-retrieval`, { method: 'POST' });
+  async reindexDocumentRetrieval(
+    id: string,
+  ): Promise<{ status: string; document_id: string; message: string }> {
+    return this.request(`${API_PREFIX}/documents/${id}/reindex-retrieval`, {
+      method: "POST",
+    });
   }
 
   // Ingestion
   async ingestDocuments(files: File[]): Promise<IngestResponse> {
     const formData = new FormData();
     files.forEach((file) => {
-      formData.append('files', file);
+      formData.append("files", file);
     });
 
     const response = await fetch(`${this.baseUrl}${API_PREFIX}/ingest`, {
-      method: 'POST',
+      method: "POST",
       body: formData,
     });
 
@@ -660,7 +693,7 @@ class ApiClient {
   //     entityTypes.forEach((t) => params.append('entity_types', t));
   //   }
   //   params.append('max_nodes', maxNodes.toString());
-  //   
+  //
   //   return this.request(`${API_PREFIX}/graph?${params.toString()}`);
   // }
 
@@ -671,7 +704,7 @@ class ApiClient {
   //   const params = new URLSearchParams();
   //   if (entityType) params.append('entity_type', entityType);
   //   params.append('limit', limit.toString());
-  //   
+  //
   //   return this.request(`${API_PREFIX}/graph/entities?${params.toString()}`);
   // }
 
@@ -686,7 +719,7 @@ class ApiClient {
   //   const params = new URLSearchParams();
   //   if (startDate) params.append('start_date', startDate);
   //   if (endDate) params.append('end_date', endDate);
-  //   
+  //
   //   const query = params.toString() ? `?${params.toString()}` : '';
   //   return this.request(`${API_PREFIX}/graph/timeline${query}`);
   // }
@@ -732,50 +765,64 @@ class ApiClient {
     return this.request(`${API_PREFIX}/taxonomy/types`);
   }
 
-  async createDocumentType(data: DocumentTypeCreate): Promise<{ type: DocumentType }> {
+  async createDocumentType(
+    data: DocumentTypeCreate,
+  ): Promise<{ type: DocumentType }> {
     return this.request(`${API_PREFIX}/taxonomy/types`, {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify(data),
     });
   }
 
-  async updateDocumentType(id: string, data: DocumentTypeUpdate): Promise<{ type: DocumentType }> {
+  async updateDocumentType(
+    id: string,
+    data: DocumentTypeUpdate,
+  ): Promise<{ type: DocumentType }> {
     return this.request(`${API_PREFIX}/taxonomy/types/${id}`, {
-      method: 'PUT',
+      method: "PUT",
       body: JSON.stringify(data),
     });
   }
 
-  async deleteDocumentType(id: string): Promise<{ status: string; documents_unclassified: number }> {
+  async deleteDocumentType(
+    id: string,
+  ): Promise<{ status: string; documents_unclassified: number }> {
     return this.request(`${API_PREFIX}/taxonomy/types/${id}`, {
-      method: 'DELETE',
+      method: "DELETE",
     });
   }
 
-  async listGlobalFields(search?: string): Promise<{ fields: GlobalField[]; total: number }> {
+  async listGlobalFields(
+    search?: string,
+  ): Promise<{ fields: GlobalField[]; total: number }> {
     const params = new URLSearchParams();
-    if (search) params.append('search', search);
-    const query = params.toString() ? `?${params.toString()}` : '';
+    if (search) params.append("search", search);
+    const query = params.toString() ? `?${params.toString()}` : "";
     return this.request(`${API_PREFIX}/taxonomy/fields${query}`);
   }
 
   async createGlobalField(data: GlobalFieldCreate): Promise<GlobalField> {
     return this.request(`${API_PREFIX}/taxonomy/fields`, {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify(data),
     });
   }
 
-  async updateGlobalField(id: string, data: Partial<GlobalFieldCreate>): Promise<GlobalField> {
+  async updateGlobalField(
+    id: string,
+    data: Partial<GlobalFieldCreate>,
+  ): Promise<GlobalField> {
     return this.request(`${API_PREFIX}/taxonomy/fields/${id}`, {
-      method: 'PUT',
+      method: "PUT",
       body: JSON.stringify(data),
     });
   }
 
-  async suggestFieldDefinition(data: FieldAssistantRequest): Promise<FieldAssistantResponse> {
+  async suggestFieldDefinition(
+    data: FieldAssistantRequest,
+  ): Promise<FieldAssistantResponse> {
     return this.request(`${API_PREFIX}/taxonomy/field-assistant`, {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify(data),
     });
   }
@@ -786,37 +833,51 @@ class ApiClient {
     field_description?: string;
   }): Promise<VisualAnalysisResponse> {
     return this.request(`${API_PREFIX}/taxonomy/analyze-image`, {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify(data),
     });
   }
 
-  async deleteGlobalField(id: string): Promise<{ status: string; message: string }> {
+  async deleteGlobalField(
+    id: string,
+  ): Promise<{ status: string; message: string }> {
     return this.request(`${API_PREFIX}/taxonomy/fields/${id}`, {
-      method: 'DELETE',
+      method: "DELETE",
     });
   }
 
   // Taxonomy - Document Classification
-  async classifyDocument(documentId: string, typeId: string, confidence: number = 1.0): Promise<{ classification: Classification }> {
+  async classifyDocument(
+    documentId: string,
+    typeId: string,
+    confidence: number = 1.0,
+  ): Promise<{ classification: Classification }> {
     return this.request(`${API_PREFIX}/documents/${documentId}/classify`, {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify({
         document_type_id: typeId,
         confidence: confidence,
-        labeled_by: 'user',
+        labeled_by: "user",
       }),
     });
   }
 
-  async getDocumentClassification(documentId: string): Promise<{ classification: Classification }> {
+  async getDocumentClassification(
+    documentId: string,
+  ): Promise<{ classification: Classification }> {
     return this.request(`${API_PREFIX}/documents/${documentId}/classification`);
   }
 
-  async autoClassifyDocument(documentId: string, save: boolean = false): Promise<AutoClassificationResult> {
-    return this.request(`${API_PREFIX}/documents/${documentId}/auto-classify?save=${save}`, {
-      method: 'POST',
-    });
+  async autoClassifyDocument(
+    documentId: string,
+    save: boolean = false,
+  ): Promise<AutoClassificationResult> {
+    return this.request(
+      `${API_PREFIX}/documents/${documentId}/auto-classify?save=${save}`,
+      {
+        method: "POST",
+      },
+    );
   }
 
   // Extraction
@@ -825,13 +886,13 @@ class ApiClient {
     useLlm: boolean = true,
     useStructuredOutput: boolean = false,
     useRetrieval: boolean = false,
-    useRetrievalVision: boolean = false
+    useRetrievalVision: boolean = false,
   ): Promise<ExtractionResult> {
     return this.request(
       `${API_PREFIX}/documents/${documentId}/extract?use_llm=${useLlm}&use_structured_output=${useStructuredOutput}&use_retrieval=${useRetrieval}&use_retrieval_vision=${useRetrievalVision}`,
       {
-      method: 'POST',
-      }
+        method: "POST",
+      },
     );
   }
 
@@ -842,80 +903,105 @@ class ApiClient {
   async listFieldPromptVersions(
     documentTypeId: string,
     fieldName?: string,
-    isActive?: boolean
+    isActive?: boolean,
   ): Promise<{ field_prompt_versions: FieldPromptVersion[]; total: number }> {
     const params = new URLSearchParams();
-    params.append('document_type_id', documentTypeId);
-    if (fieldName) params.append('field_name', fieldName);
-    if (typeof isActive === 'boolean') params.append('is_active', String(isActive));
-    return this.request(`${API_PREFIX}/evaluation/field-prompts/list?${params.toString()}`);
+    params.append("document_type_id", documentTypeId);
+    if (fieldName) params.append("field_name", fieldName);
+    if (typeof isActive === "boolean")
+      params.append("is_active", String(isActive));
+    return this.request(
+      `${API_PREFIX}/evaluation/field-prompts/list?${params.toString()}`,
+    );
   }
 
   async createFieldPromptVersion(
-    data: FieldPromptVersionCreate
+    data: FieldPromptVersionCreate,
   ): Promise<{ id: string; message: string }> {
     return this.request(`${API_PREFIX}/evaluation/field-prompts`, {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify(data),
     });
   }
 
   async updateFieldPromptVersion(
     versionId: string,
-    data: FieldPromptVersionUpdate
+    data: FieldPromptVersionUpdate,
   ): Promise<{ message: string }> {
-    return this.request(`${API_PREFIX}/evaluation/field-prompts/version/${versionId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return this.request(
+      `${API_PREFIX}/evaluation/field-prompts/version/${versionId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      },
+    );
   }
 
-  async deleteFieldPromptVersion(versionId: string): Promise<{ message: string }> {
-    return this.request(`${API_PREFIX}/evaluation/field-prompts/version/${versionId}`, {
-      method: 'DELETE',
-    });
+  async deleteFieldPromptVersion(
+    versionId: string,
+  ): Promise<{ message: string }> {
+    return this.request(
+      `${API_PREFIX}/evaluation/field-prompts/version/${versionId}`,
+      {
+        method: "DELETE",
+      },
+    );
   }
 
-  async listActiveFieldPromptsByDocumentType(
-    documentTypeId: string
-  ): Promise<{
+  async listActiveFieldPromptsByDocumentType(documentTypeId: string): Promise<{
     field_prompts: Record<string, string>;
     field_versions: Record<string, string>;
     field_version_updated_at: Record<string, string>;
     total: number;
   }> {
     return this.request(
-      `${API_PREFIX}/evaluation/field-prompts/active/by-document-type?document_type_id=${encodeURIComponent(documentTypeId)}`
+      `${API_PREFIX}/evaluation/field-prompts/active/by-document-type?document_type_id=${encodeURIComponent(documentTypeId)}`,
     );
   }
 
   // Deployments
-  async createDeploymentVersion(data: DeploymentVersionCreate): Promise<{ version: DeploymentVersion }> {
+  async createDeploymentVersion(
+    data: DeploymentVersionCreate,
+  ): Promise<{ version: DeploymentVersion }> {
     return this.request(`${API_PREFIX}/deployments/versions`, {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify(data),
     });
   }
 
-  async listDeploymentVersions(projectId: string): Promise<{ versions: DeploymentVersion[]; total: number }> {
-    return this.request(`${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/versions`);
+  async listDeploymentVersions(
+    projectId: string,
+  ): Promise<{ versions: DeploymentVersion[]; total: number }> {
+    return this.request(
+      `${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/versions`,
+    );
   }
 
-  async activateDeploymentVersion(projectId: string, versionId: string): Promise<{ status: string; active_version: DeploymentVersion }> {
-    return this.request(`${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}/activate`, {
-      method: 'POST',
-    });
+  async activateDeploymentVersion(
+    projectId: string,
+    versionId: string,
+  ): Promise<{ status: string; active_version: DeploymentVersion }> {
+    return this.request(
+      `${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}/activate`,
+      {
+        method: "POST",
+      },
+    );
   }
 
-  async extractWithDeploymentVersion(projectId: string, versionId: string, file: File): Promise<DeploymentExtractResponse> {
+  async extractWithDeploymentVersion(
+    projectId: string,
+    versionId: string,
+    file: File,
+  ): Promise<DeploymentExtractResponse> {
     const formData = new FormData();
     formData.append("file", file);
     const response = await fetch(
       `${this.baseUrl}${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}/extract`,
       {
-        method: 'POST',
+        method: "POST",
         body: formData,
-      }
+      },
     );
     if (!response.ok) {
       const errorText = await response.text();
@@ -924,15 +1010,18 @@ class ApiClient {
     return response.json();
   }
 
-  async extractWithActiveDeployment(projectId: string, file: File): Promise<DeploymentExtractResponse> {
+  async extractWithActiveDeployment(
+    projectId: string,
+    file: File,
+  ): Promise<DeploymentExtractResponse> {
     const formData = new FormData();
     formData.append("file", file);
     const response = await fetch(
       `${this.baseUrl}${API_PREFIX}/deployments/projects/${encodeURIComponent(projectId)}/extract`,
       {
-        method: 'POST',
+        method: "POST",
         body: formData,
-      }
+      },
     );
     if (!response.ok) {
       const errorText = await response.text();
@@ -942,56 +1031,93 @@ class ApiClient {
   }
 
   // Ground Truth Annotations
-  async getGroundTruthAnnotations(documentId: string): Promise<{ annotations: GroundTruthAnnotation[]; total: number }> {
+  async getGroundTruthAnnotations(
+    documentId: string,
+  ): Promise<{ annotations: GroundTruthAnnotation[]; total: number }> {
     return this.request(`${API_PREFIX}/documents/${documentId}/ground-truth`);
   }
 
-  async createGroundTruthAnnotation(documentId: string, data: GroundTruthAnnotationCreate): Promise<{ annotation: GroundTruthAnnotation }> {
+  async createGroundTruthAnnotation(
+    documentId: string,
+    data: GroundTruthAnnotationCreate,
+  ): Promise<{ annotation: GroundTruthAnnotation }> {
     return this.request(`${API_PREFIX}/documents/${documentId}/ground-truth`, {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify(data),
     });
   }
 
-  async updateGroundTruthAnnotation(annotationId: string, data: Partial<GroundTruthAnnotationCreate>): Promise<{ annotation: GroundTruthAnnotation }> {
+  async updateGroundTruthAnnotation(
+    annotationId: string,
+    data: Partial<GroundTruthAnnotationCreate>,
+  ): Promise<{ annotation: GroundTruthAnnotation }> {
     return this.request(`${API_PREFIX}/annotations/${annotationId}`, {
-      method: 'PATCH',
+      method: "PATCH",
       body: JSON.stringify(data),
     });
   }
 
-  async deleteGroundTruthAnnotation(documentId: string, annotationId: string): Promise<{ status: string; annotation_id: string }> {
+  async deleteGroundTruthAnnotation(
+    documentId: string,
+    annotationId: string,
+  ): Promise<{ status: string; annotation_id: string }> {
     return this.request(`${API_PREFIX}/annotations/${annotationId}`, {
-      method: 'DELETE',
+      method: "DELETE",
     });
   }
 
-  async suggestAnnotations(documentId: string): Promise<{ suggestions: AnnotationSuggestion[]; total: number }> {
-    return this.request(`${API_PREFIX}/documents/${documentId}/suggest-annotations`, {
-      method: 'POST',
-    });
+  async suggestAnnotations(
+    documentId: string,
+  ): Promise<{ suggestions: AnnotationSuggestion[]; total: number }> {
+    return this.request(
+      `${API_PREFIX}/documents/${documentId}/suggest-annotations`,
+      {
+        method: "POST",
+      },
+    );
   }
 
-  async approveAnnotation(annotationId: string, editedValue?: any): Promise<{ annotation: GroundTruthAnnotation }> {
+  async approveAnnotation(
+    annotationId: string,
+    editedValue?: any,
+  ): Promise<{ annotation: GroundTruthAnnotation }> {
     return this.request(`${API_PREFIX}/annotations/${annotationId}/approve`, {
-      method: 'POST',
-      body: JSON.stringify({ annotation_id: annotationId, edited_value: editedValue }),
+      method: "POST",
+      body: JSON.stringify({
+        annotation_id: annotationId,
+        edited_value: editedValue,
+      }),
     });
   }
 
-  async rejectAnnotation(annotationId: string): Promise<{ status: string; annotation_id: string }> {
+  async rejectAnnotation(
+    annotationId: string,
+  ): Promise<{ status: string; annotation_id: string }> {
     return this.request(`${API_PREFIX}/annotations/${annotationId}/reject`, {
-      method: 'POST',
+      method: "POST",
     });
   }
 
   // Evaluation endpoints
-  async runEvaluation(documentId: string, projectId?: string, runExtraction: boolean = true, notes?: string): Promise<{ run: EvaluationRun }> {
-    console.log('[API] runEvaluation called:', { documentId, projectId, runExtraction });
-    
+  async runEvaluation(
+    documentId: string,
+    projectId?: string,
+    runExtraction: boolean = true,
+    notes?: string,
+  ): Promise<{ run: EvaluationRun }> {
+    console.log("[API] runEvaluation called:", {
+      documentId,
+      projectId,
+      runExtraction,
+    });
+
     // Queue the evaluation task
-    const queueResult = await this.request<{ status: string; task_id: string; message: string }>(`${API_PREFIX}/evaluation/run`, {
-      method: 'POST',
+    const queueResult = await this.request<{
+      status: string;
+      task_id: string;
+      message: string;
+    }>(`${API_PREFIX}/evaluation/run`, {
+      method: "POST",
       body: JSON.stringify({
         document_id: documentId,
         project_id: projectId,
@@ -999,60 +1125,76 @@ class ApiClient {
         notes,
       }),
     });
-    
-    console.log('[API] Evaluation queued:', queueResult);
-    
+
+    console.log("[API] Evaluation queued:", queueResult);
+
     // Poll for task completion
     const taskId = queueResult.task_id;
     let attempts = 0;
     const maxAttempts = 600; // 10 minutes with 1 second intervals
-    
+
     while (attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
-      
-      const taskStatus = await this.request<{ status: string; task_id: string; evaluation_id?: string; error?: string }>(`${API_PREFIX}/evaluation/task/${taskId}`);
-      console.log('[API] Task status:', taskStatus);
-      
-      if (taskStatus.status === 'completed' && taskStatus.evaluation_id) {
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second
+
+      const taskStatus = await this.request<{
+        status: string;
+        task_id: string;
+        evaluation_id?: string;
+        error?: string;
+      }>(`${API_PREFIX}/evaluation/task/${taskId}`);
+      console.log("[API] Task status:", taskStatus);
+
+      if (taskStatus.status === "completed" && taskStatus.evaluation_id) {
         // Fetch the evaluation details
         return this.getEvaluationDetails(taskStatus.evaluation_id);
-      } else if (taskStatus.status === 'failed') {
-        throw new Error(taskStatus.error || 'Evaluation failed');
+      } else if (taskStatus.status === "failed") {
+        throw new Error(taskStatus.error || "Evaluation failed");
       }
-      
+
       attempts++;
     }
-    
-    throw new Error('Evaluation timed out after 2 minutes');
+
+    throw new Error("Evaluation timed out after 2 minutes");
   }
 
-  async listEvaluations(projectId?: string, documentId?: string, limit: number = 50, offset: number = 0): Promise<{ runs: EvaluationRun[]; total: number }> {
+  async listEvaluations(
+    projectId?: string,
+    documentId?: string,
+    limit: number = 50,
+    offset: number = 0,
+  ): Promise<{ runs: EvaluationRun[]; total: number }> {
     const params = new URLSearchParams();
-    if (projectId) params.append('project_id', projectId);
-    if (documentId) params.append('document_id', documentId);
-    params.append('limit', limit.toString());
-    params.append('offset', offset.toString());
-    
+    if (projectId) params.append("project_id", projectId);
+    if (documentId) params.append("document_id", documentId);
+    params.append("limit", limit.toString());
+    params.append("offset", offset.toString());
+
     return this.request(`${API_PREFIX}/evaluation/results?${params}`);
   }
 
-  async getEvaluationDetails(evaluationId: string): Promise<{ run: EvaluationRun }> {
+  async getEvaluationDetails(
+    evaluationId: string,
+  ): Promise<{ run: EvaluationRun }> {
     return this.request(`${API_PREFIX}/evaluation/results/${evaluationId}`);
   }
 
   async getEvaluationSummary(projectId?: string): Promise<EvaluationSummary> {
     const params = new URLSearchParams();
-    if (projectId) params.append('project_id', projectId);
-    
+    if (projectId) params.append("project_id", projectId);
+
     return this.request(`${API_PREFIX}/evaluation/summary?${params}`);
   }
 
-  async deleteEvaluation(evaluationId: string): Promise<{ status: string; id: string }> {
-    return this.request(`${API_PREFIX}/evaluation/results/${evaluationId}/delete`, {
-      method: 'DELETE',
-    });
+  async deleteEvaluation(
+    evaluationId: string,
+  ): Promise<{ status: string; id: string }> {
+    return this.request(
+      `${API_PREFIX}/evaluation/results/${evaluationId}/delete`,
+      {
+        method: "DELETE",
+      },
+    );
   }
-
 }
 
 // Export singleton instance

@@ -149,7 +149,7 @@ Total:             2,052,725 tokens
 
 ### ✅ Changes Applied
 1. **Chunk size**: 1000 → 4000 chars
-2. **Chunk overlap**: 200 → 800 chars  
+2. **Chunk overlap**: 200 → 800 chars
 3. **Concurrency**: 5 → 2 requests
 
 ### 📊 Results

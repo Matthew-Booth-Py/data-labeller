@@ -15,7 +15,7 @@ jobs:
     name: PR Metadata Check
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -60,10 +60,10 @@ jobs:
             const additions = pr.additions;
             const deletions = pr.deletions;
             const changes = additions + deletions;
-            
+
             const maxChanges = 1000;
             const warningChanges = 500;
-            
+
             if (changes > maxChanges) {
               core.setFailed(`PR is too large (${changes} changes). Consider breaking it into smaller PRs.`);
             } else if (changes > warningChanges) {
@@ -81,7 +81,7 @@ jobs:
       docker: ${{ steps.filter.outputs.docker }}
       docs: ${{ steps.filter.outputs.docs }}
       workflows: ${{ steps.filter.outputs.workflows }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -109,7 +109,7 @@ jobs:
     needs: changed-files
     if: needs.changed-files.outputs.backend == 'true'
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -127,7 +127,7 @@ jobs:
     needs: changed-files
     if: needs.changed-files.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -147,14 +147,14 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    
+
     steps:
       - name: Add labels based on changed files
         uses: actions/github-script@v7
         with:
           script: |
             const labels = [];
-            
+
             if ('${{ needs.changed-files.outputs.backend }}' === 'true') {
               labels.push('backend');
             }
@@ -170,7 +170,7 @@ jobs:
             if ('${{ needs.changed-files.outputs.workflows }}' === 'true') {
               labels.push('ci/cd');
             }
-            
+
             if (labels.length > 0) {
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
@@ -183,7 +183,7 @@ jobs:
   conflict-check:
     name: Check for Merge Conflicts
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -202,7 +202,7 @@ jobs:
   security-check:
     name: Security Review
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -224,7 +224,7 @@ jobs:
     if: always()
     permissions:
       pull-requests: write
-    
+
     steps:
       - name: Create PR comment
         uses: actions/github-script@v7
@@ -238,28 +238,28 @@ jobs:
               docs: '${{ needs.changed-files.outputs.docs }}' === 'true',
               workflows: '${{ needs.changed-files.outputs.workflows }}' === 'true'
             };
-            
+
             let comment = '## 🤖 PR Analysis Summary\n\n';
             comment += '### Changed Components\n';
-            
+
             const components = [];
             if (changedFiles.backend) components.push('✅ Backend');
             if (changedFiles.frontend) components.push('✅ Frontend');
             if (changedFiles.docker) components.push('🐳 Docker');
             if (changedFiles.docs) components.push('📚 Documentation');
             if (changedFiles.workflows) components.push('⚙️ CI/CD');
-            
+
             if (components.length === 0) {
               comment += 'No significant changes detected.\n';
             } else {
               comment += components.join('\n') + '\n';
             }
-            
+
             comment += '\n### Required Checks\n';
             comment += '- CI workflows will run automatically\n';
             comment += '- Security scans are in progress\n';
             comment += '- All checks must pass before merging\n';
-            
+
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -272,7 +272,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [pr-metadata, changed-files, conflict-check, security-check]
     if: always()
-    
+
     steps:
       - name: Verify all checks passed
         run: |

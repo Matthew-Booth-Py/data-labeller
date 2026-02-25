@@ -33,13 +33,13 @@ flowchart TB
         Embed[Embedding to ChromaDB]
         Extract[Entity Extraction to Neo4j]
     end
-    
+
     subgraph classification [Document Classification]
         DocTypes[Document Types]
         Classify[Manual Classification]
         Schema[Schema Fields per Type]
     end
-    
+
     subgraph labeling [Annotation/Labeling]
         Labels[Global Labels]
         Annotate[Manual Annotation]
@@ -47,27 +47,27 @@ flowchart TB
         Feedback[Feedback Loop]
         Train[ML Model Training]
     end
-    
+
     subgraph output [Output]
         Graph[Knowledge Graph View]
         Timeline[Timeline View]
         LabeledData[Labeled Data View]
     end
-    
+
     Upload --> Convert --> Chunk --> Embed
     Chunk --> Extract
-    
+
     Embed --> Classify
     DocTypes --> Classify
     DocTypes --> Schema
-    
+
     Embed --> Annotate
     Labels --> Annotate
     Annotate --> Feedback
     Feedback --> Train
     Train --> Suggest
     Suggest --> Annotate
-    
+
     Embed --> Graph
     Embed --> Timeline
     Annotate --> LabeledData
@@ -169,7 +169,7 @@ flowchart LR
     E --> C
     C --> F[View Labeled Data]
     F --> G[Dead End - No Export]
-    
+
     style B stroke:#f00,stroke-width:2px
     style G stroke:#f00,stroke-width:2px
 ```
@@ -255,18 +255,18 @@ flowchart TB
         Label[Human Labels Documents]
         Validate[Creates Validation Dataset]
     end
-    
+
     subgraph capability2 [2. Form Extraction]
         Extract[LLM Extracts Fields]
         Prompt[Extraction Prompt]
     end
-    
+
     subgraph evaluation [Evaluation System]
         Compare[Compare Extraction vs Ground Truth]
         Metrics[Calculate Metrics: F1, Precision, Recall]
         Track[Track Prompt Performance Over Time]
     end
-    
+
     Label --> Validate
     Validate --> Compare
     Extract --> Compare
@@ -274,7 +274,7 @@ flowchart TB
     Metrics --> Track
     Track --> Prompt
     Prompt --> Extract
-    
+
     style evaluation fill:#e1f5e1
 ```
 
@@ -342,4 +342,3 @@ To enable this evaluation loop, we need:
   - Dashboard shows extraction quality trends
   - Alerts when accuracy drops below threshold
   - Suggests documents that need re-labeling
-
