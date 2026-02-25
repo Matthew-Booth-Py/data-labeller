@@ -1,0 +1,57 @@
+name: Pre-commit Checks
+
+on:
+  pull_request:
+    branches: [master, main, develop]
+  push:
+    branches: [master, main, develop]
+
+# Cancel in-progress runs for the same workflow and branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    name: Pre-commit Hooks
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          pip install uv
+          uv sync --all-extras
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run pre-commit hooks
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --show-diff-on-failure
+
+      - name: Upload pre-commit results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pre-commit-results
+          path: |
+            .pre-commit-log.txt
+          retention-days: 7

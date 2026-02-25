@@ -15,6 +15,27 @@ Our CI/CD infrastructure follows modern 2026 best practices with:
 
 ## Workflows
 
+### 0. Pre-commit Checks (`pre-commit-ci.yml`)
+
+**Triggers:**
+- Push to `master`, `main`, or `develop` branches
+- Pull requests targeting these branches
+
+**Purpose:**
+Validates that pre-commit hooks pass in CI, ensuring consistency between local development and CI/CD.
+
+**Jobs:**
+- Runs all pre-commit hooks on all files
+- Includes linting, formatting, type checking, and security scans
+- Faster than running individual CI workflows
+
+**Environment:**
+- Python 3.12
+- Node.js 20
+- All pre-commit hook dependencies
+
+**Note**: This workflow complements (not replaces) the detailed Backend CI and Frontend CI workflows. It provides fast feedback on code quality issues.
+
 ### 1. Backend CI (`backend-ci.yml`)
 
 **Triggers:**
@@ -374,6 +395,8 @@ fail_ci_if_error: false
 - [Docker Build Push Action](https://github.com/docker/build-push-action)
 - [CodeQL Documentation](https://codeql.github.com/docs/)
 - [Dependabot Configuration](https://docs.github.com/en/code-security/dependabot)
+- [Pre-commit Documentation](https://pre-commit.com/)
+- [Pre-commit Setup Guide](PRE_COMMIT_SETUP.md)
 
 ## Support
 

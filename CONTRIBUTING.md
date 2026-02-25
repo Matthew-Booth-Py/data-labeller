@@ -25,6 +25,7 @@ This project adheres to a code of conduct. By participating, you are expected to
 - Node.js 20+
 - Docker and Docker Compose
 - Git
+- pre-commit (for automated checks)
 
 ### Local Setup
 
@@ -34,18 +35,28 @@ This project adheres to a code of conduct. By participating, you are expected to
    cd data-labeller
    ```
 
-2. **Set up environment variables**
+2. **Install pre-commit hooks** (recommended)
+   ```bash
+   pip install pre-commit
+   pre-commit install
+   pre-commit install --hook-type pre-push
+   pre-commit install --hook-type commit-msg
+   ```
+   
+   See [docs/PRE_COMMIT_SETUP.md](docs/PRE_COMMIT_SETUP.md) for detailed setup.
+
+3. **Set up environment variables**
    ```bash
    cp .env.example .env
    # Edit .env with your configuration
    ```
 
-3. **Start with Docker Compose**
+4. **Start with Docker Compose**
    ```bash
    docker compose up -d
    ```
 
-4. **Or run locally**
+5. **Or run locally**
    
    Backend:
    ```bash
@@ -77,8 +88,38 @@ This project adheres to a code of conduct. By participating, you are expected to
    - Add tests for new functionality
    - Update documentation as needed
 
-3. **Test locally**
+3. **Pre-commit hooks run automatically**
+   
+   When you commit, pre-commit hooks will automatically:
+   - Format your code (Ruff, Prettier)
+   - Run linters (Ruff, ESLint)
+   - Check types (mypy)
+   - Scan for security issues (Bandit)
+   - Detect secrets
+   - Validate commit message format
+   
    ```bash
+   git add .
+   git commit -m "feat: Add new feature"
+   # Hooks run automatically and may auto-fix issues
+   ```
+
+4. **Tests run on push**
+   
+   When you push, additional hooks run:
+   - Full test suite with coverage (70% minimum)
+   - Complete type checking
+   
+   ```bash
+   git push origin feat/your-feature-name
+   # Tests run automatically before push completes
+   ```
+
+5. **Manual testing** (optional, if hooks are disabled)
+   ```bash
+   # Run all pre-commit hooks manually
+   pre-commit run --all-files
+   
    # Backend tests
    cd backend
    uv run pytest tests/
@@ -86,17 +127,6 @@ This project adheres to a code of conduct. By participating, you are expected to
    # Frontend tests
    cd frontend
    npm test
-   ```
-
-4. **Commit your changes**
-   ```bash
-   git add .
-   git commit -m "feat: Add new feature"
-   ```
-
-5. **Push and create PR**
-   ```bash
-   git push origin feat/your-feature-name
    ```
 
 ## Coding Standards
@@ -176,15 +206,27 @@ export const Document: React.FC<DocumentProps> = ({
 
 ## Testing
 
+### Automated Testing with Pre-commit
+
+Tests run automatically on `git push` via pre-commit hooks:
+- Backend: Full pytest suite with 70% coverage requirement
+- Frontend: Test suite and type checking
+
 ### Backend Testing
 
 **Framework**: pytest
 
-**Run tests:**
+**Run tests manually:**
 ```bash
 cd backend
 uv run pytest tests/ -v
 uv run pytest tests/ --cov=src/uu_backend --cov-report=html
+```
+
+**Run via pre-commit:**
+```bash
+pre-commit run backend-tests --hook-stage push
+pre-commit run backend-coverage --hook-stage push
 ```
 
 **Test Structure:**
@@ -202,7 +244,7 @@ def test_document_processing():
     assert "data" in result
 ```
 
-**Coverage Target**: 70% minimum
+**Coverage Target**: 70% minimum (enforced by pre-commit hooks)
 
 ### Frontend Testing
 

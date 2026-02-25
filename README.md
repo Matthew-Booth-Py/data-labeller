@@ -182,12 +182,20 @@ Runtime request ownership is served directly by Django via `uu_backend.asgi_disp
 The app is expected to run with Docker Compose.
 
 ```bash
+# First time setup: Install pre-commit hooks
+pip install pre-commit
+pre-commit install
+pre-commit install --hook-type pre-push
+
+# Build and start services
 docker compose build
 docker compose up -d
 ```
 
 Frontend: `http://localhost:3000`  
 Backend API: `http://localhost:8000`
+
+**Note**: Pre-commit hooks will automatically run tests and checks before commits and pushes. See [docs/PRE_COMMIT_SETUP.md](docs/PRE_COMMIT_SETUP.md) for details.
 
 ## Environment
 
