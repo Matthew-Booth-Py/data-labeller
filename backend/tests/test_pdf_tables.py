@@ -11,8 +11,8 @@ from pathlib import Path
 import pdfplumber
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
 def create_test_pdf_with_bordered_table() -> str:
@@ -39,16 +39,20 @@ def create_test_pdf_with_bordered_table() -> str:
     ]
 
     table = Table(data)
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
-        ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
-        ("GRID", (0, 0), (-1, -1), 1, colors.black),
-    ]))
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+                ("GRID", (0, 0), (-1, -1), 1, colors.black),
+            ]
+        )
+    )
     elements.append(table)
 
     doc.build(elements)
@@ -87,7 +91,7 @@ def table_to_markdown(table: list[list[str | None]]) -> str:
 def extract_pdf_with_tables(pdf_path: str, verbose: bool = False) -> tuple[str, int]:
     """
     Extract text and tables from PDF using pdfplumber.
-    
+
     Uses layout-preserving extraction for financial tables without borders.
     Bordered tables are converted to markdown format.
     """
@@ -135,11 +139,14 @@ def extract_pdf_with_tables(pdf_path: str, verbose: bool = False) -> tuple[str, 
             else:
                 # No bordered tables - use layout-preserving text extraction
                 # This preserves whitespace alignment for financial tables
-                text = page.extract_text(
-                    layout=True,
-                    x_tolerance=2,
-                    y_tolerance=2,
-                ) or ""
+                text = (
+                    page.extract_text(
+                        layout=True,
+                        x_tolerance=2,
+                        y_tolerance=2,
+                    )
+                    or ""
+                )
 
                 if text.strip():
                     if page_count > 1:
@@ -195,28 +202,28 @@ def run_layout_preservation(pdf_path: str):
     print(f"EXTRACTED CONTENT PREVIEW ({page_count} pages, {len(content)} chars):")
     print("=" * 60)
     print(content[:2500])
-    
+
     # Find page 9 content (financial tables)
     page9_marker = content.find("Page 9")
     if page9_marker > 0:
         print("\n" + "=" * 60)
         print("PAGE 9 FINANCIAL TABLES:")
         print("=" * 60)
-        page9_content = content[page9_marker:page9_marker+2500]
+        page9_content = content[page9_marker : page9_marker + 2500]
         print(page9_content)
-        
+
         # Verify layout preservation
         # Financial tables should have multiple spaces between columns
         has_alignment = "  " in page9_content  # Multiple spaces = column alignment
         has_revenue = "Revenue" in page9_content
-        has_numbers = any(char.isdigit() for char in page9_content) #
-        
+        has_numbers = any(char.isdigit() for char in page9_content)  #
+
         print("\n" + "=" * 60)
         print("VALIDATION:")
         print(f"  - Column alignment (spaces): {'✓' if has_alignment else '✗'}")
         print(f"  - Contains 'Revenue': {'✓' if has_revenue else '✗'}")
         print(f"  - Contains numbers: {'✓' if has_numbers else '✗'}")
-        
+
         if has_alignment and has_revenue and has_numbers:
             print("\n✓ Layout preservation test passed!")
             return True

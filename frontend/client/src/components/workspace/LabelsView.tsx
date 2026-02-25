@@ -5,11 +5,23 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type GroundTruthAnnotation } from "@/lib/api";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -18,7 +30,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, Download, Filter, FileText, Calendar, User } from "lucide-react";
+import {
+  Search,
+  Download,
+  Filter,
+  FileText,
+  Calendar,
+  User,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function LabelsView() {
@@ -39,17 +58,19 @@ export function LabelsView() {
     if (!documentsData?.documents || !projectId || projectId === "all") {
       return [];
     }
-    
+
     try {
       const stored = localStorage.getItem("uu-projects");
       if (!stored) return [];
-      
+
       const projects = JSON.parse(stored);
       const project = projects.find((p: { id: string }) => p.id === projectId);
       if (!project) return [];
-      
+
       const projectDocumentIds = project.documentIds || [];
-      return documentsData.documents.filter(doc => projectDocumentIds.includes(doc.id));
+      return documentsData.documents.filter((doc) =>
+        projectDocumentIds.includes(doc.id),
+      );
     } catch (error) {
       console.error("Error filtering documents:", error);
       return [];
@@ -58,26 +79,27 @@ export function LabelsView() {
 
   // Fetch all annotations for all documents in the project
   const { data: allAnnotationsData, isLoading } = useQuery({
-    queryKey: ["all-annotations", projectId, documents.map(d => d.id)],
+    queryKey: ["all-annotations", projectId, documents.map((d) => d.id)],
     queryFn: async () => {
       if (documents.length === 0) return [];
-      
+
       const results = await Promise.all(
-        documents.map(doc => 
-          api.getGroundTruthAnnotations(doc.id)
-            .then(data => ({
+        documents.map((doc) =>
+          api
+            .getGroundTruthAnnotations(doc.id)
+            .then((data) => ({
               documentId: doc.id,
               documentName: doc.filename,
-              annotations: data.annotations || []
+              annotations: data.annotations || [],
             }))
             .catch(() => ({
               documentId: doc.id,
               documentName: doc.filename,
-              annotations: []
-            }))
-        )
+              annotations: [],
+            })),
+        ),
       );
-      
+
       return results;
     },
     enabled: documents.length > 0,
@@ -86,19 +108,19 @@ export function LabelsView() {
   // Flatten all annotations with document info
   const allAnnotations = useMemo(() => {
     if (!allAnnotationsData) return [];
-    
-    return allAnnotationsData.flatMap(doc => 
-      doc.annotations.map(ann => ({
+
+    return allAnnotationsData.flatMap((doc) =>
+      doc.annotations.map((ann) => ({
         ...ann,
         documentId: doc.documentId,
         documentName: doc.documentName,
-      }))
+      })),
     );
   }, [allAnnotationsData]);
 
   // Get unique field names
   const uniqueFields = useMemo(() => {
-    const fields = new Set(allAnnotations.map(ann => ann.field_name));
+    const fields = new Set(allAnnotations.map((ann) => ann.field_name));
     return Array.from(fields).sort();
   }, [allAnnotations]);
 
@@ -108,21 +130,22 @@ export function LabelsView() {
 
     // Filter by document
     if (selectedDocument !== "all") {
-      filtered = filtered.filter(ann => ann.documentId === selectedDocument);
+      filtered = filtered.filter((ann) => ann.documentId === selectedDocument);
     }
 
     // Filter by field
     if (selectedField !== "all") {
-      filtered = filtered.filter(ann => ann.field_name === selectedField);
+      filtered = filtered.filter((ann) => ann.field_name === selectedField);
     }
 
     // Filter by search query
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(ann => 
-        ann.field_name.toLowerCase().includes(query) ||
-        (ann.value && String(ann.value).toLowerCase().includes(query)) ||
-        ann.documentName.toLowerCase().includes(query)
+      filtered = filtered.filter(
+        (ann) =>
+          ann.field_name.toLowerCase().includes(query) ||
+          (ann.value && String(ann.value).toLowerCase().includes(query)) ||
+          ann.documentName.toLowerCase().includes(query),
       );
     }
 
@@ -131,8 +154,15 @@ export function LabelsView() {
 
   // Export to CSV
   const handleExportCSV = () => {
-    const headers = ["Document", "Field Name", "Value", "Instance #", "Labeled By", "Created At"];
-    const rows = filteredAnnotations.map(ann => [
+    const headers = [
+      "Document",
+      "Field Name",
+      "Value",
+      "Instance #",
+      "Labeled By",
+      "Created At",
+    ];
+    const rows = filteredAnnotations.map((ann) => [
       ann.documentName,
       ann.field_name,
       ann.value || "",
@@ -143,14 +173,16 @@ export function LabelsView() {
 
     const csv = [
       headers.join(","),
-      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      ...rows.map((row) =>
+        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","),
+      ),
     ].join("\n");
 
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `labels-${projectId}-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `labels-${projectId}-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -158,13 +190,17 @@ export function LabelsView() {
   // Group annotations by document and field for summary stats
   const stats = useMemo(() => {
     const totalAnnotations = allAnnotations.length;
-    const totalDocuments = new Set(allAnnotations.map(ann => ann.documentId)).size;
+    const totalDocuments = new Set(allAnnotations.map((ann) => ann.documentId))
+      .size;
     const totalFields = uniqueFields.length;
-    const annotationsByLabeler = allAnnotations.reduce((acc, ann) => {
-      const labeler = ann.labeled_by || "unknown";
-      acc[labeler] = (acc[labeler] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const annotationsByLabeler = allAnnotations.reduce(
+      (acc, ann) => {
+        const labeler = ann.labeled_by || "unknown";
+        acc[labeler] = (acc[labeler] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
 
     return {
       totalAnnotations,
@@ -234,14 +270,17 @@ export function LabelsView() {
                 className="pl-9"
               />
             </div>
-            <Select value={selectedDocument} onValueChange={setSelectedDocument}>
+            <Select
+              value={selectedDocument}
+              onValueChange={setSelectedDocument}
+            >
               <SelectTrigger className="w-[250px]">
                 <FileText className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="All documents" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All documents</SelectItem>
-                {documents.map(doc => (
+                {documents.map((doc) => (
                   <SelectItem key={doc.id} value={doc.id}>
                     {doc.filename}
                   </SelectItem>
@@ -255,7 +294,7 @@ export function LabelsView() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All fields</SelectItem>
-                {uniqueFields.map(field => (
+                {uniqueFields.map((field) => (
                   <SelectItem key={field} value={field}>
                     {field}
                   </SelectItem>
@@ -266,7 +305,8 @@ export function LabelsView() {
 
           {/* Results count */}
           <div className="text-sm text-muted-foreground">
-            Showing {filteredAnnotations.length} of {allAnnotations.length} annotations
+            Showing {filteredAnnotations.length} of {allAnnotations.length}{" "}
+            annotations
           </div>
 
           {/* Table */}
@@ -285,30 +325,47 @@ export function LabelsView() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    <TableCell
+                      colSpan={6}
+                      className="text-center py-8 text-muted-foreground"
+                    >
                       Loading annotations...
                     </TableCell>
                   </TableRow>
                 ) : filteredAnnotations.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    <TableCell
+                      colSpan={6}
+                      className="text-center py-8 text-muted-foreground"
+                    >
                       No annotations found
                     </TableCell>
                   </TableRow>
                 ) : (
                   filteredAnnotations.map((ann) => {
-                    const instanceNum = (ann.annotation_data as any)?.instance_num;
+                    const instanceNum = (ann.annotation_data as any)
+                      ?.instance_num;
                     return (
                       <TableRow key={ann.id}>
-                        <TableCell className="font-medium max-w-[200px] truncate" title={ann.documentName}>
+                        <TableCell
+                          className="font-medium max-w-[200px] truncate"
+                          title={ann.documentName}
+                        >
                           {ann.documentName}
                         </TableCell>
                         <TableCell className="font-mono text-sm">
                           {ann.field_name}
                         </TableCell>
                         <TableCell className="max-w-[300px]">
-                          <div className="truncate" title={String(ann.value || "")}>
-                            {ann.value || <span className="text-muted-foreground italic">No value</span>}
+                          <div
+                            className="truncate"
+                            title={String(ann.value || "")}
+                          >
+                            {ann.value || (
+                              <span className="text-muted-foreground italic">
+                                No value
+                              </span>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-center">
@@ -321,8 +378,12 @@ export function LabelsView() {
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge 
-                            variant={ann.labeled_by === "manual" ? "default" : "secondary"}
+                          <Badge
+                            variant={
+                              ann.labeled_by === "manual"
+                                ? "default"
+                                : "secondary"
+                            }
                             className="text-xs"
                           >
                             {ann.labeled_by || "unknown"}

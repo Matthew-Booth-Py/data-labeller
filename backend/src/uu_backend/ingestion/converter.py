@@ -39,13 +39,16 @@ def _repair_table_header_fragments(line: str) -> str:
     """Repair common split-header artifacts from table extraction."""
     repaired = line
     # Example observed: "Damage Description E | st. Replacement Cost"
-    repaired = repaired.replace("Damage Description E | st. Replacement Cost", "Damage Description | Est. Replacement Cost")
+    repaired = repaired.replace(
+        "Damage Description E | st. Replacement Cost", "Damage Description | Est. Replacement Cost"
+    )
     repaired = re.sub(r"\bE\s*\|\s*st\.", "Est.", repaired)
     return repaired
 
 
 def _move_total_after_following_table(lines: list[str]) -> list[str]:
-    """If TOTAL line appears before immediately following markdown table rows, move it below the table."""
+    """If TOTAL line appears before immediately following markdown table rows, move it
+    below the table."""
     i = 0
     out: list[str] = []
     while i < len(lines):
@@ -107,7 +110,7 @@ def _normalize_key_value_blocks(lines: list[str]) -> list[str]:
 
 def _dedupe_lines(lines: list[str]) -> list[str]:
     """Remove repeated nearby lines caused by layout extraction overlap."""
-    recent = deque(maxlen=24)
+    recent: deque[str] = deque(maxlen=24)
     out: list[str] = []
     for line in lines:
         stripped = line.strip()
@@ -211,70 +214,74 @@ def extract_pdf_with_tables(pdf_path: str) -> tuple[str, int]:
                 page_content.append(f"\n## Page {page_num}\n")
 
                 # Get table bounding boxes
-                table_bboxes = [table.bbox for table in page.find_tables(table_settings) if table.bbox]
-                
+                table_bboxes = [
+                    table.bbox for table in page.find_tables(table_settings) if table.bbox
+                ]
+
                 # Expand bounding boxes with generous padding to catch all table-related text
                 expanded_bboxes = []
                 for bbox in table_bboxes:
                     # Add 10 pixels of padding vertically to catch headers/footers
-                    expanded_bboxes.append((
-                        bbox[0] - 2,   # x0 - minimal horizontal padding
-                        bbox[1] - 10,  # y0 - generous top padding
-                        bbox[2] + 2,   # x1
-                        bbox[3] + 10   # y1 - generous bottom padding
-                    ))
-                
+                    expanded_bboxes.append(
+                        (
+                            bbox[0] - 2,  # x0 - minimal horizontal padding
+                            bbox[1] - 10,  # y0 - generous top padding
+                            bbox[2] + 2,  # x1
+                            bbox[3] + 10,  # y1 - generous bottom padding
+                        )
+                    )
+
                 # Get all words with their positions
                 words = page.extract_words()
-                
+
                 # Filter words that are NOT in table regions
                 non_table_words = []
                 for word in words:
-                    word_bbox = (word['x0'], word['top'], word['x1'], word['bottom'])
+                    word_bbox = (word["x0"], word["top"], word["x1"], word["bottom"])
                     in_table = False
-                    
+
                     for table_bbox in expanded_bboxes:
                         # Check if word overlaps with table bbox
-                        if (word_bbox[1] >= table_bbox[1] and word_bbox[3] <= table_bbox[3]):
+                        if word_bbox[1] >= table_bbox[1] and word_bbox[3] <= table_bbox[3]:
                             # Word's vertical position is within table region
                             in_table = True
                             break
-                    
+
                     if not in_table:
                         non_table_words.append(word)
-                
+
                 # Reconstruct text from non-table words, preserving layout
                 if non_table_words:
                     # Sort by vertical position, then horizontal
-                    non_table_words.sort(key=lambda w: (w['top'], w['x0']))
-                    
+                    non_table_words.sort(key=lambda w: (w["top"], w["x0"]))
+
                     # Group words into lines based on vertical position
                     lines = []
                     current_line = []
                     current_y = None
                     y_tolerance = 3
-                    
+
                     for word in non_table_words:
-                        if current_y is None or abs(word['top'] - current_y) <= y_tolerance:
-                            current_line.append(word['text'])
-                            current_y = word['top'] if current_y is None else current_y
+                        if current_y is None or abs(word["top"] - current_y) <= y_tolerance:
+                            current_line.append(word["text"])
+                            current_y = word["top"] if current_y is None else current_y
                         else:
                             if current_line:
-                                lines.append(' '.join(current_line))
-                            current_line = [word['text']]
-                            current_y = word['top']
-                    
+                                lines.append(" ".join(current_line))
+                            current_line = [word["text"]]
+                            current_y = word["top"]
+
                     if current_line:
-                        lines.append(' '.join(current_line))
-                    
-                    non_table_text = '\n'.join(lines).strip()
+                        lines.append(" ".join(current_line))
+
+                    non_table_text = "\n".join(lines).strip()
                 else:
                     non_table_text = ""
-                
+
                 # Add non-table text first (document header, etc.)
                 if non_table_text:
                     page_content.append(f"\n{non_table_text}\n")
-                
+
                 # Then add tables in order
                 for i, table in enumerate(bordered_tables):
                     if table and len(table) > 1:
@@ -284,11 +291,14 @@ def extract_pdf_with_tables(pdf_path: str) -> tuple[str, int]:
             else:
                 # No bordered tables - use layout-preserving text extraction
                 # This preserves whitespace alignment for financial tables
-                text = page.extract_text(
-                    layout=True,  # Preserve layout/spacing
-                    x_tolerance=2,
-                    y_tolerance=2,
-                ) or ""
+                text = (
+                    page.extract_text(
+                        layout=True,  # Preserve layout/spacing
+                        x_tolerance=2,
+                        y_tolerance=2,
+                    )
+                    or ""
+                )
 
                 if text.strip():
                     # Add page header for multi-page documents

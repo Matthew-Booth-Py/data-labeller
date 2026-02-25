@@ -1,7 +1,7 @@
 """Deployment versioning and extraction endpoint models."""
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -14,15 +14,15 @@ class DeploymentVersion(BaseModel):
     version: str
     document_type_id: str
     document_type_name: str
-    schema_version_id: Optional[str] = None
-    prompt_version_id: Optional[str] = None
-    system_prompt: Optional[str] = None
-    user_prompt_template: Optional[str] = None
+    schema_version_id: str | None = None
+    prompt_version_id: str | None = None
+    system_prompt: str | None = None
+    user_prompt_template: str | None = None
     schema_fields: list[dict[str, Any]] = Field(default_factory=list)
     field_prompt_versions: dict[str, str] = Field(default_factory=dict)
-    model: Optional[str] = None
+    model: str | None = None
     is_active: bool = False
-    created_by: Optional[str] = None
+    created_by: str | None = None
     created_at: datetime
 
 
@@ -31,8 +31,8 @@ class DeploymentVersionCreate(BaseModel):
 
     project_id: str
     document_type_id: str
-    prompt_version_id: Optional[str] = None
-    created_by: Optional[str] = None
+    prompt_version_id: str | None = None
+    created_by: str | None = None
     set_active: bool = True
 
 
@@ -66,4 +66,3 @@ class DeploymentExtractResponse(BaseModel):
     document_type_name: str
     filename: str
     extracted_data: dict[str, Any]
-

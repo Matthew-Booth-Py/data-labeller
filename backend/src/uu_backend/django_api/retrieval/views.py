@@ -59,21 +59,21 @@ class SearchView(APIView):
         """Search for relevant chunks."""
         serializer = SearchQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
-        
+
         query = serializer.validated_data["q"]
         top_k = serializer.validated_data.get("top_k", 20)
         document_id = serializer.validated_data.get("document_id")
         use_reranking = serializer.validated_data.get("use_reranking", True)
-        
+
         service = get_contextual_retrieval_service()
-        
+
         results = service.search(
             query=query,
             top_k=top_k,
             filter_doc_id=document_id,
             use_reranking=use_reranking,
         )
-        
+
         result_data = [
             {
                 "doc_id": r.doc_id,
@@ -85,9 +85,11 @@ class SearchView(APIView):
             }
             for r in results
         ]
-        
-        return Response({
-            "results": result_data,
-            "total": len(result_data),
-            "query": query,
-        })
+
+        return Response(
+            {
+                "results": result_data,
+                "total": len(result_data),
+                "query": query,
+            }
+        )

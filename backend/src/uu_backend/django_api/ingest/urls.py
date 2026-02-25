@@ -8,4 +8,3 @@ urlpatterns = [
     path("ingest", IngestView.as_view(), name="ingest"),
     path("ingest/status", IngestStatusView.as_view(), name="ingest-status"),
 ]
-

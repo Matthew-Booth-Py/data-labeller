@@ -5,32 +5,32 @@
 
 /* Font Face Definitions */
 @font-face {
-  font-family: 'ABC Diatype';
-  src: url('/fonts/abc-diatype/ABCDiatype-Regular.woff2') format('woff2');
+  font-family: "ABC Diatype";
+  src: url("/fonts/abc-diatype/ABCDiatype-Regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'ABC Diatype';
-  src: url('/fonts/abc-diatype/ABCDiatype-Medium.woff2') format('woff2');
+  font-family: "ABC Diatype";
+  src: url("/fonts/abc-diatype/ABCDiatype-Medium.woff2") format("woff2");
   font-weight: 500;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'ABC Diatype';
-  src: url('/fonts/abc-diatype/ABCDiatype-Bold.woff2') format('woff2');
+  font-family: "ABC Diatype";
+  src: url("/fonts/abc-diatype/ABCDiatype-Bold.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Tiempos Headline';
-  src: url('/fonts/tiempos/tiempos-headline-medium.woff2') format('woff2');
+  font-family: "Tiempos Headline";
+  src: url("/fonts/tiempos/tiempos-headline-medium.woff2") format("woff2");
   font-weight: 300;
   /* Headline medium usually acts as bold/display */
   font-style: normal;
@@ -38,9 +38,9 @@
 }
 
 @theme inline {
-  --font-sans: 'ABC Diatype', 'IBM Plex Sans', sans-serif;
-  --font-serif: 'Tiempos Headline', serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: "ABC Diatype", "IBM Plex Sans", sans-serif;
+  --font-serif: "Tiempos Headline", serif;
+  --font-mono: "JetBrains Mono", monospace;
 
   --radius-sm: 2px;
   --radius-md: 4px;
@@ -267,7 +267,8 @@
 }
 
 .data-labeller-v2 {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   background: var(--dl-bg-primary);
   color: var(--dl-text-primary);
   height: 100%;
@@ -375,7 +376,7 @@
 .dl-kbd {
   display: inline-block;
   padding: 1px 5px;
-  font-family: 'SF Mono', 'Cascadia Code', monospace;
+  font-family: "SF Mono", "Cascadia Code", monospace;
   font-size: 10px;
   color: var(--dl-text-secondary);
   background: var(--dl-bg-tertiary);
@@ -427,7 +428,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--dl-text-secondary);
-  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
   font-size: 11px;
 }
 
@@ -515,7 +516,7 @@
 }
 
 .dl-text-display {
-  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
   font-size: 14px;
   line-height: 1.8;
   white-space: pre-wrap;
@@ -607,7 +608,7 @@
 
 .dl-output-content {
   padding: 12px 20px;
-  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
   font-size: 12px;
   line-height: 1.6;
   height: 180px;
@@ -629,7 +630,9 @@
   color: var(--dl-text-primary);
   font-size: 12px;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
   white-space: nowrap;
 }
 
@@ -703,7 +706,7 @@
   border: 1px solid var(--dl-border);
   border-radius: 8px;
   padding: 6px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   z-index: 1000;
   display: none;
   max-width: 280px;
@@ -722,7 +725,9 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: filter 0.15s, transform 0.1s;
+  transition:
+    filter 0.15s,
+    transform 0.1s;
   color: #fff;
 }
 
@@ -764,7 +769,7 @@
   border: 1px solid var(--dl-border);
   border-radius: 8px;
   padding: 4px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   z-index: 100;
   display: none;
   min-width: 140px;

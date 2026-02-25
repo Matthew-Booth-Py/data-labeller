@@ -44,16 +44,16 @@ flowchart TB
         Step8[Step 8: Scale with ML]
         Complete[Completion Screen]
     end
-    
+
     Welcome --> Step1 --> Step2 --> Step3 --> Step4 --> Step5 --> Step6 --> Step7 --> Step8 --> Complete
-    
+
     subgraph features [Real Features Used]
         SchemaViewer[SchemaViewer]
         DocumentPool[DocumentPool]
         LabelStudio[LabelStudio]
         MLModel[ML Training]
     end
-    
+
     Step1 -.-> SchemaViewer
     Step2 -.-> DocumentPool
     Step3 -.-> LabelStudio
@@ -166,7 +166,7 @@ interface WizardStep {
 export function GettingStarted() {
   return (
     <Shell>
-      <GettingStartedWizard 
+      <GettingStartedWizard
         onComplete={() => navigate('/project/tutorial')}
       />
     </Shell>
@@ -238,4 +238,3 @@ interface TutorialProgress {
   - Progress bar at top
 5. On completion → Redirects to workspace with all sample data ready
 6. Can restart tutorial anytime from Settings
-

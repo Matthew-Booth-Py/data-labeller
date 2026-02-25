@@ -1,7 +1,6 @@
 """Document repository - replaces vector store with Django ORM."""
 
-from datetime import date, datetime
-from typing import List, Optional
+from datetime import datetime
 
 from uu_backend.django_data.models import DocumentModel
 from uu_backend.models.document import Document, DocumentMetadata, DocumentSummary
@@ -26,14 +25,12 @@ class DocumentRepository:
                 "date_extracted": document.date_extracted,
                 "created_at": document.created_at or datetime.utcnow(),
                 "file_path": document.file_path,
-                "page_count": (
-                    document.metadata.page_count if document.metadata else None
-                ),
+                "page_count": (document.metadata.page_count if document.metadata else None),
                 "word_count": len(document.content.split()) if document.content else 0,
             },
         )
 
-    def get_document(self, document_id: str) -> Optional[Document]:
+    def get_document(self, document_id: str) -> Document | None:
         """
         Retrieve a document by ID.
 
@@ -49,7 +46,7 @@ class DocumentRepository:
         except DocumentModel.DoesNotExist:
             return None
 
-    def get_all_documents(self) -> List[DocumentSummary]:
+    def get_all_documents(self) -> list[DocumentSummary]:
         """
         Get all documents.
 
@@ -83,12 +80,12 @@ class DocumentRepository:
 
     def search(
         self,
-        query: Optional[str] = None,
-        file_types: Optional[List[str]] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        query: str | None = None,
+        file_types: list[str] | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 100,
-    ) -> List[DocumentSummary]:
+    ) -> list[DocumentSummary]:
         """
         Search documents by filters.
 
@@ -107,9 +104,7 @@ class DocumentRepository:
         if query:
             from django.db.models import Q
 
-            queryset = queryset.filter(
-                Q(filename__icontains=query) | Q(content__icontains=query)
-            )
+            queryset = queryset.filter(Q(filename__icontains=query) | Q(content__icontains=query))
 
         if file_types:
             queryset = queryset.filter(file_type__in=file_types)
@@ -161,48 +156,48 @@ class DocumentRepository:
             retrieval_index_progress=doc.retrieval_index_progress,
             retrieval_index_total=doc.retrieval_index_total,
         )
-    
+
     def update_ocr_status(
         self,
         document_id: str,
         ocr_status: str,
-        ocr_file_path: Optional[str] = None,
-        has_text_layer: Optional[bool] = None
+        ocr_file_path: str | None = None,
+        has_text_layer: bool | None = None,
     ) -> bool:
         """
         Update OCR processing status for a document.
-        
+
         Args:
             document_id: The document ID
             ocr_status: Status: pending, processing, completed, failed
             ocr_file_path: Path to OCR'd PDF (if completed)
             has_text_layer: Whether PDF has text layer
-            
+
         Returns:
             True if updated, False if document not found
         """
         try:
             doc = DocumentModel.objects.get(id=document_id)
-            doc.ocr_status = ocr_status
-            
+            doc.ocr_status = ocr_status  # type: ignore
+
             update_fields = ["ocr_status"]
-            
+
             if ocr_file_path is not None:
-                doc.ocr_file_path = ocr_file_path
+                doc.ocr_file_path = ocr_file_path  # type: ignore
                 update_fields.append("ocr_file_path")
-            
+
             if has_text_layer is not None:
-                doc.has_text_layer = has_text_layer
+                doc.has_text_layer = has_text_layer  # type: ignore
                 update_fields.append("has_text_layer")
-            
-            doc.save(update_fields=update_fields)
+
+            doc.save(update_fields=update_fields)  # type: ignore
             return True
         except DocumentModel.DoesNotExist:
             return False
 
 
 # Singleton instance
-_repository: Optional[DocumentRepository] = None
+_repository: DocumentRepository | None = None
 
 
 def get_document_repository() -> DocumentRepository:

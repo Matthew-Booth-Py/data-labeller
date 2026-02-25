@@ -5,7 +5,7 @@ import logging
 import os
 from typing import Any
 
-from openai import OpenAI, AzureOpenAI
+from openai import AzureOpenAI, OpenAI
 
 from uu_backend.config import get_settings
 from uu_backend.llm.options import (
@@ -23,25 +23,25 @@ class OpenAIClient:
         """Initialize OpenAI client."""
         settings = get_settings()
         self._model = settings.openai_model
-        
+
         # Check if using Azure OpenAI or regular OpenAI
         use_azure = os.getenv("USE_AZURE_OPENAI", "false").lower() == "true"
-        
+
         logger.info(f"[OpenAIClient] USE_AZURE_OPENAI={use_azure}")
-        
+
         if use_azure:
             azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
             azure_api_key = os.getenv("AZURE_OPENAI_API_KEY")
             azure_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
-            
+
             logger.info(f"[OpenAIClient] Azure endpoint: {azure_endpoint}")
             logger.info(f"[OpenAIClient] Azure key present: {bool(azure_api_key)}")
-            
+
             if not azure_endpoint or not azure_api_key:
                 raise ValueError(
                     "Azure OpenAI enabled but missing AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_API_KEY"
                 )
-            
+
             logger.info(f"[OpenAIClient] Using Azure OpenAI: {azure_endpoint}")
             self._client = AzureOpenAI(
                 api_version=azure_api_version,

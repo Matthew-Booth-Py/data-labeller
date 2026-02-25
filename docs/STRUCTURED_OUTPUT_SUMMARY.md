@@ -119,12 +119,12 @@ POST /api/v1/evaluation/run
 
 ## Benefits
 
-✅ **Type Safety** - Pydantic models enforce schema structure  
-✅ **No Manual Labels** - Auto-created from schema fields  
-✅ **Faster Labeling** - AI suggests annotations with exact positions  
-✅ **Better for Tables** - Native support for array-of-objects  
-✅ **Backward Compatible** - Old annotation-based workflow still works  
-✅ **Evaluation Ready** - Structured output can be evaluated against ground truth  
+✅ **Type Safety** - Pydantic models enforce schema structure
+✅ **No Manual Labels** - Auto-created from schema fields
+✅ **Faster Labeling** - AI suggests annotations with exact positions
+✅ **Better for Tables** - Native support for array-of-objects
+✅ **Backward Compatible** - Old annotation-based workflow still works
+✅ **Evaluation Ready** - Structured output can be evaluated against ground truth
 
 ## Example: Claim Form
 

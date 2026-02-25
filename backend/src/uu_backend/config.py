@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 
 class Settings(BaseModel):
-    api_host: str = "0.0.0.0"
+    api_host: str = "0.0.0.0"  # nosec B104
     api_port: int = 8000
     api_prefix: str = "/api/v1"
     debug: bool = False
@@ -43,6 +43,7 @@ class Settings(BaseModel):
         path = Path(self.file_storage_directory)
         path.mkdir(parents=True, exist_ok=True)
         return path
+
 
 _ENV_TO_FIELD = {
     "API_HOST": "api_host",
@@ -122,7 +123,7 @@ def _build_settings_payload() -> dict[str, Any]:
         if env_path.exists():
             dotenv_values = _read_dotenv_file(env_path)
             break
-    
+
     for env_key, field_name in _ENV_TO_FIELD.items():
         raw = dotenv_values.get(env_key)
         if raw is not None:

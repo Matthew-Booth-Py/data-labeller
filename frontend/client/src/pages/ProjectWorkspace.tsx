@@ -3,7 +3,13 @@ import { useParams } from "wouter";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { RotateCcw, AlertTriangle, CheckCircle2, Save, Key } from "lucide-react";
+import {
+  RotateCcw,
+  AlertTriangle,
+  CheckCircle2,
+  Save,
+  Key,
+} from "lucide-react";
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
@@ -55,17 +61,17 @@ export default function ProjectWorkspace() {
   useEffect(() => {
     if (id) {
       localStorage.setItem("selected-project", id);
-      console.log('[ProjectWorkspace] Set selected-project to:', id);
+      console.log("[ProjectWorkspace] Set selected-project to:", id);
     }
   }, [id]);
-  
+
   // Get tab from URL hash or default to "documents"
   const getTabFromUrl = () => {
     const hash = window.location.hash.slice(1); // Remove the '#'
     if (!hash) return "documents";
     return validTabs.has(hash) ? hash : "documents";
   };
-  
+
   const [activeTab, setActiveTab] = useState(getTabFromUrl());
   const [savingDeploymentVersion, setSavingDeploymentVersion] = useState(false);
 
@@ -80,8 +86,8 @@ export default function ProjectWorkspace() {
     const handleHashChange = () => {
       setActiveTab(getTabFromUrl());
     };
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
   // Load project from localStorage
@@ -96,16 +102,17 @@ export default function ProjectWorkspace() {
     } catch {
       // Ignore parse errors
     }
-    
+
     // Return a default project with the URL id
     return {
       id: id || "unknown",
-      name: id ? id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Project",
+      name: id
+        ? id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+        : "Project",
       description: "",
       docCount: 0,
     };
   }, [id]);
-
 
   const handleCreateDeploymentVersion = async () => {
     if (!id) return;
@@ -155,18 +162,30 @@ export default function ProjectWorkspace() {
         <div className="bg-background border-b px-6 py-4 flex items-center justify-between shrink-0">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
-              <h1 className="text-xl font-semibold tracking-tight text-primary">{project.name}</h1>
-              <Badge variant="outline" className="font-mono text-xs border-accent/20 text-accent">{project.id}</Badge>
+              <h1 className="text-xl font-semibold tracking-tight text-primary">
+                {project.name}
+              </h1>
+              <Badge
+                variant="outline"
+                className="font-mono text-xs border-accent/20 text-accent"
+              >
+                {project.id}
+              </Badge>
             </div>
             <p className="text-sm text-muted-foreground">
-              {project.description || "Configure schemas and extract structured data from documents"}
+              {project.description ||
+                "Configure schemas and extract structured data from documents"}
             </p>
           </div>
-          
+
           <div className="flex items-center gap-2">
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2 border-accent text-accent hover:bg-accent/5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 border-accent text-accent hover:bg-accent/5"
+                >
                   <Save className="h-4 w-4" />
                   Save as New Version
                 </Button>
@@ -175,12 +194,19 @@ export default function ProjectWorkspace() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Create Project Version?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will capture the current schema, prompt configuration, and model settings as a permanent version (v2.5). This allows you to run evaluations against this specific configuration and promote it to production later.
+                    This will capture the current schema, prompt configuration,
+                    and model settings as a permanent version (v2.5). This
+                    allows you to run evaluations against this specific
+                    configuration and promote it to production later.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction className="bg-accent" onClick={handleCreateDeploymentVersion} disabled={savingDeploymentVersion}>
+                  <AlertDialogAction
+                    className="bg-accent"
+                    onClick={handleCreateDeploymentVersion}
+                    disabled={savingDeploymentVersion}
+                  >
                     {savingDeploymentVersion ? "Creating..." : "Create Version"}
                   </AlertDialogAction>
                 </AlertDialogFooter>
@@ -190,17 +216,21 @@ export default function ProjectWorkspace() {
         </div>
 
         {/* Workspace Tabs */}
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col overflow-hidden">
+        <Tabs
+          value={activeTab}
+          onValueChange={handleTabChange}
+          className="flex-1 flex flex-col overflow-hidden"
+        >
           <div className="px-6 border-b bg-background/50 backdrop-blur-sm">
             <TabsList className="h-12 w-full justify-start bg-transparent p-0 gap-6">
-              <TabsTrigger 
-                value="schema" 
+              <TabsTrigger
+                value="schema"
                 className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
               >
                 Schema
               </TabsTrigger>
-              <TabsTrigger 
-                value="documents" 
+              <TabsTrigger
+                value="documents"
                 className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
               >
                 Documents
@@ -229,14 +259,14 @@ export default function ProjectWorkspace() {
               >
                 Evaluate
               </TabsTrigger>
-              <TabsTrigger 
-                value="api" 
+              <TabsTrigger
+                value="api"
                 className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
               >
                 API Management
               </TabsTrigger>
-              <TabsTrigger 
-                value="deployment" 
+              <TabsTrigger
+                value="deployment"
                 className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none ml-auto"
               >
                 Deployment
@@ -245,28 +275,49 @@ export default function ProjectWorkspace() {
           </div>
 
           <div className="flex-1 overflow-hidden bg-muted/10">
-            <TabsContent value="schema" className="h-full m-0 overflow-auto p-4">
+            <TabsContent
+              value="schema"
+              className="h-full m-0 overflow-auto p-4"
+            >
               <SchemaViewer projectId={id} />
             </TabsContent>
-            <TabsContent value="documents" className="h-full m-0 p-6 overflow-auto">
+            <TabsContent
+              value="documents"
+              className="h-full m-0 p-6 overflow-auto"
+            >
               <DocumentPool projectId={id} />
             </TabsContent>
-            <TabsContent value="extraction" className="h-full m-0 p-6 overflow-auto">
+            <TabsContent
+              value="extraction"
+              className="h-full m-0 p-6 overflow-auto"
+            >
               <ExtractionRunner projectId={id} />
             </TabsContent>
-            <TabsContent value="labeller" className="h-full m-0 p-0 overflow-hidden">
+            <TabsContent
+              value="labeller"
+              className="h-full m-0 p-0 overflow-hidden"
+            >
               <DataLabeller />
             </TabsContent>
-            <TabsContent value="labels" className="h-full m-0 p-6 overflow-auto">
+            <TabsContent
+              value="labels"
+              className="h-full m-0 p-6 overflow-auto"
+            >
               <LabelsView />
             </TabsContent>
-            <TabsContent value="evaluate" className="h-full m-0 p-6 overflow-auto">
+            <TabsContent
+              value="evaluate"
+              className="h-full m-0 p-6 overflow-auto"
+            >
               <EvaluateView />
             </TabsContent>
             <TabsContent value="api" className="h-full m-0 p-6 overflow-auto">
               <APIManagement />
             </TabsContent>
-            <TabsContent value="deployment" className="h-full m-0 p-6 overflow-auto">
+            <TabsContent
+              value="deployment"
+              className="h-full m-0 p-6 overflow-auto"
+            >
               <DeploymentView projectId={id} />
             </TabsContent>
           </div>

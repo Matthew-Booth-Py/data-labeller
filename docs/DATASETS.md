@@ -29,7 +29,7 @@ CORD contains over 11,000 Indonesian retail receipt images with comprehensive an
 - **Location**: `backend/sample_docs/receipts/`
 - **Count**: 30 receipt PDFs
 - **Format**: PDF (converted from PNG)
-- **Additional Files**: 
+- **Additional Files**:
   - PNG images (original format)
   - JSON ground truth annotations
 

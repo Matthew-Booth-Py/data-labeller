@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+from typing import Any
 
 from asgiref.sync import async_to_sync
 from django.db import IntegrityError
@@ -11,13 +12,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
-
-logger = logging.getLogger(__name__)
-from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.llm.openai_client import get_openai_client
+from uu_backend.llm.options import reasoning_options_for_model
 from uu_backend.models.taxonomy import (
     ClassificationCreate,
-    DocumentType,
     DocumentTypeCreate,
     DocumentTypeResponse,
     DocumentTypeUpdate,
@@ -28,12 +26,13 @@ from uu_backend.models.taxonomy import (
     GlobalFieldCreate,
     GlobalFieldListResponse,
     GlobalFieldUpdate,
-    VisualContentType,
 )
 from uu_backend.repositories import get_repository
 from uu_backend.services.classification_service import get_classification_service
 from uu_backend.services.extraction_service import get_extraction_service
-from uu_backend.services.prompt_generator import get_prompt_generator, ContentType
+from uu_backend.services.prompt_generator import ContentType, get_prompt_generator
+
+logger = logging.getLogger(__name__)
 
 
 def _jsonable(value):
@@ -54,12 +53,6 @@ def _bool_query_param(value: str | None, default: bool) -> bool:
     if value is None:
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
-
-
-
-    for existing_name, label in existing_by_name.items():
-        if existing_name not in expected_by_name:
-            repository.delete_label(label.id)
 
 
 class TaxonomyPrefixView(APIView):
@@ -98,7 +91,9 @@ class TaxonomyPrefixView(APIView):
             if not doc_type:
                 return Response({"detail": f"Document type {parts[1]} not found"}, status=404)
             versions = repository.list_schema_versions(parts[1])
-            return Response({"document_type_id": parts[1], "versions": versions, "total": len(versions)})
+            return Response(
+                {"document_type_id": parts[1], "versions": versions, "total": len(versions)}
+            )
 
         if len(parts) == 3 and parts[0] == "types" and parts[2] == "documents":
             limit_raw = request.query_params.get("limit", "100")
@@ -146,34 +141,51 @@ class TaxonomyPrefixView(APIView):
             if not settings.openai_api_key:
                 return Response({"detail": "OPENAI_API_KEY is not configured"}, status=400)
 
-            doc_type = repository.get_document_type(parsed.document_type_id) if parsed.document_type_id else None
+            doc_type = (
+                repository.get_document_type(parsed.document_type_id)
+                if parsed.document_type_id
+                else None
+            )
             existing_names = parsed.existing_field_names or []
             if doc_type:
-                existing_names = sorted({*(f.name for f in (doc_type.schema_fields or [])), *existing_names})
+                existing_names = sorted(
+                    {*(f.name for f in (doc_type.schema_fields or [])), *existing_names}
+                )
 
             system_prompt = (
                 "You are a document extraction schema assistant.\n"
                 "Generate one field suggestion from user intent.\n"
-                "If a screenshot is provided, use it to understand the document structure and suggest appropriate fields.\n"
+                "If a screenshot is provided, use it to understand the document "
+                "structure and suggest appropriate fields.\n"
                 "Rules:\n"
                 "1) Output valid JSON only.\n"
                 "2) Field name must be snake_case and not collide with existing_field_names.\n"
                 "3) Type must be one of: string, number, date, boolean, object, array.\n"
                 "4) extraction_prompt must enforce RAW extraction (no interpretation).\n"
-                "5) For TABLES with multiple rows, ALWAYS use type=array with items_type=object.\n"
+                "5) For TABLES with multiple rows, ALWAYS use type=array with "
+                "items_type=object.\n"
                 "6) **FIELD NAMES MUST BE GENERIC AND REUSABLE**:\n"
-                "   - NEVER use data-specific values in field names (e.g., 'full_year_2024', 'q1_2023')\n"
+                "   - NEVER use data-specific values in field names "
+                "(e.g., 'full_year_2024', 'q1_2023')\n"
                 "   - Use generic names like 'period_1', 'period_2' or 'column_1', 'column_2'\n"
-                "   - Actual values (dates, years, periods) belong in the DATA, not field names\n"
-                "   - Schema must work for ANY document of this type, not just the current example\n"
-                "7) **HIERARCHICAL TABLES**: If the table has nested/indented row labels (multiple category levels):\n"
+                "   - Actual values (dates, years, periods) belong in the DATA, "
+                "not field names\n"
+                "   - Schema must work for ANY document of this type, "
+                "not just the current example\n"
+                "7) **HIERARCHICAL TABLES**: If the table has nested/indented row labels "
+                "(multiple category levels):\n"
                 "   - Use a 'hierarchy_path' field with type=array, items_type=string\n"
-                "   - This array will contain the full path from root to leaf (e.g., ['Level 1', 'Level 2', 'Level 3'])\n"
-                "   - This scales automatically to any nesting depth without predefined level fields\n"
-                "   - The hierarchy_path field should be part of the row object (alongside data value fields)\n"
+                "   - This array will contain the full path from root to leaf "
+                "(e.g., ['Level 1', 'Level 2', 'Level 3'])\n"
+                "   - This scales automatically to any nesting depth "
+                "without predefined level fields\n"
+                "   - The hierarchy_path field should be part of the row object "
+                "(alongside data value fields)\n"
                 "8) For data fields with currency values:\n"
-                "   - Keep currency symbol + amount TOGETHER in one field for reliable extraction\n"
-                "   - Extract the complete value exactly as shown (e.g., '$ 25.0', '$20.0 - $23.0')\n"
+                "   - Keep currency symbol + amount TOGETHER in one field "
+                "for reliable extraction\n"
+                "   - Extract the complete value exactly as shown "
+                "(e.g., '$ 25.0', '$20.0 - $23.0')\n"
                 "   - ONLY split if components are in completely separate table cells\n"
                 "   - Add extraction_prompt for EXACT character-by-character extraction\n"
                 "9) **TABLE BOUNDARY DETECTION**:\n"
@@ -183,10 +195,13 @@ class TaxonomyPrefixView(APIView):
                 "10) For other fields needing exact formatting:\n"
                 "   - Add extraction_prompt emphasizing EXACT extraction\n"
                 "   - Preserve ALL formatting: spaces, commas, parentheses, dashes, ranges\n"
-                "11) If type=array and array of objects is appropriate, set items_type=object and include object_properties.\n"
+                "11) If type=array and array of objects is appropriate, set items_type=object "
+                "and include object_properties.\n"
                 "12) For non-array fields set items_type=null and object_properties=[].\n"
-                "13) object_properties can have nested objects: use type=object with nested 'properties' array.\n"
-                "14) For repeated sub-items within a row (like multiple limits per coverage), use type=array with nested items.\n"
+                "13) object_properties can have nested objects: use type=object with nested "
+                "'properties' array.\n"
+                "14) For repeated sub-items within a row (like multiple limits per coverage), "
+                "use type=array with nested items.\n"
                 "15) Keep output concise and practical for production extraction.\n"
             )
             user_prompt_text = (
@@ -209,25 +224,48 @@ class TaxonomyPrefixView(APIView):
                 '  "type": "array",\n'
                 '  "items_type": "object",\n'
                 '  "object_properties": [\n'
-                '    {"name": "line_item", "type": "string", "description": "Row label or category"},\n'
-                '    {"name": "period_1", "type": "string", "description": "Complete value with currency", "extraction_prompt": "Extract EXACT value as shown including currency symbol, spaces, and numbers. Examples: \'$ 25.0\', \'$20.0 - $23.0\', \'(1.0)\'. Only extract from table cells, not surrounding text."},\n'
-                '    {"name": "period_2", "type": "string", "description": "Complete value with currency", "extraction_prompt": "Extract EXACT value as shown including currency symbol, spaces, and numbers. Only extract from table cells."}\n'
+                '    {"name": "line_item", "type": "string", '
+                '"description": "Row label or category"},\n'
+                '    {"name": "period_1", "type": "string", '
+                '"description": "Complete value with currency", '
+                '"extraction_prompt": "Extract EXACT value as shown including currency symbol, '
+                'spaces, and numbers. Examples: \'$ 25.0\', \'$20.0 - $23.0\', \'(1.0)\'. '
+                'Only extract from table cells, not surrounding text."},\n'
+                '    {"name": "period_2", "type": "string", '
+                '"description": "Complete value with currency", '
+                '"extraction_prompt": "Extract EXACT value as shown including currency symbol, '
+                'spaces, and numbers. Only extract from table cells."}\n'
                 '  ]\n'
                 "}\n\n"
                 "Example 2: Hierarchical table with dynamic depth scaling\n"
                 "BAD - Fixed hierarchy levels:\n"
-                '{"name": "level_1", "name": "level_2", "name": "level_3"} <- WRONG! Doesn\'t scale to deeper hierarchies\n\n'
+                '{"name": "level_1", "name": "level_2", "name": "level_3"} '
+                '<- WRONG! Doesn\'t scale to deeper hierarchies\n\n'
                 "GOOD - Dynamic hierarchy_path array:\n"
                 "{\n"
                 '  "name": "table_data",\n'
                 '  "type": "array",\n'
                 '  "items_type": "object",\n'
                 '  "object_properties": [\n'
-                '    {"name": "hierarchy_path", "type": "array", "items_type": "string", "description": "Full path from root to leaf category", "extraction_prompt": "Extract the complete hierarchical path as an array. Include all levels from the main category down to the most specific item. For a row \'GAAP R&D > Acquisitions > Amortization\', return [\'GAAP R&D\', \'Acquisitions\', \'Amortization\']. For a top-level row with no sub-items, return a single-element array."},\n'
-                '    {"name": "period_1_header", "type": "string", "description": "First period column header"},\n'
-                '    {"name": "period_1_value", "type": "string", "description": "Value for first period", "extraction_prompt": "Extract EXACT value as shown including currency symbol, spaces, commas, parentheses, ranges. Examples: \'$ 25.0\', \'$20.0 - $23.0\', \'(1.0)\'. Return null for empty cells."},\n'
-                '    {"name": "period_2_header", "type": "string", "description": "Second period column header"},\n'
-                '    {"name": "period_2_value", "type": "string", "description": "Value for second period", "extraction_prompt": "Extract EXACT value. Return null for empty cells."}\n'
+                '    {"name": "hierarchy_path", "type": "array", "items_type": "string", '
+                '"description": "Full path from root to leaf category", '
+                '"extraction_prompt": "Extract the complete hierarchical path as an array. '
+                'Include all levels from the main category down to the most specific item. '
+                'For a row \'GAAP R&D > Acquisitions > Amortization\', '
+                'return [\'GAAP R&D\', \'Acquisitions\', \'Amortization\']. '
+                'For a top-level row with no sub-items, return a single-element array."},\n'
+                '    {"name": "period_1_header", "type": "string", '
+                '"description": "First period column header"},\n'
+                '    {"name": "period_1_value", "type": "string", '
+                '"description": "Value for first period", '
+                '"extraction_prompt": "Extract EXACT value as shown including currency symbol, '
+                'spaces, commas, parentheses, ranges. Examples: \'$ 25.0\', \'$20.0 - $23.0\', '
+                '\'(1.0)\'. Return null for empty cells."},\n'
+                '    {"name": "period_2_header", "type": "string", '
+                '"description": "Second period column header"},\n'
+                '    {"name": "period_2_value", "type": "string", '
+                '"description": "Value for second period", '
+                '"extraction_prompt": "Extract EXACT value. Return null for empty cells."}\n'
                 '  ]\n'
                 "}\n\n"
                 "Example 3: Simple (non-hierarchical) table\n"
@@ -265,39 +303,48 @@ class TaxonomyPrefixView(APIView):
                 try:
                     prompt_generator = get_prompt_generator()
                     visual_analysis = prompt_generator.analyze_image(parsed.screenshot_base64)
-                    
+
                     # Add hierarchy context to prompt if detected
                     hierarchy_hint = ""
-                    if (visual_analysis.content_type == ContentType.TABLE and 
-                        visual_analysis.row_hierarchy and 
-                        visual_analysis.row_hierarchy.has_hierarchy):
-                        
+                    if (
+                        visual_analysis.content_type == ContentType.TABLE
+                        and visual_analysis.row_hierarchy
+                        and visual_analysis.row_hierarchy.has_hierarchy
+                    ):
                         depth = visual_analysis.row_hierarchy.depth or 3
                         example_paths = visual_analysis.row_hierarchy.example_paths or []
                         structure_desc = visual_analysis.row_hierarchy.structure_description or ""
-                        
+
                         hierarchy_hint = (
                             f"\n\n**IMPORTANT - HIERARCHICAL TABLE DETECTED**:\n"
-                            f"This table has a HIERARCHICAL row structure with approximately {depth} nesting levels.\n"
+                            f"This table has a HIERARCHICAL row structure with approximately "
+                            f"{depth} nesting levels.\n"
                             f"Structure: {structure_desc}\n"
                         )
-                        
+
                         if example_paths:
-                            hierarchy_hint += f"Example hierarchical paths from the table:\n"
+                            hierarchy_hint += "Example hierarchical paths from the table:\n"
                             for path in example_paths[:2]:  # Show first 2 examples
                                 hierarchy_hint += f"  - {' > '.join(path)}\n"
-                        
+
                         hierarchy_hint += (
-                            f"\nYou MUST use a 'hierarchy_path' field (type=array, items_type=string).\n"
-                            f"This array will contain the full path from root to leaf (approximately {depth} levels).\n"
-                            f"For example: ['GAAP additions to property', 'Proceeds from capital-related incentives'].\n"
-                            f"This scales automatically to any depth without needing predefined level fields.\n"
+                            f"\nYou MUST use a 'hierarchy_path' field "
+                            f"(type=array, items_type=string).\n"
+                            f"This array will contain the full path from root to leaf "
+                            f"(approximately {depth} levels).\n"
+                            f"For example: ['GAAP additions to property', "
+                            f"'Proceeds from capital-related incentives'].\n"
+                            f"This scales automatically to any depth without needing "
+                            f"predefined level fields.\n"
                         )
-                        
-                        logger.info(f"[Field Assistant] Detected hierarchical table: depth={depth}, examples={len(example_paths)}")
-                    
+
+                        logger.info(
+                            f"[Field Assistant] Detected hierarchical table: "
+                            f"depth={depth}, examples={len(example_paths)}"
+                        )
+
                     # Multimodal message with image and hierarchy context
-                    user_content = [
+                    user_content: list[dict[str, Any]] = [
                         {"type": "text", "text": user_prompt_text + hierarchy_hint},
                         {
                             "type": "image_url",
@@ -309,7 +356,10 @@ class TaxonomyPrefixView(APIView):
                     ]
                 except Exception as e:
                     # If analysis fails, proceed without hierarchy hint
-                    logger.warning(f"[Field Assistant] Image analysis failed: {e}, proceeding without hierarchy detection")
+                    logger.warning(
+                        f"[Field Assistant] Image analysis failed: {e}, "
+                        f"proceeding without hierarchy detection"
+                    )
                     user_content = [
                         {"type": "text", "text": user_prompt_text},
                         {
@@ -321,13 +371,22 @@ class TaxonomyPrefixView(APIView):
                         },
                     ]
             else:
-                user_content = user_prompt_text
+                user_content = [{"type": "text", "text": user_prompt_text}]
 
-            # Use document type's extraction model if available, otherwise fall back to global settings
-            model = (doc_type.extraction_model if doc_type and doc_type.extraction_model else None) or settings.effective_tagging_model
-            print(f"[Field Assistant] Model: {model} | DocType: {doc_type.name if doc_type else 'N/A'} | Input: {parsed.user_input[:50]}...")
-            print(f"[Field Assistant] USE_AZURE_OPENAI: {os.getenv('USE_AZURE_OPENAI')}")
-            print(f"[Field Assistant] AZURE_OPENAI_ENDPOINT: {os.getenv('AZURE_OPENAI_ENDPOINT')}")
+            # Use document type's extraction model if available, otherwise fall back to
+            # global settings
+            model = (
+                doc_type.extraction_model if doc_type and doc_type.extraction_model else None
+            ) or settings.effective_tagging_model
+            print(
+                f"[Field Assistant] Model: {model} | DocType: "
+                f"{doc_type.name if doc_type else 'N/A'} | Input: "
+                f"{parsed.user_input[:50]}..."
+            )
+            print(f"[Field Assistant] USE_AZURE_OPENAI: " f"{os.getenv('USE_AZURE_OPENAI')}")
+            print(
+                f"[Field Assistant] AZURE_OPENAI_ENDPOINT: " f"{os.getenv('AZURE_OPENAI_ENDPOINT')}"
+            )
             try:
                 openai_client = get_openai_client()
                 print(f"[Field Assistant] Client type: {type(openai_client._client)}")
@@ -360,7 +419,8 @@ class TaxonomyPrefixView(APIView):
                 description = payload.get("description") or None
                 extraction_prompt = (
                     str(payload.get("extraction_prompt", "")).strip()
-                    or f"Extract the {name.replace('_', ' ')} from the document exactly as shown (RAW)."
+                    or f"Extract the {name.replace('_', ' ')} from the document "
+                    f"exactly as shown (RAW)."
                 )
 
                 items_raw = payload.get("items_type")
@@ -376,18 +436,18 @@ class TaxonomyPrefixView(APIView):
                         if not prop_name:
                             continue
                         prop_type = FieldType(str(prop.get("type", "string")).strip().lower())
-                        
+
                         # Parse items_type for array sub-properties
                         prop_items_raw = prop.get("items_type")
                         prop_items_type = None
                         if prop_items_raw is not None and str(prop_items_raw).lower() != "null":
                             prop_items_type = FieldType(str(prop_items_raw).strip().lower())
-                        
+
                         # Recursively parse nested properties
                         nested_props = None
                         if prop.get("properties"):
                             nested_props = parse_properties(prop.get("properties", []))
-                        
+
                         result.append(
                             FieldPropertySuggestion(
                                 name=prop_name,
@@ -418,20 +478,20 @@ class TaxonomyPrefixView(APIView):
             image_base64 = body.get("image_base64")
             field_name = body.get("field_name", "")
             field_description = body.get("field_description")
-            
+
             if not image_base64:
                 return Response({"detail": "image_base64 is required"}, status=400)
-            
+
             settings = get_settings()
             if not settings.openai_api_key:
                 return Response({"detail": "OPENAI_API_KEY is not configured"}, status=400)
-            
+
             try:
                 prompt_generator = get_prompt_generator()
-                
+
                 # Analyze the image
                 analysis = prompt_generator.analyze_image(image_base64)
-                
+
                 # Generate extraction prompt and retrieval query
                 extraction_prompt = prompt_generator.generate_extraction_prompt(
                     analysis=analysis,
@@ -443,18 +503,20 @@ class TaxonomyPrefixView(APIView):
                     field_name=field_name,
                     field_description=field_description,
                 )
-                
-                return Response({
-                    "visual_content_type": analysis.content_type.value,
-                    "structure_description": analysis.structure_description,
-                    "extraction_guidance": analysis.extraction_guidance,
-                    "distinguishing_features": analysis.distinguishing_features,
-                    "column_headers": analysis.column_headers,
-                    "row_labels": analysis.row_labels,
-                    "data_types": analysis.data_types,
-                    "generated_extraction_prompt": extraction_prompt,
-                    "generated_retrieval_query": retrieval_query,
-                })
+
+                return Response(
+                    {
+                        "visual_content_type": analysis.content_type.value,
+                        "structure_description": analysis.structure_description,
+                        "extraction_guidance": analysis.extraction_guidance,
+                        "distinguishing_features": analysis.distinguishing_features,
+                        "column_headers": analysis.column_headers,
+                        "row_labels": analysis.row_labels,
+                        "data_types": analysis.data_types,
+                        "generated_extraction_prompt": extraction_prompt,
+                        "generated_retrieval_query": retrieval_query,
+                    }
+                )
             except Exception as exc:
                 return Response({"detail": f"Image analysis failed: {exc}"}, status=500)
 
@@ -464,7 +526,9 @@ class TaxonomyPrefixView(APIView):
             except ValidationError as exc:
                 return _validation_error_response(exc)
             if repository.get_global_field_by_name(parsed.name):
-                return Response({"detail": f"Global field '{parsed.name}' already exists"}, status=400)
+                return Response(
+                    {"detail": f"Global field '{parsed.name}' already exists"}, status=400
+                )
             try:
                 created = repository.create_global_field(parsed)
             except Exception as exc:
@@ -479,11 +543,16 @@ class TaxonomyPrefixView(APIView):
 
             existing = repository.get_document_type_by_name(parsed.name)
             if existing:
-                return Response({"detail": f"Document type with name '{parsed.name}' already exists"}, status=400)
+                return Response(
+                    {"detail": f"Document type with name '{parsed.name}' already exists"},
+                    status=400,
+                )
 
             try:
                 doc_type = repository.create_document_type(parsed)
-                return Response(DocumentTypeResponse(type=doc_type).model_dump(mode="json"), status=201)
+                return Response(
+                    DocumentTypeResponse(type=doc_type).model_dump(mode="json"), status=201
+                )
             except IntegrityError as exc:
                 return Response({"detail": str(exc)}, status=400)
             except Exception as exc:
@@ -504,7 +573,9 @@ class TaxonomyPrefixView(APIView):
             if parsed.name:
                 existing = repository.get_global_field_by_name(parsed.name)
                 if existing and existing.id != parts[1]:
-                    return Response({"detail": f"Global field '{parsed.name}' already exists"}, status=400)
+                    return Response(
+                        {"detail": f"Global field '{parsed.name}' already exists"}, status=400
+                    )
             updated = repository.update_global_field(parts[1], parsed)
             if not updated:
                 return Response({"detail": "Global field not found"}, status=404)
@@ -589,6 +660,7 @@ class AutoClassifyDocumentView(APIView):
 
     def post(self, request, document_id: str):
         import traceback
+
         save = _bool_query_param(request.query_params.get("save"), default=True)
         service = get_classification_service()
         try:
@@ -596,7 +668,7 @@ class AutoClassifyDocumentView(APIView):
             print(f"AUTO-CLASSIFY REQUEST for document: {document_id}")
             print(f"Save: {save}")
             print(f"{'='*60}\n")
-            
+
             if save:
                 result = async_to_sync(service.classify_document)(document_id, auto_save=True)
             else:
@@ -608,7 +680,7 @@ class AutoClassifyDocumentView(APIView):
             print(f"AUTO-CLASSIFY ValueError for {document_id}")
             print(f"{'='*60}")
             print(f"Error: {str(exc)}")
-            print(f"\nTraceback:")
+            print("\nTraceback:")
             print(tb)
             print(f"{'='*60}\n")
             return Response({"detail": str(exc)}, status=400)
@@ -619,10 +691,12 @@ class AutoClassifyDocumentView(APIView):
             print(f"AUTO-CLASSIFY Exception for {document_id}")
             print(f"{'='*60}")
             print(f"Error: {str(exc)}")
-            print(f"\nTraceback:")
+            print("\nTraceback:")
             print(tb)
             print(f"{'='*60}\n")
-            return Response({"detail": f"Auto-classification failed: {exc}", "traceback": tb}, status=500)
+            return Response(
+                {"detail": f"Auto-classification failed: {exc}", "traceback": tb}, status=500
+            )
 
 
 class DocumentClassificationView(APIView):
@@ -633,14 +707,18 @@ class DocumentClassificationView(APIView):
         repository = get_repository()
         classification = repository.get_classification(document_id)
         if not classification:
-            return Response({"detail": f"No classification found for document {document_id}"}, status=404)
+            return Response(
+                {"detail": f"No classification found for document {document_id}"}, status=404
+            )
         return Response({"classification": _jsonable(classification)})
 
     def delete(self, request, document_id: str):
         repository = get_repository()
         deleted = repository.delete_classification(document_id)
         if not deleted:
-            return Response({"detail": f"No classification found for document {document_id}"}, status=404)
+            return Response(
+                {"detail": f"No classification found for document {document_id}"}, status=404
+            )
         return Response({"status": "success", "message": "Classification removed"})
 
 
@@ -650,9 +728,13 @@ class ExtractDocumentView(APIView):
 
     def post(self, request, document_id: str):
         use_llm = _bool_query_param(request.query_params.get("use_llm"), default=True)
-        use_structured_output = _bool_query_param(request.query_params.get("use_structured_output"), default=False)
+        use_structured_output = _bool_query_param(
+            request.query_params.get("use_structured_output"), default=False
+        )
         use_retrieval = _bool_query_param(request.query_params.get("use_retrieval"), default=False)
-        use_retrieval_vision = _bool_query_param(request.query_params.get("use_retrieval_vision"), default=False)
+        use_retrieval_vision = _bool_query_param(
+            request.query_params.get("use_retrieval_vision"), default=False
+        )
         service = get_extraction_service()
 
         try:
@@ -661,7 +743,9 @@ class ExtractDocumentView(APIView):
             elif use_structured_output:
                 result = service.extract_structured(document_id)
             else:
-                result = service.extract_from_annotations(document_id, use_llm_refinement=use_llm)
+                result = service.extract_from_annotations(  # type: ignore
+                    document_id, use_llm_refinement=use_llm
+                )
 
             return Response(
                 {
@@ -693,12 +777,16 @@ class DocumentExtractionView(APIView):
         repository = get_repository()
         result = repository.get_extraction(document_id)
         if not result:
-            return Response({"detail": f"No extraction found for document {document_id}"}, status=404)
+            return Response(
+                {"detail": f"No extraction found for document {document_id}"}, status=404
+            )
         return Response(_jsonable(result))
 
     def delete(self, request, document_id: str):
         repository = get_repository()
         deleted = repository.delete_extraction(document_id)
         if not deleted:
-            return Response({"detail": f"No extraction found for document {document_id}"}, status=404)
+            return Response(
+                {"detail": f"No extraction found for document {document_id}"}, status=404
+            )
         return Response({"status": "success", "message": "Extraction deleted"})

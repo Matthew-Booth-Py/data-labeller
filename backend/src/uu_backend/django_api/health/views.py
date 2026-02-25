@@ -4,8 +4,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from uu_backend import __version__
-from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.llm.openai_client import get_openai_client
+from uu_backend.repositories.document_repository import get_document_repository
 
 
 class HealthView(APIView):
@@ -26,7 +26,7 @@ class HealthView(APIView):
         try:
             openai_client = get_openai_client()
             openai_status = "available" if openai_client.is_available() else "not configured"
-        except Exception:
+        except Exception:  # nosec B110
             openai_status = "not configured"
 
         all_connected = db_status == "connected"

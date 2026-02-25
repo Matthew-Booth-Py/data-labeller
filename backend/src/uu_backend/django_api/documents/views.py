@@ -9,8 +9,8 @@ from rest_framework.views import APIView
 
 from uu_backend.config import get_settings
 from uu_backend.models.document import DocumentListResponse, DocumentResponse
-from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.repositories import get_repository
+from uu_backend.repositories.document_repository import get_document_repository
 
 logger = logging.getLogger(__name__)
 
@@ -93,17 +93,17 @@ class DocumentDetailView(APIView):
         """Delete a document by ID."""
         document_repo = get_document_repository()
         document = document_repo.get_document(document_id)
-        
+
         if document:
             # Delete the file from storage if it exists
             file_path = get_original_file_path(document_id, document.file_type)
             if file_path:
                 file_path.unlink(missing_ok=True)
-        
+
         deleted = document_repo.delete_document(document_id)
         if not deleted:
             return Response({"detail": f"Document not found: {document_id}"}, status=404)
-        
+
         return Response(
             {
                 "status": "deleted",
@@ -121,7 +121,7 @@ class DocumentFileView(APIView):
         document = document_repo.get_document(document_id)
         if not document:
             return Response({"detail": f"Document not found: {document_id}"}, status=404)
-        
+
         # Always serve original file
         file_path = get_original_file_path(document_id, document.file_type)
         if not file_path:
@@ -177,9 +177,9 @@ class DocumentReindexRetrievalView(APIView):
 
     def post(self, request, document_id: str):
         """Queue contextual retrieval indexing for a document."""
-        from uu_backend.tasks.contextual_retrieval_tasks import index_document_for_retrieval
         from uu_backend.services.contextual_retrieval import get_contextual_retrieval_service
-        
+        from uu_backend.tasks.contextual_retrieval_tasks import index_document_for_retrieval
+
         document_repo = get_document_repository()
         document = document_repo.get_document(document_id)
 
@@ -195,6 +195,7 @@ class DocumentReindexRetrievalView(APIView):
 
         # Reset status
         from uu_backend.django_data.models import DocumentModel
+
         doc_model = DocumentModel.objects.get(id=document_id)
         doc_model.retrieval_index_status = "pending"
         doc_model.retrieval_chunks_count = None
@@ -204,15 +205,14 @@ class DocumentReindexRetrievalView(APIView):
         try:
             index_document_for_retrieval.delay(document_id)
             logger.info(f"Queued retrieval reindexing for document {document_id}")
-            
-            return Response({
-                "status": "queued",
-                "document_id": document_id,
-                "message": "Retrieval indexing queued successfully"
-            })
+
+            return Response(
+                {
+                    "status": "queued",
+                    "document_id": document_id,
+                    "message": "Retrieval indexing queued successfully",
+                }
+            )
         except Exception as e:
             logger.error(f"Failed to queue retrieval indexing: {e}")
-            return Response(
-                {"detail": f"Failed to queue indexing: {str(e)}"},
-                status=500
-            )
+            return Response({"detail": f"Failed to queue indexing: {str(e)}"}, status=500)

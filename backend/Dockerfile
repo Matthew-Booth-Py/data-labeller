@@ -12,7 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unpaper \
     && rm -rf /var/lib/apt/lists/*
 
-# Install UV
+# Install UV with pipefail
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
@@ -34,14 +35,11 @@ RUN uv sync --no-dev
 
 # Now copy the actual source code (this invalidates only from here)
 COPY src/ ./src/
-
 COPY manage.py ./manage.py
 
 # Reinstall just the local package (fast - dependencies are already cached)
-RUN uv sync --no-dev
-
-# Create data directory
-RUN mkdir -p /app/data/chroma
+# and create data directory in one layer
+RUN uv sync --no-dev && mkdir -p /app/data/chroma
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

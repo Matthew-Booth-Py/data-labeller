@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run the auto claim integration test with real OpenAI API
 #
-# Usage: 
+# Usage:
 #   ./tests/run_integration_test.sh
 #
 # This script will use environment variables from your shell or .env file

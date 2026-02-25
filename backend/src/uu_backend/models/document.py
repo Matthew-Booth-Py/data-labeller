@@ -1,7 +1,7 @@
 """Document-related Pydantic models."""
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -27,11 +27,11 @@ class Document(BaseModel):
     date_extracted: datetime | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     metadata: DocumentMetadata
-    file_path: Optional[str] = None  # Path to original file for vision API
+    file_path: str | None = None  # Path to original file for vision API
     retrieval_index_status: str = "pending"  # pending, processing, completed, failed
-    retrieval_chunks_count: Optional[int] = None
-    retrieval_index_progress: Optional[int] = None  # Current chunk being processed
-    retrieval_index_total: Optional[int] = None  # Total chunks to process
+    retrieval_chunks_count: int | None = None
+    retrieval_index_progress: int | None = None  # Current chunk being processed
+    retrieval_index_total: int | None = None  # Total chunks to process
 
 
 class DocumentSummary(BaseModel):
@@ -43,11 +43,11 @@ class DocumentSummary(BaseModel):
     date_extracted: datetime | None = None
     created_at: datetime
     token_count: int = 0
-    document_type: Optional[Any] = None  # Classification if available (DocumentType)
+    document_type: Any | None = None  # Classification if available (DocumentType)
     retrieval_index_status: str = "pending"  # pending, processing, completed, failed
-    retrieval_chunks_count: Optional[int] = None
-    retrieval_index_progress: Optional[int] = None  # Current chunk being processed
-    retrieval_index_total: Optional[int] = None  # Total chunks to process
+    retrieval_chunks_count: int | None = None
+    retrieval_index_progress: int | None = None  # Current chunk being processed
+    retrieval_index_total: int | None = None  # Total chunks to process
 
 
 class IngestResponse(BaseModel):
