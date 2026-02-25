@@ -197,36 +197,6 @@ Backend API: `http://localhost:8000`
 
 **Note**: Pre-commit hooks will automatically run tests and checks before commits and pushes. See [docs/PRE_COMMIT_SETUP.md](docs/PRE_COMMIT_SETUP.md) for details.
 
-## Process Flow (Development)
-
-```mermaid
-flowchart TD
-    subgraph setup["Setup"]
-        A[Clone repo] --> B[Copy .env.example to .env]
-        B --> C[Install pre-commit hooks]
-        C --> D[docker compose up]
-    end
-
-    subgraph develop["Develop"]
-        D --> E[Create feature branch]
-        E --> F[Implement changes]
-        F --> G[Commit - pre-commit runs]
-        G --> H{Lint, tests, conventional commit}
-        H -->|Pass| I[Push branch]
-        H -->|Fail| F
-    end
-
-    subgraph integrate["Integrate"]
-        I --> J[Open PR]
-        J --> K[CI runs: backend / frontend / CodeQL]
-        K --> L[Review & address feedback]
-        L --> M[Merge to main]
-        M --> N[Deploy or cut release]
-    end
-
-    setup --> develop --> integrate
-```
-
 - **Setup**: One-time clone, env config, pre-commit install, then start services with Docker Compose.
 - **Develop**: Work on a feature branch; each commit triggers pre-commit (lint, tests, conventional commit). Fix any failures before pushing.
 - **Integrate**: Open a PR; CI runs per path (backend/frontend). After review and approval, merge to main; then deploy or create a release as needed.
