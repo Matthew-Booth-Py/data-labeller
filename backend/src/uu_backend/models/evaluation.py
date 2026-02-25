@@ -1,13 +1,13 @@
 """Evaluation models for comparing ground truth vs predictions."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class MatchType(str, Enum):
+class MatchType(StrEnum):
     """Type of match between ground truth and predicted value."""
 
     EXACT = "exact"  # Direct equality

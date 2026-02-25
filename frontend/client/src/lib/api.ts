@@ -59,6 +59,8 @@ export interface DocumentSummary {
   document_type?: DocumentType;
   retrieval_index_status?: string;
   retrieval_chunks_count?: number | null;
+  retrieval_index_progress?: number;
+  retrieval_index_total?: number;
 }
 
 export interface IngestResponse {
@@ -365,6 +367,7 @@ export interface BoundingBoxData {
   width: number;
   height: number;
   text?: string;
+  instance_num?: number;
 }
 
 export interface TableRowFieldData {

@@ -1,13 +1,13 @@
 """Taxonomy and document classification models."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
 
-class FieldType(str, Enum):
+class FieldType(StrEnum):
     """Supported field types for schema definitions."""
 
     STRING = "string"
@@ -18,7 +18,7 @@ class FieldType(str, Enum):
     ARRAY = "array"
 
 
-class VisualContentType(str, Enum):
+class VisualContentType(StrEnum):
     """Detected content type from visual analysis."""
 
     TABLE = "table"

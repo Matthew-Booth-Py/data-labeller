@@ -587,13 +587,13 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     queryFn: () => api.listDocumentTypes(),
   });
 
-  // Fetch labels
+  // Fetch global fields
   const { data: labelsData, isLoading: labelsLoading } = useQuery({
     queryKey: ["labels", selectedTypeId],
     queryFn: () =>
       selectedTypeId
-        ? api.listLabels(selectedTypeId, true)
-        : Promise.resolve({ labels: [], total: 0 }),
+        ? api.listGlobalFields()
+        : Promise.resolve({ fields: [], total: 0 }),
   });
 
   const { data: activeFieldPromptsData } = useQuery({
@@ -601,7 +601,12 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     queryFn: () =>
       selectedTypeId
         ? api.listActiveFieldPromptsByDocumentType(selectedTypeId)
-        : Promise.resolve({ field_prompts: {}, total: 0 }),
+        : Promise.resolve({
+            field_prompts: {} as Record<string, string>,
+            field_versions: {} as Record<string, string>,
+            field_version_updated_at: {} as Record<string, string>,
+            total: 0,
+          }),
     enabled: !!selectedTypeId,
   });
 
@@ -1067,7 +1072,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
 
   const createFieldPromptVersionMutation = useMutation({
     mutationFn: (data: {
-      name?: string;
+      name: string;
       document_type_id: string;
       field_name: string;
       extraction_prompt: string;
@@ -1194,7 +1199,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     );
   }
 
-  const labels = labelsData?.labels || [];
+  const labels = labelsData?.fields || [];
   const activeFieldPrompts = activeFieldPromptsData?.field_prompts || {};
   const activeFieldVersionByName = activeFieldPromptsData?.field_versions || {};
   const activeFieldVersionUpdatedAt =
@@ -1203,7 +1208,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     (selectedType?.schema_fields || []).map((field) => field.name),
   );
   const labelsForSelectedType = selectedTypeId
-    ? labels.filter((label) => schemaFieldNames.has(label.name))
+    ? labels.filter((label: any) => schemaFieldNames.has(label.name))
     : [];
 
   return (
@@ -1744,7 +1749,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                       onPaste={(e) => {
                         const items = e.clipboardData?.items;
                         if (!items) return;
-                        for (const item of items) {
+                        for (let i = 0; i < items.length; i++) {
+                          const item = items[i];
                           if (item.type.startsWith("image/")) {
                             e.preventDefault();
                             const file = item.getAsFile();
@@ -2188,6 +2194,7 @@ ${generateExampleOutput(newFieldObjectProperties, 3)}
                           return;
                         }
                         createFieldPromptVersionMutation.mutate({
+                          name: `${editingField} prompt v${Date.now()}`,
                           document_type_id: selectedTypeId,
                           field_name: editingField,
                           extraction_prompt: editingPromptText,
@@ -2328,7 +2335,7 @@ ${generateExampleOutput(newFieldObjectProperties, 3)}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {labelsForSelectedType.map((label) => (
+                    {labelsForSelectedType.map((label: any) => (
                       <Card
                         key={label.id}
                         className="border hover:shadow-md transition-shadow"

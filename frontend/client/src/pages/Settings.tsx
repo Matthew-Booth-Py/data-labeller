@@ -14,62 +14,6 @@ import { useState } from "react";
 export default function Settings() {
   const [activeTab, setActiveTab] = useState("llm");
 
-  const handleSaveKey = async () => {
-    const trimmed = keyInput.trim();
-    // If still masked + unchanged, do nothing.
-    if (!keyChanged) return;
-    setProviderSaving(true);
-    try {
-      const response = await api.updateOpenAIProvider({ api_key: trimmed });
-      setMaskedKey(response.masked_api_key || "");
-      setKeyInput(response.masked_api_key || "");
-      setLastStatus(response.last_test_status);
-      setSource(response.source);
-      setHasKey(response.has_key);
-      setLastTestedAt(response.last_tested_at || null);
-      toast({
-        title: "OpenAI key updated",
-        description: "Provider key was saved successfully.",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Failed to update key",
-        description: error.message || "Could not save provider key.",
-        variant: "destructive",
-      });
-    } finally {
-      setProviderSaving(false);
-    }
-  };
-
-  const handleTestConnection = async () => {
-    setProviderTesting(true);
-    try {
-      // If user edited key input, test that value directly.
-      const testPayload = keyChanged ? { api_key: keyInput.trim() } : undefined;
-      const result = await api.testOpenAIProvider(testPayload);
-      setLastStatus(result.connected ? "connected" : "failed");
-      setLastTestedAt(result.tested_at);
-      if (result.connected) {
-        setHasKey(true);
-      }
-      toast({
-        title: result.connected ? "Connected" : "Connection failed",
-        description: result.message,
-        variant: result.connected ? "default" : "destructive",
-      });
-    } catch (error: any) {
-      setLastStatus("failed");
-      toast({
-        title: "Connection failed",
-        description: error.message || "Could not connect to OpenAI.",
-        variant: "destructive",
-      });
-    } finally {
-      setProviderTesting(false);
-    }
-  };
-
   return (
     <Shell>
       <div className="flex h-[calc(100vh-3.5rem)]">

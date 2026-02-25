@@ -3,7 +3,7 @@
 import base64
 import json
 import logging
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -15,7 +15,7 @@ from uu_backend.llm.options import reasoning_options_for_model
 logger = logging.getLogger(__name__)
 
 
-class ContentType(str, Enum):
+class ContentType(StrEnum):
     TABLE = "table"
     FORM = "form"
     LIST = "list"

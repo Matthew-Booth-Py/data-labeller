@@ -158,7 +158,8 @@ export function PdfTextAnnotator({
       const clientRects = range.getClientRects();
       const rects: AnnotationRect[] = [];
 
-      for (const r of clientRects) {
+      for (let i = 0; i < clientRects.length; i++) {
+        const r = clientRects[i];
         if (r.width < 1 || r.height < 1) continue;
         rects.push({
           leftPct: ((r.left - pageRect.left) / pageRect.width) * 100,

@@ -82,8 +82,8 @@ export default function ProjectsList() {
         return;
       }
       try {
-        const response = await api.listEvaluations({ limit: 2000 });
-        const allEvals = response.evaluations || [];
+        const response = await api.listEvaluations(undefined, undefined, 2000);
+        const allEvals = response.runs || [];
         const next: Record<string, ProjectLiveMetrics> = {};
 
         for (const project of projects) {

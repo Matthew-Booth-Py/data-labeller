@@ -15,6 +15,7 @@ import {
   type TextSpanData,
   type BoundingBoxData,
   type AnnotationSuggestion,
+  type AnnotationType,
 } from "@/lib/api";
 import {
   TextSpanAnnotator,
@@ -285,7 +286,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       fieldName: string;
       value: string;
       annotationData: TextSpanData | BoundingBoxData;
-      annotationType: string;
+      annotationType: AnnotationType;
     }) => {
       if (!selectedDocId) throw new Error("No document selected");
 

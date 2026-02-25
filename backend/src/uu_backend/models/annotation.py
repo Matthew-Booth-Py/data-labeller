@@ -1,13 +1,13 @@
 """Ground truth annotation models for data labelling."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class AnnotationType(str, Enum):
+class AnnotationType(StrEnum):
     """Types of annotations for different document formats."""
 
     TEXT_SPAN = "text_span"  # Character offsets for text documents
