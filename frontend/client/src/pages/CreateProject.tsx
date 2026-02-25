@@ -33,7 +33,6 @@ export default function CreateProject() {
       lastEval: "Never",
       driftRisk: "Low",
       docCount: 0,
-      model: "GPT-5-mini",
       createdAt: new Date().toISOString(),
     };
     

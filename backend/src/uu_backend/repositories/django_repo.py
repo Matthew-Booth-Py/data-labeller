@@ -17,6 +17,7 @@ if not apps.ready:
     django.setup()
 
 from uu_backend.django_data import models as orm
+from uu_backend.config import get_settings
 from uu_backend.models.prompt import FieldPromptVersion, PromptVersion
 from uu_backend.models.taxonomy import (
     Classification,
@@ -32,8 +33,6 @@ from uu_backend.models.taxonomy import (
 
 
 class DjangoORMRepository:
-    """Repository adapter backed by Django ORM models."""
-
     @staticmethod
     def _parse_incremental_version(name: Optional[str]) -> Optional[int]:
         if not name:
@@ -323,6 +322,7 @@ class DjangoORMRepository:
         if set_active:
             orm.DeploymentVersionModel.objects.filter(project_id=project_id).update(is_active=False)
 
+        settings = get_settings()
         created = orm.DeploymentVersionModel.objects.create(
             id=deployment_id,
             project_id=project_id,
@@ -335,7 +335,7 @@ class DjangoORMRepository:
             user_prompt_template=(prompt_version.user_prompt_template if prompt_version else None),
             schema_fields=snapshot_schema_fields,
             field_prompt_versions=active_field_prompt_versions,
-            model="gpt-5-mini",
+            model=doc_type.extraction_model or settings.effective_tagging_model,
             is_active=set_active,
             created_by=created_by,
             created_at=now,
@@ -687,7 +687,6 @@ class DjangoORMRepository:
     # Ground Truth Annotation Methods
     
     def _ground_truth_annotation_from_model(self, model: orm.GroundTruthAnnotationModel):
-        """Convert Django ORM model to Pydantic model."""
         from uu_backend.models.annotation import GroundTruthAnnotation, AnnotationType
         
         return GroundTruthAnnotation(
@@ -705,7 +704,6 @@ class DjangoORMRepository:
         )
     
     def save_ground_truth_annotation(self, annotation_data: dict[str, Any]) -> str:
-        """Save a ground truth annotation."""
         annotation_id = annotation_data.get("id") or str(uuid4())
         
         orm.GroundTruthAnnotationModel.objects.update_or_create(
@@ -725,12 +723,10 @@ class DjangoORMRepository:
         return annotation_id
     
     def get_ground_truth_annotation(self, annotation_id: str):
-        """Get a single ground truth annotation by ID."""
         model = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).first()
         return self._ground_truth_annotation_from_model(model) if model else None
     
     def get_ground_truth_annotations(self, document_id: str) -> list:
-        """Get all ground truth annotations for a document."""
         models = orm.GroundTruthAnnotationModel.objects.filter(
             document_id=document_id
         ).order_by("created_at")
@@ -738,7 +734,6 @@ class DjangoORMRepository:
         return [self._ground_truth_annotation_from_model(model) for model in models]
     
     def get_ground_truth_by_field(self, document_id: str, field_name: str) -> list:
-        """Get ground truth annotations for a specific field in a document."""
         models = orm.GroundTruthAnnotationModel.objects.filter(
             document_id=document_id,
             field_name=field_name
@@ -747,7 +742,6 @@ class DjangoORMRepository:
         return [self._ground_truth_annotation_from_model(model) for model in models]
     
     def update_ground_truth_annotation(self, annotation_id: str, updates: dict[str, Any]) -> bool:
-        """Update a ground truth annotation."""
         model = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).first()
         if not model:
             return False
@@ -765,12 +759,10 @@ class DjangoORMRepository:
         return False
     
     def delete_ground_truth_annotation(self, annotation_id: str) -> bool:
-        """Delete a ground truth annotation."""
         deleted, _ = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).delete()
         return deleted > 0
     
     def approve_annotation(self, annotation_id: str, edited_value: Optional[Any] = None) -> bool:
-        """Approve an AI suggestion and convert it to ground truth."""
         model = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).first()
         if not model:
             return False

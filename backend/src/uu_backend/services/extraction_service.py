@@ -37,7 +37,7 @@ class ExtractionService:
         openai_client = get_openai_client()
         self.client = openai_client._client
         settings = get_settings()
-        self.model = settings.openai_tagging_model or settings.openai_model
+        self.model = settings.effective_tagging_model
         self._raw_guardrails = (
             "Critical extraction rules:\n"
             "1) Extract values EXACTLY as they appear in the document (RAW).\n"
@@ -48,25 +48,15 @@ class ExtractionService:
         )
 
     def _should_use_vision_extraction(self, schema_fields: list[SchemaField], file_type: str) -> bool:
-        """Determine if vision-based extraction should be used.
-        
-        Uses vision extraction when:
-        1. Document is a PDF (can be rendered as images)
-        2. Any schema field has visual_content_type == 'table'
-        
-        This helps tables extraction where text-based retrieval often
-        matches explanatory prose instead of the actual tabular data.
-        """
+        """Check if vision extraction should be used for table fields in PDFs."""
         if file_type.lower() != 'pdf':
             return False
         
         for field in schema_fields:
             content_type = getattr(field, 'visual_content_type', None)
             if content_type:
-                # Handle both enum and string values
                 type_value = content_type.value if hasattr(content_type, 'value') else str(content_type)
                 if type_value == 'table':
-                    logger.info(f"Field '{field.name}' has visual_content_type='table', using vision extraction")
                     return True
         
         return False
@@ -110,16 +100,15 @@ class ExtractionService:
         file_type = document.file_type.lower() if document.file_type else ""
         schema_fields = doc_type.schema_fields or []
         
-        # Check if we should use vision-based extraction for tables
         if self._should_use_vision_extraction(schema_fields, file_type):
-            print(f"\n🔍 Auto-routing to VISION extraction (table fields detected)")
+            logger.info("Using vision extraction for table fields")
             return self.extract_structured_with_retrieval_vision(
                 document_id=document_id,
                 prompt_version_id=prompt_version_id,
                 top_k_per_field=top_k_per_field,
             )
         else:
-            print(f"\n📄 Auto-routing to STANDARD extraction")
+            logger.info("Using standard extraction")
             return self.extract_structured(
                 document_id=document_id,
                 prompt_version_id=prompt_version_id,
@@ -169,14 +158,11 @@ class ExtractionService:
             doc_type.schema_fields,
         )
         
-        # Generate Pydantic schema from field definitions
         ExtractionModel = generate_pydantic_schema(
             effective_schema_fields,
             model_name=f"{doc_type.name.replace(' ', '')}Extraction"
         )
-        json_schema = schema_to_json_schema(ExtractionModel)
         
-        # Get prompt (use version if specified, otherwise default)
         system_prompt = doc_type.system_prompt or self._get_default_extraction_prompt(doc_type)
         system_prompt = f"{system_prompt}\n\n{self._raw_guardrails}"
         model_name = doc_type.extraction_model or self.model
@@ -186,13 +172,11 @@ class ExtractionService:
             if prompt_version:
                 system_prompt = f"{prompt_version.system_prompt}\n\n{self._raw_guardrails}"
         
-        # Determine if we should use vision API based on file type
         use_vision = False
         image_data = None
         file_type = document.file_type.lower() if document.file_type else ""
         is_visual_document = file_type in ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'doc', 'docx']
         
-        # Try to get the file for visual processing
         if is_visual_document:
             file_path_to_use = self._get_document_file_path(document)
             if file_path_to_use and file_path_to_use.exists():
@@ -200,9 +184,7 @@ class ExtractionService:
                 if image_data:
                     use_vision = True
         
-        # Prepare messages based on document type
         if use_vision and image_data:
-            # Use vision API with image
             user_prompt_text = f"""Extract structured data from this document.
 
 Document Type: {doc_type.name}
@@ -226,7 +208,6 @@ Analyze the document image and extract all fields according to the schema. Retur
                 }
             ]
         else:
-            # Use text-only extraction
             content = document.content or ""
             if len(content) > 8000:
                 content = content[:4000] + "\n...[truncated]...\n" + content[-4000:]
@@ -247,18 +228,10 @@ Extract all fields according to the schema. Return null for fields that cannot b
                 {"role": "user", "content": user_prompt}
             ]
 
-        print(f"\n{'='*60}")
-        print("STRUCTURED EXTRACTION")
-        print(f"{'='*60}")
-        print(f"Document: {document.filename}")
-        print(f"File Type: {file_type}")
-        print(f"Using Vision API: {use_vision}")
-        print(f"Type: {doc_type.name}")
-        print(f"Model: {model_name}")
-        print(f"Fields: {[f.name for f in effective_schema_fields]}")
-        print(f"{'='*60}\n")
-        
-        logger.info(f"Extraction started - Document: {document.filename}, Model: {model_name}, Vision: {use_vision}")
+        logger.info(
+            f"Extraction: {document.filename} (model={model_name}, vision={use_vision}, "
+            f"fields={len(effective_schema_fields)})"
+        )
 
         try:
             response = self.client.beta.chat.completions.parse(
@@ -276,7 +249,6 @@ Extract all fields according to the schema. Return null for fields that cannot b
             for field in effective_schema_fields:
                 value = getattr(extracted_data, field.name, None)
                 if value is not None:
-                    # Convert Pydantic models to dicts for storage
                     if hasattr(value, 'model_dump'):
                         value = value.model_dump()
                     elif isinstance(value, list) and value and hasattr(value[0], 'model_dump'):
@@ -285,7 +257,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
                     extracted_fields.append(ExtractedField(
                         field_name=field.name,
                         value=value,
-                        confidence=0.95,  # High confidence for structured output
+                        confidence=0.95,
                         source_text=None
                     ))
             
@@ -304,11 +276,10 @@ Extract all fields according to the schema. Return null for fields that cannot b
             return result
             
         except Exception as e:
-            print(f"Structured extraction error: {e}")
+            logger.error(f"Extraction failed: {e}", exc_info=True)
             raise ValueError(f"Extraction failed: {str(e)}")
 
     def _get_default_extraction_prompt(self, doc_type) -> str:
-        """Get default extraction prompt for a document type."""
         base_prompt = f"""You are an expert at extracting structured data from {doc_type.name} documents.
 
 Extract all fields accurately from the document. Pay special attention to:
@@ -335,7 +306,6 @@ CRITICAL: Only extract data that appears IN the table structure. Do not extract:
 EMPTY CELLS: If a table cell is empty or a field cannot be found, return null (not empty string ""). 
 Do not make up data or use empty strings for missing values."""
         
-        # Add visual guidance from fields if available
         visual_guidance_parts = []
         for field in (doc_type.schema_fields or []):
             if field.visual_guidance:
@@ -403,41 +373,22 @@ Do not make up data or use empty strings for missing values."""
             model_name=f"{doc_type.name.replace(' ', '')}Extraction"
         )
         
-        # Get retrieval service
+        # Get retrieval service        
         retrieval_service = get_contextual_retrieval_service()
         
-        print(f"\n{'='*60}")
-        print("CONTEXTUAL RETRIEVAL - FIELD-BY-FIELD SEARCH")
-        print(f"{'='*60}")
+        logger.info(f"Starting field-by-field retrieval for {len(effective_schema_fields)} fields")
         
-        # Build search queries for each field and retrieve relevant chunks
         all_chunks = {}
         for field in effective_schema_fields:
             query = self._build_field_query(field)
-            logger.info(f"🔍 Retrieval Query - Field: {field.name}")
-            logger.info(f"   Query: {query}")
-            print(f"\n🔍 Field: {field.name}")
-            print(f"   Query: {query[:100]}...")
-            
             results = retrieval_service.search(
                 query=query,
                 top_k=top_k_per_field,
                 filter_doc_id=document_id,
                 use_reranking=True,
             )
-            
-            print(f"   Retrieved: {len(results)} chunks")
-            if results:
-                print(f"   Top score: {results[0].score:.4f}")
-                print(f"   Preview: {results[0].original_text[:80]}...")
-            
             all_chunks[field.name] = results
         
-        print(f"\n{'='*60}")
-        print("DEDUPLICATION & CONTEXT BUILDING")
-        print(f"{'='*60}")
-        
-        # Deduplicate chunks and build context
         seen_chunk_ids = set()
         unique_chunks = []
         for field_name, results in all_chunks.items():
@@ -447,28 +398,14 @@ Do not make up data or use empty strings for missing values."""
                     seen_chunk_ids.add(chunk_id)
                     unique_chunks.append(result)
         
-        print(f"Total chunks retrieved: {sum(len(r) for r in all_chunks.values())}")
-        print(f"Unique chunks after dedup: {len(unique_chunks)}")
-        
-        # Sort by score and take top chunks
         unique_chunks.sort(key=lambda r: r.score, reverse=True)
-        top_chunks = unique_chunks[:20]  # Limit total context
+        top_chunks = unique_chunks[:20]
         
-        print(f"Top chunks for context: {len(top_chunks)}")
-        print(f"\nTop 3 chunks by score:")
-        for i, chunk in enumerate(top_chunks[:3]):
-            print(f"  {i+1}. Score: {chunk.score:.4f}, Page: {chunk.metadata.get('page_number', 'N/A')}")
-            print(f"     Text: {chunk.original_text[:]}...")
-        
-        # Build context from retrieved chunks
         context_parts = []
         for i, chunk in enumerate(top_chunks):
             context_parts.append(f"[Source {i+1}]\n{chunk.original_text}")
         context = "\n\n".join(context_parts)
         
-        print(f"\nTotal context length: {len(context)} chars")
-        
-        # Get prompt
         system_prompt = doc_type.system_prompt or self._get_default_extraction_prompt(doc_type)
         system_prompt = f"{system_prompt}\n\n{self._raw_guardrails}"
         model_name = doc_type.extraction_model or self.model
@@ -493,20 +430,8 @@ Extract all fields according to the schema. Return null for fields that cannot b
             {"role": "user", "content": user_prompt}
         ]
 
-        print(f"\n{'='*60}")
-        print("RETRIEVAL-AUGMENTED EXTRACTION")
-        print(f"{'='*60}")
-        print(f"Document: {document.filename}")
-        print(f"Type: {doc_type.name}")
-        print(f"Model: {model_name}")
-        print(f"Fields: {[f.name for f in effective_schema_fields]}")
-        print(f"Retrieved chunks: {len(top_chunks)}")
-        print(f"Context length: {len(context)} chars")
-        print(f"{'='*60}\n")
-        
         logger.info(
-            f"Retrieval extraction started - Document: {document.filename}, "
-            f"Model: {model_name}, Chunks: {len(top_chunks)}"
+            f"Retrieval extraction: {document.filename} (model={model_name}, chunks={len(top_chunks)})"
         )
 
         try:
@@ -530,14 +455,13 @@ Extract all fields according to the schema. Return null for fields that cannot b
                     elif isinstance(value, list) and value and hasattr(value[0], 'model_dump'):
                         value = [item.model_dump() for item in value]
                     
-                    # Find source text from retrieved chunks for this field
                     source_chunks = all_chunks.get(field.name, [])
                     source_text = source_chunks[0].original_text[:200] if source_chunks else None
                     
                     extracted_fields.append(ExtractedField(
                         field_name=field.name,
                         value=value,
-                        confidence=0.90,  # Slightly lower than full-doc extraction
+                        confidence=0.90,
                         source_text=source_text
                     ))
             
@@ -550,39 +474,26 @@ Extract all fields according to the schema. Return null for fields that cannot b
                 extracted_at=timezone.now()
             )
             
-            # Save extraction result
             self._save_extraction(result)
             
             return result
             
         except Exception as e:
-            print(f"Retrieval extraction error: {e}")
+            logger.error(f"Retrieval extraction failed: {e}", exc_info=True)
             raise ValueError(f"Extraction failed: {str(e)}")
 
     def _build_field_query(self, field: SchemaField) -> str:
-        """Build a search query for a schema field.
-        
-        Uses semantic content to match page summaries. Prioritizes:
-        1. Field description (user-provided context, often from table name)
-        2. Field name
-        3. Visual features (if available from reference image analysis)
-        """
         parts = []
         
-        # Start with description (most specific, user-provided context)
         if field.description:
             parts.append(field.description)
         
-        # Add field name
         parts.append(field.name.replace("_", " "))
         
-        # Add visual features if available (from screenshot analysis)
         if field.visual_features:
-            parts.extend(field.visual_features[:3])  # Top 3 features
+            parts.extend(field.visual_features[:3])
         
-        query = " ".join(parts)
-        logger.info(f"Retrieval query for field '{field.name}': {query}")
-        return query
+        return " ".join(parts)
 
     def extract_structured_with_retrieval_vision(
         self,
@@ -644,21 +555,13 @@ Extract all fields according to the schema. Return null for fields that cannot b
         
         retrieval_service = get_contextual_retrieval_service()
         
-        print(f"\n{'='*60}")
-        print("RETRIEVAL-VISION EXTRACTION")
-        print(f"{'='*60}")
-        print(f"Document: {document.filename}")
-        print(f"Type: {doc_type.name}")
+        logger.info(f"Retrieval-vision extraction: {document.filename} (type={doc_type.name})")
         
-        # Step 1: Retrieve chunks per field to identify relevant pages
         all_page_numbers = set()
         field_page_map = {}
         
         for field in effective_schema_fields:
             query = self._build_field_query(field)
-            logger.info(f"🔍 Retrieval Query - Field: {field.name}")
-            logger.info(f"   Query: {query}")
-            print(f"🔍 Field: {field.name} → Query: {query}")
             results = retrieval_service.search(
                 query=query,
                 top_k=top_k_per_field,
@@ -667,7 +570,6 @@ Extract all fields according to the schema. Return null for fields that cannot b
             )
             
             field_pages = set()
-            # Only use the top result (highest score)
             if results and results[0].score >= min_score:
                 result = results[0]
                 page_num = result.metadata.get('page_number')
@@ -684,7 +586,6 @@ Extract all fields according to the schema. Return null for fields that cannot b
                         )
             
             field_page_map[field.name] = field_pages
-            print(f"  {field.name}: pages {sorted(field_pages) if field_pages else '(none)'}")
         
         if not all_page_numbers:
             raise ValueError(
@@ -692,9 +593,8 @@ Extract all fields according to the schema. Return null for fields that cannot b
                 f"Document may not be indexed or min_score={min_score} is too high."
             )
         
-        print(f"\nUnique pages to render: {sorted(all_page_numbers)}")
+        logger.info(f"Rendering {len(all_page_numbers)} pages: {sorted(all_page_numbers)}")
         
-        # Step 2: Get file path and render pages
         file_path = self._get_document_file_path(document)
         if not file_path or not file_path.exists():
             raise ValueError(f"Document file not found for {document_id}")
@@ -705,15 +605,11 @@ Extract all fields according to the schema. Return null for fields that cannot b
                 f"Retrieval-vision extraction only supports PDF documents, got {file_type}"
             )
         
-        print(f"Rendering {len(all_page_numbers)} page(s) from PDF...")
         page_images = self._render_pdf_pages(file_path, sorted(all_page_numbers))
         
         if not page_images:
             raise ValueError(f"Failed to render PDF pages {sorted(all_page_numbers)}")
         
-        print(f"Rendered {len(page_images)} image(s)")
-        
-        # Step 3: Build vision API messages
         system_prompt = doc_type.system_prompt or self._get_default_extraction_prompt(doc_type)
         system_prompt = f"{system_prompt}\n\n{self._raw_guardrails}"
         model_name = doc_type.extraction_model or self.model
@@ -775,8 +671,6 @@ Analyze the page image(s) and extract according to the schema. Use null (not "")
             {"role": "user", "content": user_content}
         ]
         
-        print(f"Calling {model_name} with {len(page_images)} image(s)...")
-        
         try:
             response = self.client.beta.chat.completions.parse(
                 model=model_name,
@@ -785,8 +679,6 @@ Analyze the page image(s) and extract according to the schema. Use null (not "")
             )
             
             extracted_data = response.choices[0].message.parsed
-            
-            print(f"Extracted: {extracted_data.model_dump()}")
             
             extracted_fields = []
             for field in effective_schema_fields:
@@ -819,12 +711,10 @@ Analyze the page image(s) and extract according to the schema. Use null (not "")
             
             self._save_extraction(result)
             
-            print(f"{'='*60}\n")
-            
             return result
             
         except Exception as e:
-            print(f"Retrieval-vision extraction error: {e}")
+            logger.error(f"Retrieval-vision extraction failed: {e}", exc_info=True)
             raise ValueError(f"Extraction failed: {str(e)}")
 
     def extract_structured_from_snapshot(
@@ -873,8 +763,7 @@ Document Content:
 Extract all fields according to the schema. Return null for fields that cannot be found."""
 
         effective_model = model or self.model
-        logger.info(f"Snapshot extraction - Filename: {filename}, Model: {effective_model}, Type: {document_type_name}")
-        print(f"[Extraction] Model: {effective_model} | File: {filename} | Type: {document_type_name}")
+        logger.info(f"Snapshot extraction: {filename} (model={effective_model}, type={document_type_name})")
 
         response = self.client.beta.chat.completions.parse(
             model=effective_model,
@@ -889,20 +778,13 @@ Extract all fields according to the schema. Return null for fields that cannot b
 
 
     def _get_document_file_path(self, document) -> Optional[Path]:
-        """Get the file path for a document, reconstructing if necessary."""
         if document.file_path:
             return Path(document.file_path)
         
-        # Try to reconstruct file path from document ID and file type
         settings = get_settings()
         file_ext = f".{document.file_type.lower()}" if document.file_type else ""
         potential_path = settings.file_storage_path / f"{document.id}{file_ext}"
-        
-        if potential_path.exists():
-            logger.info(f"Reconstructed file path: {potential_path}")
-            return potential_path
-        
-        return None
+        return potential_path if potential_path.exists() else None
     
     def _prepare_visual_content(
         self,
@@ -910,15 +792,6 @@ Extract all fields according to the schema. Return null for fields that cannot b
         file_type: str,
         page_number: Optional[int] = None
     ) -> Optional[str]:
-        """
-        Prepare visual content (PDF, image, Word) for vision API.
-        Returns base64-encoded PNG image data.
-        
-        Args:
-            file_path: Path to the file
-            file_type: File type (pdf, png, jpg, etc.)
-            page_number: For PDFs, specific page to render (1-indexed). If None, renders page 1.
-        """
         try:
             if file_type == 'pdf':
                 if not PDF_SUPPORT:
@@ -957,17 +830,6 @@ Extract all fields according to the schema. Return null for fields that cannot b
         page_numbers: list[int],
         dpi: int = 150
     ) -> list[str]:
-        """
-        Render specific PDF pages to base64-encoded PNG images.
-        
-        Args:
-            file_path: Path to PDF file
-            page_numbers: List of page numbers to render (1-indexed)
-            dpi: Resolution for rendering
-            
-        Returns:
-            List of base64-encoded PNG image strings, one per page
-        """
         if not PDF_SUPPORT:
             logger.warning("pdf2image not available, cannot render PDF pages")
             return []
@@ -998,7 +860,6 @@ Extract all fields according to the schema. Return null for fields that cannot b
     def _apply_active_field_prompt_versions(
         self, document_type_id: str, schema_fields: list[SchemaField]
     ) -> list[SchemaField]:
-        """Overlay active field prompt versions onto schema field definitions."""
         repository = get_repository()
         active_prompts = repository.list_active_field_prompt_versions(document_type_id)
         if not active_prompts:
@@ -1008,9 +869,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
             for field in schema_fields
         ]
 
-
     def _save_extraction(self, result: ExtractionResult):
-        """Save extraction result to database."""
         repository = get_repository()
         repository.save_extraction_result(result)
 

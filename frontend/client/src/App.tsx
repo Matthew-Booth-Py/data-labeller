@@ -11,13 +11,11 @@ import CreateProject from "@/pages/CreateProject";
 import Settings from "@/pages/Settings";
 import FieldsLibrary from "@/pages/FieldsLibrary";
 import Extraction from "@/pages/Extraction";
-import GettingStarted from "@/pages/GettingStarted";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
-      <Route path="/getting-started" component={GettingStarted} />
       <Route path="/projects" component={ProjectsList} />
       <Route path="/projects/new" component={CreateProject} />
       <Route path="/project/:id" component={ProjectWorkspace} />

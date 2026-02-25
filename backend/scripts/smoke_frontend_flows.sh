@@ -22,6 +22,6 @@ check GET "/health" "2"
 check GET "/api/v1/documents" "2"
 check GET "/api/v1/timeline/range" "2"
 check GET "/api/v1/evaluation" "2"
-check GET "/api/v1/deployments/projects/tutorial/versions" "2"
+check GET "/api/v1/deployments/projects/default/versions" "2"
 
 echo "Smoke checks complete"

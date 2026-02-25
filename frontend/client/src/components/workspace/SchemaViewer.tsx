@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Code, Plus, Trash2, Settings2, GripVertical, Sparkles, MessageSquare, Search, Edit3, Save, X, Loader2, ThumbsDown, FileText, Edit, ImagePlus, Image, ChevronDown, ChevronRight, ArrowUp, ArrowDown } from "lucide-react";
+import { Code, Plus, Trash2, Settings2, GripVertical, Sparkles, MessageSquare, Search, Edit3, Save, X, Loader2, FileText, Edit, ImagePlus, Image, ChevronDown, ChevronRight, ArrowUp, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -17,8 +17,6 @@ import {
   FieldType,
   FieldAssistantResponse,
   FieldAssistantProperty,
-  LabelSuggestion,
-  LabelSuggestionResponse,
   FieldPromptVersion,
   VisualAnalysisResponse,
   VisualContentType,
@@ -27,16 +25,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tag } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
-// Recursive property type for nested objects and arrays
 interface NestedProperty {
   name: string;
   type: FieldType;
   description?: string;
-  items_type?: FieldType;  // For array sub-properties
-  properties?: NestedProperty[];  // For object or array-of-object sub-properties
+  items_type?: FieldType;
+  properties?: NestedProperty[];
 }
 
-// Helper to convert NestedProperty[] to SchemaField properties format
 function nestedPropertiesToSchemaProperties(props: NestedProperty[]): Record<string, SchemaField> {
   const result: Record<string, SchemaField> = {};
   props.forEach((prop, index) => {
@@ -44,20 +40,18 @@ function nestedPropertiesToSchemaProperties(props: NestedProperty[]): Record<str
       name: prop.name,
       type: prop.type,
       description: prop.description,
-      order: index,  // Preserve order explicitly
+      order: index,
     };
     if (prop.type === "object" && prop.properties && prop.properties.length > 0) {
       field.properties = nestedPropertiesToSchemaProperties(prop.properties);
     }
     if (prop.type === "array" && prop.properties && prop.properties.length > 0) {
-      // Array of objects with nested properties
       field.items = {
         name: "item",
         type: "object",
         properties: nestedPropertiesToSchemaProperties(prop.properties),
       };
     } else if (prop.type === "array" && prop.items_type) {
-      // Array of simple types
       field.items = {
         name: "item",
         type: prop.items_type,
@@ -68,9 +62,7 @@ function nestedPropertiesToSchemaProperties(props: NestedProperty[]): Record<str
   return result;
 }
 
-// Helper to convert SchemaField properties to NestedProperty[]
 function schemaPropertiesToNestedProperties(props: Record<string, SchemaField>): NestedProperty[] {
-  // Convert to array and sort by order field if present
   const entries = Object.entries(props);
   entries.sort(([, a], [, b]) => {
     const orderA = a.order ?? Number.MAX_SAFE_INTEGER;
@@ -101,7 +93,6 @@ function schemaPropertiesToNestedProperties(props: Record<string, SchemaField>):
   });
 }
 
-// Helper to convert AI assistant property suggestions to NestedProperty[]
 function assistantPropertiesToNestedProperties(props: FieldAssistantProperty[]): NestedProperty[] {
   return props.map((prop) => {
     const nested: NestedProperty = {
@@ -110,18 +101,14 @@ function assistantPropertiesToNestedProperties(props: FieldAssistantProperty[]):
       description: prop.description,
     };
     
-    // Handle object type with nested properties
     if (prop.type === "object" && prop.properties && prop.properties.length > 0) {
       nested.properties = assistantPropertiesToNestedProperties(prop.properties);
     }
     
-    // Handle array type
     if (prop.type === "array") {
       if (prop.items_type === "object" && prop.properties && prop.properties.length > 0) {
-        // Array of objects with nested properties
         nested.properties = assistantPropertiesToNestedProperties(prop.properties);
       } else if (prop.items_type && prop.items_type !== "object") {
-        // Array of simple types
         nested.items_type = prop.items_type;
       }
     }
@@ -130,7 +117,6 @@ function assistantPropertiesToNestedProperties(props: FieldAssistantProperty[]):
   });
 }
 
-// Helper to generate example JSON output for nested properties
 function generateExampleOutput(props: NestedProperty[], indent: number = 0): string {
   const pad = "  ".repeat(indent);
   const lines: string[] = [];
@@ -139,24 +125,20 @@ function generateExampleOutput(props: NestedProperty[], indent: number = 0): str
     const comma = idx < props.length - 1 ? "," : "";
     
     if (prop.type === "object" && prop.properties && prop.properties.length > 0) {
-      // Nested object
       lines.push(`${pad}"${prop.name}": {`);
       lines.push(generateExampleOutput(prop.properties, indent + 1));
       lines.push(`${pad}}${comma}`);
     } else if (prop.type === "array" && prop.properties && prop.properties.length > 0) {
-      // Array of objects
       lines.push(`${pad}"${prop.name}": [`);
       lines.push(`${pad}  {`);
       lines.push(generateExampleOutput(prop.properties, indent + 2));
       lines.push(`${pad}  }`);
       lines.push(`${pad}]${comma}`);
     } else if (prop.type === "array") {
-      // Array of simple types
       const itemType = prop.items_type || "string";
       const exampleVal = itemType === "number" ? "0" : itemType === "boolean" ? "true" : '"value"';
       lines.push(`${pad}"${prop.name}": [${exampleVal}]${comma}`);
     } else {
-      // Simple type
       const exampleVal = prop.type === "number" ? "0" : prop.type === "boolean" ? "true" : prop.type === "date" ? '"2024-01-01"' : '"value"';
       lines.push(`${pad}"${prop.name}": ${exampleVal}${comma}`);
     }
@@ -165,7 +147,6 @@ function generateExampleOutput(props: NestedProperty[], indent: number = 0): str
   return lines.join("\n");
 }
 
-// Recursive Property Editor Component
 interface PropertyEditorProps {
   properties: NestedProperty[];
   onChange: (properties: NestedProperty[]) => void;
@@ -353,7 +334,6 @@ function PropertyEditor({ properties, onChange, depth = 0, maxDepth = 3 }: Prope
                 </Select>
               </div>
               
-              {/* Nested properties for array of objects */}
               {(prop.properties && prop.properties.length > 0) || (!prop.items_type || prop.items_type === "object" as FieldType) ? (
                 <Collapsible defaultOpen={true}>
                   <div className="flex items-center gap-2">
@@ -434,6 +414,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   
   // State for adding field
   const [isAddingField, setIsAddingField] = useState(false);
+  const [editingSchemaFieldName, setEditingSchemaFieldName] = useState<string | null>(null);
   const [newFieldName, setNewFieldName] = useState("");
   const [newFieldType, setNewFieldType] = useState<FieldType>("string");
   const [newFieldDescription, setNewFieldDescription] = useState("");
@@ -446,10 +427,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   // Visual analysis state
   const [visualAnalysis, setVisualAnalysis] = useState<VisualAnalysisResponse | null>(null);
   const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
-  
-  // State for label suggestions
-  const [labelSuggestions, setLabelSuggestions] = useState<LabelSuggestion[]>([]);
-  const [suggestionMeta, setSuggestionMeta] = useState<{ documents_analyzed: number; model: string } | null>(null);
   
   // Fetch document types
   const { data: typesData, isLoading: typesLoading } = useQuery({
@@ -500,14 +477,10 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
 
   const setSelectedType = (typeId: string | null) => {
     setSelectedTypeId(typeId);
-    try {
-      if (typeId) {
-        localStorage.setItem(selectedTypeStorageKey, typeId);
-      } else {
-        localStorage.removeItem(selectedTypeStorageKey);
-      }
-    } catch {
-      // Ignore localStorage errors in restricted environments
+    if (typeId) {
+      localStorage.setItem(selectedTypeStorageKey, typeId);
+    } else {
+      localStorage.removeItem(selectedTypeStorageKey);
     }
   };
 
@@ -520,10 +493,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
 
     const availableIds = new Set(availableTypes.map((type) => type.id));
     
-    // If we already have a selected type that exists, check if we need to resync due to server update
     if (selectedTypeId && availableIds.has(selectedTypeId)) {
       const currentType = availableTypes.find((t) => t.id === selectedTypeId);
-      // Resync if the schema version changed (meaning server data updated)
       if (currentType && currentType.schema_version_id !== lastSyncedSchemaVersionId) {
         setSystemPrompt(currentType.system_prompt || "");
         setPostProcessing(currentType.post_processing || "");
@@ -533,13 +504,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       return;
     }
 
-    let storedTypeId: string | null = null;
-    try {
-      storedTypeId = localStorage.getItem(selectedTypeStorageKey);
-    } catch {
-      storedTypeId = null;
-    }
-
+    const storedTypeId = localStorage.getItem(selectedTypeStorageKey);
     const nextTypeId =
       storedTypeId && availableIds.has(storedTypeId)
         ? storedTypeId
@@ -593,7 +558,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["document-types"] });
       queryClient.invalidateQueries({ queryKey: ["labels"] });
-      // Sync local state with server response to ensure consistency
       if (result.type && result.type.id === selectedTypeId) {
         setSystemPrompt(result.type.system_prompt || "");
         setPostProcessing(result.type.post_processing || "");
@@ -620,62 +584,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     },
   });
   
-  // Suggest labels mutation
-  const suggestLabelsMutation = useMutation({
-    mutationFn: () => {
-      // Get document IDs for this project from localStorage
-      let documentIds: string[] = [];
-      if (projectId) {
-        try {
-          const stored = localStorage.getItem("uu-projects");
-          if (stored) {
-            const projects = JSON.parse(stored);
-            const project = projects.find((p: { id: string }) => p.id === projectId);
-            documentIds = project?.documentIds || [];
-            console.log(`📋 Project: ${projectId}`);
-            console.log(`📄 Document IDs for this project:`, documentIds);
-          }
-        } catch {
-          documentIds = [];
-        }
-      }
-      
-      const request = { 
-        sample_size: 5, 
-        existing_labels: true,
-        ...(documentIds.length > 0 && { document_ids: documentIds }),
-      };
-      console.log(`🚀 Sending label suggestion request:`, request);
-      console.log(`📦 Request will include document_ids:`, documentIds.length > 0);
-      
-      return api.suggestLabels(request);
-    },
-    onSuccess: (response: LabelSuggestionResponse) => {
-      setLabelSuggestions(response.suggestions);
-      setSuggestionMeta({ documents_analyzed: response.documents_analyzed, model: response.model });
-      if (response.suggestions.length === 0) {
-        toast({ title: "No suggestions", description: "No new labels could be suggested from documents." });
-      } else {
-        toast({ title: "Labels suggested", description: `Found ${response.suggestions.length} potential labels from ${response.documents_analyzed} documents.` });
-      }
-    },
-    onError: (error: Error) => {
-      toast({ title: "Failed to suggest labels", description: error.message, variant: "destructive" });
-    },
-  });
-  
-  // Reject label suggestion mutation
-  const rejectSuggestionMutation = useMutation({
-    mutationFn: (suggestionId: string) => api.rejectLabelSuggestion(suggestionId),
-    onSuccess: (_, suggestionId: string) => {
-      setLabelSuggestions(prev => prev.filter(s => s.id !== suggestionId));
-      toast({ title: "Suggestion dismissed" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Failed to reject suggestion", description: error.message, variant: "destructive" });
-    },
-  });
-
   const suggestFieldDefinitionMutation = useMutation({
     mutationFn: () => {
       if (!selectedTypeId || !selectedType || !aiFieldInput.trim()) {
@@ -696,7 +604,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       if (suggestion.type === "array") {
         setNewFieldArrayItemType((suggestion.items_type || "string") as FieldType);
         if ((suggestion.items_type || "").toString() === "object") {
-          // Convert AI properties to NestedProperty format (supports nested structures)
           setNewFieldObjectProperties(
             assistantPropertiesToNestedProperties(suggestion.object_properties || [])
           );
@@ -705,7 +612,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
         }
       } else if (suggestion.type === "object") {
         setNewFieldArrayItemType("string");
-        // Convert AI properties to NestedProperty format (supports nested structures)
         setNewFieldObjectProperties(
           assistantPropertiesToNestedProperties(suggestion.object_properties || [])
         );
@@ -768,52 +674,9 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       },
     });
   };
-  
-  // Add field to schema
-  const addField = () => {
-    if (!selectedTypeId || !selectedType || !newFieldName.trim()) return;
-    
-    const newField: SchemaField = {
-      name: newFieldName.trim().toLowerCase().replace(/\s+/g, '_'),
-      type: newFieldType,
-      description: newFieldDescription || undefined,
-      extraction_prompt: newFieldPrompt.trim() || undefined,
-      // Include visual analysis data if available
-      visual_content_type: visualAnalysis?.visual_content_type,
-      visual_guidance: visualAnalysis?.extraction_guidance,
-      visual_features: visualAnalysis?.distinguishing_features,
-    };
 
-    // Handle object type with properties (supports nested objects)
-    if (newFieldType === "object" && newFieldObjectProperties.length > 0) {
-      newField.properties = nestedPropertiesToSchemaProperties(newFieldObjectProperties);
-    }
-    
-    // Handle array type with items
-    if (newFieldType === "array") {
-      if (newFieldArrayItemType === "object" && newFieldObjectProperties.length > 0) {
-        // Array of objects (supports nested objects)
-        newField.items = {
-          name: "item",
-          type: "object",
-          properties: nestedPropertiesToSchemaProperties(newFieldObjectProperties),
-        };
-      } else {
-        // Array of simple types
-        newField.items = {
-          name: "item",
-          type: newFieldArrayItemType,
-        };
-      }
-    }
-    
-    const updatedFields = [...(selectedType.schema_fields || []), newField];
-    
-    updateTypeMutation.mutate({
-      id: selectedTypeId,
-      data: { schema_fields: updatedFields },
-    });
-    
+  const resetFieldEditorForm = () => {
+    setEditingSchemaFieldName(null);
     setIsAddingField(false);
     setNewFieldName("");
     setNewFieldType("string");
@@ -824,6 +687,117 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     setAiFieldInput("");
     setAiScreenshot(null);
     setVisualAnalysis(null);
+  };
+
+  const openNewFieldDialog = () => {
+    setEditingSchemaFieldName(null);
+    setNewFieldName("");
+    setNewFieldType("string");
+    setNewFieldDescription("");
+    setNewFieldPrompt("");
+    setNewFieldArrayItemType("string");
+    setNewFieldObjectProperties([]);
+    setAiFieldInput("");
+    setAiScreenshot(null);
+    setVisualAnalysis(null);
+    setIsAddingField(true);
+  };
+
+  const openFieldEditDialog = (field: SchemaField) => {
+    const activePrompts = activeFieldPromptsData?.field_prompts || {};
+    const prompt =
+      activePrompts[field.name] ||
+      field.extraction_prompt ||
+      `Extract the ${field.name.replace(/_/g, " ")} from the document.`;
+    setEditingSchemaFieldName(field.name);
+    setNewFieldName(field.name);
+    setNewFieldType(field.type);
+    setNewFieldDescription(field.description || "");
+    setNewFieldPrompt(prompt);
+    setAiFieldInput("");
+    setAiScreenshot(null);
+    setVisualAnalysis(null);
+
+    if (field.type === "object" && field.properties) {
+      setNewFieldObjectProperties(schemaPropertiesToNestedProperties(field.properties));
+      setNewFieldArrayItemType("string");
+    } else if (field.type === "array") {
+      if (field.items?.type === "object" && field.items.properties) {
+        setNewFieldArrayItemType("object");
+        setNewFieldObjectProperties(schemaPropertiesToNestedProperties(field.items.properties));
+      } else {
+        setNewFieldArrayItemType((field.items?.type || "string") as FieldType);
+        setNewFieldObjectProperties([]);
+      }
+    } else {
+      setNewFieldArrayItemType("string");
+      setNewFieldObjectProperties([]);
+    }
+
+    setIsAddingField(true);
+  };
+  
+  // Add field to schema
+  const addField = () => {
+    if (!selectedTypeId || !selectedType || !newFieldName.trim()) return;
+    const normalizedFieldName = newFieldName.trim().toLowerCase().replace(/\s+/g, "_");
+    const hasDuplicateName = (selectedType.schema_fields || []).some(
+      (field) =>
+        field.name === normalizedFieldName &&
+        (!editingSchemaFieldName || field.name !== editingSchemaFieldName)
+    );
+    if (hasDuplicateName) {
+      toast({
+        title: "Duplicate field name",
+        description: `Field "${normalizedFieldName}" already exists in this schema.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const newField: SchemaField = {
+      name: normalizedFieldName,
+      type: newFieldType,
+      description: newFieldDescription || undefined,
+      extraction_prompt: newFieldPrompt.trim() || undefined,
+      visual_content_type: visualAnalysis?.visual_content_type,
+      visual_guidance: visualAnalysis?.extraction_guidance,
+      visual_features: visualAnalysis?.distinguishing_features,
+    };
+
+    if (newFieldType === "object" && newFieldObjectProperties.length > 0) {
+      newField.properties = nestedPropertiesToSchemaProperties(newFieldObjectProperties);
+    }
+    
+    if (newFieldType === "array") {
+      if (newFieldArrayItemType === "object" && newFieldObjectProperties.length > 0) {
+        newField.items = {
+          name: "item",
+          type: "object",
+          properties: nestedPropertiesToSchemaProperties(newFieldObjectProperties),
+        };
+      } else {
+        newField.items = {
+          name: "item",
+          type: newFieldArrayItemType,
+        };
+      }
+    }
+    
+    const updatedFields = editingSchemaFieldName
+      ? (selectedType.schema_fields || []).map((field) =>
+          field.name === editingSchemaFieldName ? newField : field
+        )
+      : [...(selectedType.schema_fields || []), newField];
+    
+    updateTypeMutation.mutate({
+      id: selectedTypeId,
+      data: { schema_fields: updatedFields },
+    }, {
+      onSuccess: () => {
+        resetFieldEditorForm();
+      },
+    });
   };
   
   // Remove field from schema
@@ -928,20 +902,22 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     if (!selectedTypeId || !selectedType) return;
     
     const updatedFields = selectedType.schema_fields.map(f => {
-      if (f.name === fieldName && f.type === "array" && f.items?.type === "object") {
-        return {
-          ...f,
-          items: {
-            ...f.items,
+      if (f.name === fieldName) {
+        if (f.type === "array" && f.items?.type === "object") {
+          return {
+            ...f,
+            items: {
+              ...f.items,
+              properties: nestedPropertiesToSchemaProperties(properties),
+            },
+          };
+        }
+        if (f.type === "object") {
+          return {
+            ...f,
             properties: nestedPropertiesToSchemaProperties(properties),
-          },
-        };
-      }
-      if (f.name === fieldName && f.type === "object") {
-        return {
-          ...f,
-          properties: nestedPropertiesToSchemaProperties(properties),
-        };
+          };
+        }
       }
       return f;
     });
@@ -1160,7 +1136,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
              <Button 
                size="sm" 
                className="gap-2 bg-primary hover:bg-primary/90"
-               onClick={() => setIsAddingField(true)}
+               onClick={openNewFieldDialog}
              >
                <Plus className="h-4 w-4" /> Add Field
              </Button>
@@ -1199,8 +1175,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                     variant="ghost" 
                     size="icon" 
                     className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/5" 
-                    title="Edit Prompt"
-                    onClick={() => openEditField(field.name)}
+                    title="Edit Field"
+                    onClick={() => openFieldEditDialog(field)}
                   >
                     <Edit3 className="h-3.5 w-3.5" />
                   </Button>
@@ -1221,27 +1197,10 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                   <p className="text-xs text-muted-foreground mb-2">{field.description}</p>
                 )}
                 
-                {/* Show nested structure for object and array of objects */}
                 {(field.type === "object" && field.properties) ||
                 (field.type === "array" && field.items?.type === "object" && field.items.properties) ? (
                   <div className="mb-3 p-2 bg-muted/30 rounded border text-xs space-y-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="font-medium text-muted-foreground">Object Properties:</div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5 text-muted-foreground hover:text-primary"
-                        onClick={() => {
-                          const sourceProps =
-                            field.type === "object" ? field.properties! : field.items!.properties!;
-                          const props = schemaPropertiesToNestedProperties(sourceProps);
-                          setEditedProperties(props);
-                          setEditingFieldProperties(field.name);
-                        }}
-                      >
-                        <Edit3 className="h-3 w-3" />
-                      </Button>
-                    </div>
+                    <div className="font-medium text-muted-foreground mb-1">Object Properties:</div>
                     {(() => {
                       const sourceProps = field.type === "object" ? field.properties! : field.items!.properties!;
                       const sortedEntries = Object.entries(sourceProps).sort(([, a], [, b]) => {
@@ -1282,7 +1241,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
             <Button 
               variant="outline" 
               className="w-full border-dashed border-muted-foreground/20 text-muted-foreground hover:border-accent hover:text-accent h-12"
-              onClick={() => setIsAddingField(true)}
+              onClick={openNewFieldDialog}
             >
               <Plus className="h-4 w-4 mr-2" /> Add Another Field
             </Button>
@@ -1298,7 +1257,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
         </div>
       </div>
       
-      {/* Create Document Type Dialog */}
       <Dialog open={isCreating} onOpenChange={setIsCreating}>
         <DialogContent>
           <DialogHeader>
@@ -1342,7 +1300,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Document Type Dialog */}
       <Dialog open={isEditingType} onOpenChange={setIsEditingType}>
         <DialogContent>
           <DialogHeader>
@@ -1393,11 +1350,19 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
         </DialogContent>
       </Dialog>
       
-      {/* Add Field Dialog */}
-      <Dialog open={isAddingField} onOpenChange={setIsAddingField}>
+      <Dialog
+        open={isAddingField}
+        onOpenChange={(open) => {
+          if (open) {
+            setIsAddingField(true);
+            return;
+          }
+          resetFieldEditorForm();
+        }}
+      >
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add Field</DialogTitle>
+            <DialogTitle>{editingSchemaFieldName ? "Edit Field" : "Add Field"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-3 p-3 border rounded-lg bg-muted/20">
@@ -1431,7 +1396,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 className="min-h-[80px]"
               />
               
-              {/* Screenshot upload/preview */}
               <div className="flex items-center gap-2">
                 <input
                   type="file"
@@ -1498,7 +1462,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 </div>
               )}
               
-              {/* Visual Analysis Results */}
               {visualAnalysis && (
                 <div className="p-3 border rounded-lg bg-accent/10 space-y-2">
                   <div className="flex items-center gap-2">
@@ -1578,7 +1541,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
               </Select>
             </div>
             
-            {/* Object / Array Configuration */}
             {(newFieldType === "object" || newFieldType === "array") && (
               <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
                 <div className="flex items-center gap-2 text-sm font-medium">
@@ -1608,7 +1570,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                   </div>
                 )}
                 
-                {/* Object Properties for object and array<object> - supports nested objects */}
                 {(newFieldType === "object" || (newFieldType === "array" && newFieldArrayItemType === "object")) && (
                   <div className="space-y-3">
                     <label className="text-sm font-medium">Object Properties</label>
@@ -1643,7 +1604,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
               />
             </div>
             
-            {/* Example Preview */}
             {(newFieldType === "object" || (newFieldType === "array" && newFieldArrayItemType === "object")) && newFieldObjectProperties.length > 0 && (
               <div className="p-3 bg-muted/50 rounded border text-xs space-y-2">
                 <div className="font-medium">Example Output:</div>
@@ -1664,15 +1624,7 @@ ${generateExampleOutput(newFieldObjectProperties, 3)}
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setIsAddingField(false);
-              setNewFieldObjectProperties([]);
-              setNewFieldArrayItemType("string");
-              setNewFieldPrompt("");
-              setAiFieldInput("");
-              setAiScreenshot(null);
-              setVisualAnalysis(null);
-            }}>Cancel</Button>
+            <Button variant="outline" onClick={resetFieldEditorForm}>Cancel</Button>
             <Button 
               onClick={addField}
               disabled={
@@ -1683,13 +1635,12 @@ ${generateExampleOutput(newFieldObjectProperties, 3)}
               }
             >
               {updateTypeMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Add Field
+              {editingSchemaFieldName ? "Save Field" : "Add Field"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
       
-      {/* Edit Field Prompt Dialog */}
       <Dialog open={!!editingField} onOpenChange={(open) => {
         if (!open) closeEditField();
       }}>
@@ -1813,7 +1764,6 @@ ${generateExampleOutput(newFieldObjectProperties, 3)}
         </DialogContent>
       </Dialog>
 
-      {/* Edit Field Properties Dialog */}
       <Dialog open={!!editingFieldProperties} onOpenChange={() => {
         setEditingFieldProperties(null);
         setEditedProperties([]);
@@ -1858,110 +1808,8 @@ ${generateExampleOutput(newFieldObjectProperties, 3)}
     </div>
         </TabsContent>
         
-        {/* Labels Tab */}
         <TabsContent value="labels" className="h-[calc(100%-3rem)] overflow-auto">
           <div className="space-y-6">
-            {/* Label Suggestions Section */}
-            <Card className="border-accent/30 bg-accent/5">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-base text-primary flex items-center gap-2">
-                      <Sparkles className="h-4 w-4" />
-                      Suggest Labels from Documents
-                    </CardTitle>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Analyze your uploaded documents to suggest potential schema fields.
-                    </p>
-                  </div>
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    className="gap-2"
-                    onClick={() => suggestLabelsMutation.mutate()}
-                    disabled={suggestLabelsMutation.isPending}
-                  >
-                    {suggestLabelsMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <FileText className="h-4 w-4" />
-                    )}
-                    {suggestLabelsMutation.isPending ? "Analyzing..." : "Suggest from Documents"}
-                  </Button>
-                </div>
-              </CardHeader>
-              
-              {labelSuggestions.length > 0 && (
-                <CardContent className="pt-0">
-                  {suggestionMeta && (
-                    <p className="text-xs text-muted-foreground mb-3">
-                      Analyzed {suggestionMeta.documents_analyzed} documents using {suggestionMeta.model}
-                    </p>
-                  )}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {labelSuggestions.map((suggestion) => (
-                      <Card key={suggestion.id} className="border bg-background hover:shadow-md transition-shadow">
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-start gap-3 flex-1 min-w-0">
-                              <div 
-                                className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
-                                style={{ backgroundColor: suggestion.suggested_color }}
-                              >
-                                {suggestion.name.charAt(0).toUpperCase()}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <h4 className="font-medium text-sm truncate">{suggestion.name}</h4>
-                                  <Badge variant="secondary" className="text-[10px]">
-                                    {Math.round(suggestion.confidence * 100)}% confidence
-                                  </Badge>
-                                </div>
-                                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                                  {suggestion.description}
-                                </p>
-                                {suggestion.source_examples.length > 0 && (
-                                  <div className="mt-2">
-                                    <p className="text-[10px] font-medium text-muted-foreground mb-1">Examples found:</p>
-                                    <div className="flex flex-wrap gap-1">
-                                      {suggestion.source_examples.slice(0, 3).map((ex, i) => (
-                                        <Badge key={i} variant="outline" className="text-[10px] max-w-[150px] truncate">
-                                          {ex}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex flex-col gap-1 flex-shrink-0">
-                              <Button 
-                                size="icon"
-                                variant="ghost"
-                                className="h-8 w-8 text-red-600 hover:bg-red-100 hover:text-red-700"
-                                onClick={() => rejectSuggestionMutation.mutate(suggestion.id)}
-                                disabled={rejectSuggestionMutation.isPending}
-                                title="Dismiss suggestion"
-                              >
-                                {rejectSuggestionMutation.isPending ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <ThumbsDown className="h-4 w-4" />
-                                )}
-                              </Button>
-                            </div>
-                          </div>
-                          <p className="text-[10px] text-muted-foreground mt-2 italic">
-                            {suggestion.reasoning}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </CardContent>
-              )}
-            </Card>
-            
             <Card className="border-none shadow-none bg-background">
               <CardHeader className="px-0 pt-0">
                 <div>

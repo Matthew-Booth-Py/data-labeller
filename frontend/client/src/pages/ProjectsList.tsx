@@ -26,7 +26,7 @@ interface Project {
   lastEval: string;
   driftRisk: "Low" | "Medium" | "High";
   docCount: number;
-  model: string;
+  model?: string;
   createdAt?: string;
   documentIds?: string[];  // Track uploaded document IDs
 }
@@ -307,7 +307,7 @@ export default function ProjectsList() {
                   <div className="space-y-1">
                     <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Model</p>
                     <div className="flex items-center gap-2 font-mono text-sm font-medium truncate" title={project.model}>
-                       {(project.model || "GPT-5-mini").split(' ')[0]}
+                       {(project.model || "OPENAI_MODEL").split(' ')[0]}
                     </div>
                   </div>
                 </div>

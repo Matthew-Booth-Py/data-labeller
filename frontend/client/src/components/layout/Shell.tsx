@@ -7,12 +7,9 @@ import {
   LifeBuoy,
   Search,
   Bell,
-  Sparkles,
   BookOpen,
-  GraduationCap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 const SidebarLogo = () => (
@@ -28,7 +25,6 @@ export function Sidebar() {
 
   const navItems = [
     { label: "Dashboard", icon: LayoutDashboard, href: "/" },
-    { label: "Getting Started", icon: GraduationCap, href: "/getting-started", highlight: true },
     { label: "Projects", icon: FolderOpen, href: "/projects" },
     { label: "Fields Library", icon: BookOpen, href: "/fields-library" },
     { label: "Settings", icon: SettingsIcon, href: "/settings" },
@@ -47,8 +43,7 @@ export function Sidebar() {
         <nav className="space-y-1">
           {navItems.map((item) => {
             const isActive = location === item.href ||
-              (item.href === "/projects" && location.startsWith("/project/")) ||
-              (item.href === "/getting-started" && location === "/getting-started");
+              (item.href === "/projects" && location.startsWith("/project/"));
             
             return (
               <Link
@@ -58,18 +53,11 @@ export function Sidebar() {
                   "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors",
                   isActive
                     ? "bg-primary text-primary-foreground"
-                    : item.highlight
-                    ? "text-primary bg-primary/10 hover:bg-primary/20"
                     : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground",
                 )}
               >
                 <item.icon className="h-4 w-4" />
                 {item.label}
-                {item.highlight && !isActive && (
-                  <Badge variant="outline" className="ml-auto text-xs py-0 px-1 border-primary/50">
-                    New
-                  </Badge>
-                )}
               </Link>
             );
           })}
