@@ -768,7 +768,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   }, [annotations, selectedDocument]);
 
   return (
-    <div className="data-labeller-v2 space-y-6">
+    <div className="data-labeller-v2 flex h-full min-h-0 flex-col gap-6 overflow-auto xl:overflow-hidden">
       <Card className="overflow-hidden border-primary/20 bg-[var(--surface-panel)]">
         <div className="bg-gradient-to-r from-primary to-[var(--interactive-primary-hover)] px-6 py-6 text-primary-foreground">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -839,8 +839,8 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
-        <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="space-y-4 xl:min-h-0 xl:overflow-auto xl:pr-1">
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-2">
@@ -1091,8 +1091,8 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
           </Card>
         </div>
 
-        <div className="min-h-0 space-y-4">
-          <Card className="flex min-h-[620px] flex-col overflow-hidden">
+        <div className="min-h-0 space-y-4 xl:flex xl:flex-col xl:overflow-hidden">
+          <Card className="flex min-h-[620px] flex-col overflow-hidden xl:min-h-0 xl:flex-1">
             <CardHeader className="space-y-3 border-b border-[var(--border-subtle)]">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 space-y-1">
@@ -1202,12 +1202,14 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="flex-1 min-h-0 p-0">
-              <div className="h-full min-h-[420px]">{renderDocumentViewer()}</div>
+            <CardContent className="flex-1 min-h-0 overflow-hidden p-0">
+              <div className="h-full min-h-[420px] xl:min-h-0">
+                {renderDocumentViewer()}
+              </div>
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden xl:shrink-0">
             <CardHeader className="border-b border-[var(--border-subtle)] py-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="space-y-1">

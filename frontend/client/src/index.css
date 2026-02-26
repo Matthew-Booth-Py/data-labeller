@@ -1053,7 +1053,16 @@
 }
 
 .dl-viewer-page-label {
-  color: var(--dl-text-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--dl-border);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 1px 6px rgba(56, 1, 64, 0.12);
+  pointer-events: none;
 }
 
 .dl-viewer-hint {

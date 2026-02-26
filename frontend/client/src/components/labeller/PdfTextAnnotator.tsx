@@ -495,7 +495,7 @@ export function PdfTextAnnotator({
                 </div>
 
                 {/* Page label */}
-                <div className="dl-viewer-page-label absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs">
+                <div className="dl-viewer-page-label absolute right-3 top-3 z-20 whitespace-nowrap">
                   Page {index + 1} of {numPages}
                 </div>
               </div>
