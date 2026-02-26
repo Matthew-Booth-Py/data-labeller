@@ -371,60 +371,65 @@ export function PdfTextAnnotator({
 
   // Handle text selection
   const handleMouseUp = useCallback(
-    (e: MouseEvent) => {
-      if (popupRef.current?.contains(e.target as Node)) {
-        return;
-      }
+    (event: MouseEvent) => {
+      const targetNode = event.target as Node | null;
 
-      const liveSelection = extractSelection(window.getSelection());
-      const cachedSelection =
-        latestSelectionRef.current &&
-        Date.now() - latestSelectionRef.current.capturedAt <= 250
-          ? latestSelectionRef.current
-          : null;
-      const extracted = liveSelection || cachedSelection;
+      // Let the browser finalize text selection before reading range rects.
+      requestAnimationFrame(() => {
+        if (targetNode && popupRef.current?.contains(targetNode)) {
+          return;
+        }
 
-      if (!extracted) {
-        setPopupPosition(null);
-        setPendingSelection(null);
-        latestSelectionRef.current = null;
-        return;
-      }
+        const liveSelection = extractSelection(window.getSelection());
+        const cachedSelection =
+          latestSelectionRef.current &&
+          Date.now() - latestSelectionRef.current.capturedAt <= 500
+            ? latestSelectionRef.current
+            : null;
+        const extracted = liveSelection || cachedSelection;
 
-      const {
-        pending: { pageNum, text, rects },
-        popup,
-      } = extracted;
+        if (!extracted) {
+          setPopupPosition(null);
+          setPendingSelection(null);
+          latestSelectionRef.current = null;
+          return;
+        }
 
-      // If active entity type and inline chooser is off, apply directly.
-      if (activeEntityTypeId && activeEntityType && !forceFieldChooser) {
-        const bbox: BoundingBoxData = {
-          page: pageNum,
-          x: rects[0].leftPct,
-          y: rects[0].topPct,
-          width:
-            rects.reduce((max, r) => Math.max(max, r.leftPct + r.widthPct), 0) -
-            rects[0].leftPct,
-          height:
-            rects.reduce((max, r) => Math.max(max, r.topPct + r.heightPct), 0) -
-            rects[0].topPct,
-          text: text,
-        };
-        onAnnotationCreate(activeEntityType.name, text, bbox);
-        window.getSelection()?.removeAllRanges();
-        setPopupPosition(null);
-        setPendingSelection(null);
-        latestSelectionRef.current = null;
-        return;
-      }
+        const {
+          pending: { pageNum, text, rects },
+          popup,
+        } = extracted;
 
-      // Show popup to pick entity type
-      if (popupEntityTypes.length === 0) {
-        return;
-      }
+        // If active entity type and inline chooser is off, apply directly.
+        if (activeEntityTypeId && activeEntityType && !forceFieldChooser) {
+          const bbox: BoundingBoxData = {
+            page: pageNum,
+            x: rects[0].leftPct,
+            y: rects[0].topPct,
+            width:
+              rects.reduce((max, r) => Math.max(max, r.leftPct + r.widthPct), 0) -
+              rects[0].leftPct,
+            height:
+              rects.reduce((max, r) => Math.max(max, r.topPct + r.heightPct), 0) -
+              rects[0].topPct,
+            text: text,
+          };
+          onAnnotationCreate(activeEntityType.name, text, bbox);
+          window.getSelection()?.removeAllRanges();
+          setPopupPosition(null);
+          setPendingSelection(null);
+          latestSelectionRef.current = null;
+          return;
+        }
 
-      setPendingSelection({ pageNum, text, rects });
-      setPopupPosition(popup);
+        // Show popup to pick entity type
+        if (popupEntityTypes.length === 0) {
+          return;
+        }
+
+        setPendingSelection({ pageNum, text, rects });
+        setPopupPosition(popup);
+      });
     },
     [
       extractSelection,
