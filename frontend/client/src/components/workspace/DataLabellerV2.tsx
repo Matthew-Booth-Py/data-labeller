@@ -32,6 +32,9 @@ import {
   ChevronDown,
   Sparkles,
   Trash2,
+  Search,
+  Check,
+  X,
 } from "lucide-react";
 import {
   Card,
@@ -42,7 +45,10 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatAnnotationValue } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatAnnotationValue, cn } from "@/lib/utils";
 import { BEAZLEY_PALETTE } from "@/theme/design-tokens";
 
 // Neutral, high-contrast annotation palette (intentionally brand-agnostic)
@@ -61,47 +67,142 @@ const ENTITY_COLORS = [
 
 interface DataLabellerV2Props {}
 
+type SidebarTab = "context" | "schema" | "annotations" | "output";
+type OutputViewMode = "json" | "table";
+type WorkflowMode = "freeform" | "table" | "field-first";
+type LabellerSidebarMode = "expanded" | "compact" | "hidden";
+
+const WORKFLOW_LABELS: Record<WorkflowMode, string> = {
+  freeform: "Freeform",
+  table: "Table",
+  "field-first": "Field-first",
+};
+
+const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string }> = [
+  { id: "context", label: "Context" },
+  { id: "schema", label: "Schema" },
+  { id: "annotations", label: "Annotations" },
+  { id: "output", label: "Output" },
+];
+
+const MAX_ROW_NUM = 999;
+const EMPTY_SCHEMA_FIELDS: any[] = [];
+const LABELLER_SIDEBAR_MODE_STORAGE_KEY = "labeller:sidebar-mode";
+
+const arraysEqual = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((value, index) => value === b[index]);
+
+const setsEqual = (a: Set<string>, b: Set<string>) => {
+  if (a.size !== b.size) return false;
+  return Array.from(a).every((value) => b.has(value));
+};
+
+const isLabellerSidebarMode = (
+  value: string | null,
+): value is LabellerSidebarMode =>
+  value === "expanded" || value === "compact" || value === "hidden";
+
 export function DataLabellerV2({}: DataLabellerV2Props) {
-  const projectId = localStorage.getItem("selected-project") || "all";
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const [mounted, setMounted] = useState(false);
 
-  // Persist state in sessionStorage (survives tab switches, cleared when browser closes)
-  const [selectedDocId, setSelectedDocId] = useState<string | null>(() => {
+  // Initialize state with safe defaults
+  const [projectId, setProjectId] = useState<string>("all");
+  const [projects, setProjects] = useState<any[]>([]);
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const [activeEntityTypeId, setActiveEntityTypeId] = useState<string | null>(null);
+  const [activeInstanceNum, setActiveInstanceNum] = useState<number>(1);
+
+  // Load from storage after mount
+  useEffect(() => {
     try {
-      return (
-        sessionStorage.getItem(`labeller-selected-doc-${projectId}`) || null
-      );
-    } catch {
-      return null;
-    }
-  });
+      const storedProjectId = localStorage.getItem("selected-project") || "all";
+      setProjectId(storedProjectId);
 
-  const [activeEntityTypeId, setActiveEntityTypeId] = useState<string | null>(
-    () => {
-      try {
-        return (
-          sessionStorage.getItem(`labeller-active-entity-${projectId}`) || null
-        );
-      } catch {
-        return null;
+      const storedProjects = localStorage.getItem("uu-projects");
+      if (storedProjects) {
+        setProjects(JSON.parse(storedProjects));
       }
-    },
-  );
 
-  const [activeInstanceNum, setActiveInstanceNum] = useState<number>(() => {
-    try {
-      const stored = sessionStorage.getItem(`labeller-active-row-${projectId}`);
-      return stored ? parseInt(stored, 10) : 1;
-    } catch {
-      return 1;
+      const storedDocId = sessionStorage.getItem(`labeller-selected-doc-${storedProjectId}`);
+      if (storedDocId) {
+        setSelectedDocId(storedDocId);
+      }
+
+      const storedEntityId = sessionStorage.getItem(`labeller-active-entity-${storedProjectId}`);
+      if (storedEntityId) {
+        setActiveEntityTypeId(storedEntityId);
+      }
+
+      const storedRow = sessionStorage.getItem(`labeller-active-row-${storedProjectId}`);
+      if (storedRow) {
+        const parsed = parseInt(storedRow, 10);
+        if (Number.isFinite(parsed)) {
+          setActiveInstanceNum(parsed);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading from storage:", error);
     }
-  });
+    
+    setMounted(true);
+  }, []);
 
   const [exportMenuVisible, setExportMenuVisible] = useState(false);
-  const [localStorageVersion, setLocalStorageVersion] = useState(0);
   const [suggestions, setSuggestions] = useState<AnnotationSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("context");
+  const [fieldFilter, setFieldFilter] = useState("");
+  const [workflowMode, setWorkflowMode] = useState<WorkflowMode>("table");
+  const [autoAdvanceRow, setAutoAdvanceRow] = useState(true);
+  const [inlineFieldSwitcher, setInlineFieldSwitcher] = useState(true);
+  const [tableDetectionMode, setTableDetectionMode] = useState(false);
+  const [selectedTemplateFields, setSelectedTemplateFields] = useState<
+    string[]
+  >([]);
+  const [outputCollapsed, setOutputCollapsed] = useState(true);
+  const [outputView, setOutputView] = useState<OutputViewMode>("json");
+  const [sidebarMode, setSidebarMode] = useState<LabellerSidebarMode>(() => {
+    if (typeof window === "undefined") return "expanded";
+    const stored = window.localStorage.getItem(LABELLER_SIDEBAR_MODE_STORAGE_KEY);
+    return isLabellerSidebarMode(stored) ? stored : "expanded";
+  });
+  const lastVisibleSidebarModeRef = useRef<Exclude<LabellerSidebarMode, "hidden">>(
+    "expanded",
+  );
+  const rowShortcutAwaitRef = useRef(false);
+  const rowShortcutDigitsRef = useRef("");
+  const rowShortcutTimerRef = useRef<number | null>(null);
+  const sidebarVisible = sidebarMode !== "hidden";
+  const sidebarCompact = sidebarMode === "compact";
+
+  useEffect(() => {
+    if (sidebarMode === "hidden") return;
+    lastVisibleSidebarModeRef.current = sidebarMode;
+  }, [sidebarMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(LABELLER_SIDEBAR_MODE_STORAGE_KEY, sidebarMode);
+  }, [sidebarMode]);
+
+  const toggleSidebarSize = () => {
+    setSidebarMode((current) => {
+      if (current === "hidden") return "compact";
+      return current === "expanded" ? "compact" : "expanded";
+    });
+  };
+
+  const toggleSidebarVisibility = () => {
+    setSidebarMode((current) => {
+      if (current === "hidden") {
+        return lastVisibleSidebarModeRef.current;
+      }
+      lastVisibleSidebarModeRef.current = current;
+      return "hidden";
+    });
+  };
 
   // Fetch documents
   const { data: documentsData } = useQuery({
@@ -116,10 +217,8 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     }
 
     try {
-      const stored = localStorage.getItem("uu-projects");
-      if (!stored) return [];
+      if (projects.length === 0) return [];
 
-      const projects = JSON.parse(stored);
       const project = projects.find((p: { id: string }) => p.id === projectId);
       if (!project) return [];
 
@@ -131,7 +230,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       console.error("Error filtering documents:", error);
       return [];
     }
-  }, [documentsData, projectId, localStorageVersion]);
+  }, [documentsData, projectId, projects]);
 
   // Persist selected document
   useEffect(() => {
@@ -167,7 +266,17 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
 
   // Listen for localStorage changes
   useEffect(() => {
-    const handleStorageChange = () => setLocalStorageVersion((v) => v + 1);
+    const handleStorageChange = () => {
+      // Reload projects data when storage changes
+      try {
+        const storedProjects = localStorage.getItem("uu-projects");
+        if (storedProjects) {
+          setProjects(JSON.parse(storedProjects));
+        }
+      } catch {
+        // Ignore errors
+      }
+    };
     window.addEventListener("storage", handleStorageChange);
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
@@ -175,8 +284,9 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   // Get selected document
   const selectedDocument = documents.find((d) => d.id === selectedDocId);
 
-  // Get schema fields from document type
-  const schemaFields = selectedDocument?.document_type?.schema_fields || [];
+  // Get schema fields from document type using a stable fallback reference
+  const schemaFields =
+    selectedDocument?.document_type?.schema_fields ?? EMPTY_SCHEMA_FIELDS;
 
   // Convert schema fields to entity types with colors
   const entityTypes: EntityType[] = useMemo(() => {
@@ -229,56 +339,116 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     }));
   }, [schemaFields]);
 
+  const getGroupName = useCallback((fieldName: string) => {
+    const parts = fieldName.split(".");
+    return parts.length > 1 ? parts[0] : "_root";
+  }, []);
+
+  const getFieldLeafName = useCallback((fieldName: string) => {
+    const parts = fieldName.split(".");
+    return parts[parts.length - 1] || fieldName;
+  }, []);
+
+  const rowAwareFieldNames = useMemo(
+    () => entityTypes.map((et) => et.name).filter((name) => name.includes(".")),
+    [entityTypes],
+  );
+
+  const activeEntityType = useMemo(
+    () => entityTypes.find((et) => et.id === activeEntityTypeId),
+    [entityTypes, activeEntityTypeId],
+  );
+
+  const activeGroupName = useMemo(
+    () => (activeEntityType ? getGroupName(activeEntityType.name) : null),
+    [activeEntityType, getGroupName],
+  );
+
   // Group entity types by parent for hierarchical display
   const groupedEntityTypes = useMemo(() => {
     const groups: Record<string, EntityType[]> = {};
 
     entityTypes.forEach((et) => {
-      const parts = et.name.split(".");
-      if (parts.length > 1) {
-        const parent = parts[0];
-        if (!groups[parent]) {
-          groups[parent] = [];
-        }
-        groups[parent].push(et);
-      } else {
-        // Top-level fields
-        if (!groups["_root"]) {
-          groups["_root"] = [];
-        }
-        groups["_root"].push(et);
+      const group = getGroupName(et.name);
+      if (!groups[group]) {
+        groups[group] = [];
       }
+      groups[group].push(et);
     });
 
     return groups;
-  }, [entityTypes]);
+  }, [entityTypes, getGroupName]);
 
-  // Auto-expand all groups by default
-  useEffect(() => {
-    const allGroups = Object.keys(groupedEntityTypes).filter(
-      (g) => g !== "_root",
+  const filteredGroupedEntityTypes = useMemo(() => {
+    const query = fieldFilter.trim().toLowerCase();
+    if (!query) return groupedEntityTypes;
+
+    const filtered: Record<string, EntityType[]> = {};
+    Object.entries(groupedEntityTypes).forEach(([groupName, types]) => {
+      const matches = types.filter((type) => {
+        const leaf = getFieldLeafName(type.name).toLowerCase();
+        return (
+          type.name.toLowerCase().includes(query) ||
+          leaf.includes(query) ||
+          groupName.toLowerCase().includes(query)
+        );
+      });
+
+      if (matches.length > 0) {
+        filtered[groupName] = matches;
+      }
+    });
+    return filtered;
+  }, [fieldFilter, getFieldLeafName, groupedEntityTypes]);
+
+  const activeGroupFieldNames = useMemo(() => {
+    if (!activeGroupName || activeGroupName === "_root") {
+      return rowAwareFieldNames;
+    }
+    return rowAwareFieldNames.filter(
+      (name) => getGroupName(name) === activeGroupName,
     );
-    setExpandedGroups(new Set(allGroups));
-  }, [groupedEntityTypes]);
+  }, [activeGroupName, getGroupName, rowAwareFieldNames]);
 
-  // Keyboard shortcuts for row number control
+  const effectiveTemplateFields = useMemo(() => {
+    if (selectedTemplateFields.length > 0) return selectedTemplateFields;
+    return activeGroupFieldNames;
+  }, [selectedTemplateFields, activeGroupFieldNames]);
+
+  // Keep schema collapsed by default; only active or filtered groups auto-expand.
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl/Cmd + Arrow Up: increment row number
-      if ((e.ctrlKey || e.metaKey) && e.key === "ArrowUp") {
-        e.preventDefault();
-        setActiveInstanceNum((prev) => Math.min(prev + 1, 20));
-      }
-      // Ctrl/Cmd + Arrow Down: decrement row number
-      if ((e.ctrlKey || e.metaKey) && e.key === "ArrowDown") {
-        e.preventDefault();
-        setActiveInstanceNum((prev) => Math.max(prev - 1, 1));
-      }
-    };
+    const next = new Set<string>();
+    if (activeGroupName && activeGroupName !== "_root") {
+      next.add(activeGroupName);
+    }
+    if (fieldFilter.trim()) {
+      Object.keys(filteredGroupedEntityTypes)
+        .filter((groupName) => groupName !== "_root")
+        .forEach((groupName) => next.add(groupName));
+    }
+    setExpandedGroups((prev) => (setsEqual(prev, next) ? prev : next));
+  }, [activeGroupName, fieldFilter, filteredGroupedEntityTypes]);
 
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  // Keep template fields in sync with available row-aware fields.
+  useEffect(() => {
+    const available = new Set(rowAwareFieldNames);
+    setSelectedTemplateFields((prev) => {
+      const persisted = prev.filter((field) => available.has(field));
+      const next = persisted.length > 0 ? persisted : activeGroupFieldNames;
+      return arraysEqual(prev, next) ? prev : next;
+    });
+  }, [activeGroupFieldNames, rowAwareFieldNames]);
+
+  // Keep table mode defaults aligned with workflow mode.
+  useEffect(() => {
+    if (workflowMode === "table") {
+      setAutoAdvanceRow(true);
+      return;
+    }
+    if (workflowMode === "freeform") {
+      setTableDetectionMode(false);
+    }
+  }, [workflowMode]);
 
   // Fetch annotations for selected document
   const { data: annotationsData, refetch: refetchAnnotations } = useQuery({
@@ -296,7 +466,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   const createAnnotationMutation = useMutation({
     mutationFn: async (data: {
       fieldName: string;
-      value: string;
+      value: any;
       annotationData: TextSpanData | BoundingBoxData;
       annotationType: AnnotationType;
     }) => {
@@ -339,7 +509,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   const handleAnnotationCreate = useCallback(
     (
       fieldName: string,
-      value: string,
+      value: any,
       data: TextSpanData | BoundingBoxData,
     ) => {
       const annotationType = "start" in data ? "text_span" : "bbox";
@@ -358,8 +528,44 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
         annotationData,
         annotationType,
       });
+
+      if (!autoAdvanceRow || !isArrayField) {
+        return;
+      }
+
+      const templateFields = effectiveTemplateFields.filter((field) =>
+        field.includes("."),
+      );
+
+      if (templateFields.length === 0 || !templateFields.includes(fieldName)) {
+        return;
+      }
+
+      const fieldsInRow = new Set(
+        annotations
+          .filter((annotation) => {
+            const instanceNum = Number(
+              (annotation.annotation_data as unknown as Record<string, unknown>)
+                ?.instance_num,
+            );
+            return Number.isFinite(instanceNum) && instanceNum === activeInstanceNum;
+          })
+          .map((annotation) => annotation.field_name),
+      );
+      fieldsInRow.add(fieldName);
+
+      const completed = templateFields.every((field) => fieldsInRow.has(field));
+      if (completed) {
+        setActiveInstanceNum((prev) => Math.min(prev + 1, MAX_ROW_NUM));
+      }
     },
-    [createAnnotationMutation, activeInstanceNum],
+    [
+      activeInstanceNum,
+      annotations,
+      autoAdvanceRow,
+      createAnnotationMutation,
+      effectiveTemplateFields,
+    ],
   );
 
   // Handle annotation deletion
@@ -548,9 +754,151 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     );
   }, [annotations, deleteAnnotationMutation]);
 
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const resetRowShortcut = () => {
+      rowShortcutAwaitRef.current = false;
+      rowShortcutDigitsRef.current = "";
+      if (rowShortcutTimerRef.current !== null) {
+        window.clearTimeout(rowShortcutTimerRef.current);
+        rowShortcutTimerRef.current = null;
+      }
+    };
+
+    const scheduleRowShortcutTimeout = () => {
+      if (rowShortcutTimerRef.current !== null) {
+        window.clearTimeout(rowShortcutTimerRef.current);
+      }
+      rowShortcutTimerRef.current = window.setTimeout(resetRowShortcut, 1200);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      // Row prompt shortcut: R + number
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "r") {
+        rowShortcutAwaitRef.current = true;
+        rowShortcutDigitsRef.current = "";
+        scheduleRowShortcutTimeout();
+        e.preventDefault();
+        return;
+      }
+
+      if (rowShortcutAwaitRef.current && /^[0-9]$/.test(e.key)) {
+        rowShortcutDigitsRef.current += e.key;
+        const parsed = parseInt(rowShortcutDigitsRef.current, 10);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          setActiveInstanceNum(Math.min(parsed, MAX_ROW_NUM));
+        }
+        if (rowShortcutDigitsRef.current.length >= 2) {
+          resetRowShortcut();
+        } else {
+          scheduleRowShortcutTimeout();
+        }
+        e.preventDefault();
+        return;
+      }
+
+      if (rowShortcutAwaitRef.current && e.key !== "Shift") {
+        resetRowShortcut();
+      }
+
+      // Tab / Shift+Tab cycles entity types
+      if (e.key === "Tab" && entityTypes.length > 0) {
+        e.preventDefault();
+        const direction = e.shiftKey ? -1 : 1;
+        const currentIndex = activeEntityTypeId
+          ? entityTypes.findIndex((et) => et.id === activeEntityTypeId)
+          : -1;
+        const nextIndex =
+          ((currentIndex + direction) % entityTypes.length + entityTypes.length) %
+          entityTypes.length;
+        setActiveEntityTypeId(entityTypes[nextIndex]?.id || null);
+        return;
+      }
+
+      // Ctrl/Cmd + Arrow Up: increment row number
+      if ((e.ctrlKey || e.metaKey) && e.key === "ArrowUp") {
+        e.preventDefault();
+        setActiveInstanceNum((prev) => Math.min(prev + 1, MAX_ROW_NUM));
+        return;
+      }
+
+      // Ctrl/Cmd + Arrow Down: decrement row number
+      if ((e.ctrlKey || e.metaKey) && e.key === "ArrowDown") {
+        e.preventDefault();
+        setActiveInstanceNum((prev) => Math.max(prev - 1, 1));
+        return;
+      }
+
+      // Undo annotation
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+        const lastAnnotation = annotations[annotations.length - 1];
+        if (lastAnnotation) {
+          deleteAnnotationMutation.mutate(lastAnnotation.id);
+          e.preventDefault();
+        }
+        return;
+      }
+
+      // Duplicate last row-based field into next row
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+        const rowBased = [...annotations]
+          .reverse()
+          .find((annotation) => annotation.field_name.includes("."));
+        if (!rowBased) return;
+
+        const originalData = rowBased.annotation_data as unknown as Record<
+          string,
+          unknown
+        >;
+        const originalRow = Number(originalData?.instance_num);
+        const sourceRow = Number.isFinite(originalRow)
+          ? originalRow
+          : activeInstanceNum;
+        const nextRow = Math.min(sourceRow + 1, MAX_ROW_NUM);
+        const duplicatedData = {
+          ...originalData,
+          instance_num: nextRow,
+        } as TextSpanData | BoundingBoxData;
+
+        createAnnotationMutation.mutate({
+          fieldName: rowBased.field_name,
+          value: rowBased.value,
+          annotationData: duplicatedData,
+          annotationType: rowBased.annotation_type,
+        });
+        setActiveInstanceNum(nextRow);
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      if (rowShortcutTimerRef.current !== null) {
+        window.clearTimeout(rowShortcutTimerRef.current);
+      }
+    };
+  }, [
+    activeEntityTypeId,
+    activeInstanceNum,
+    annotations,
+    createAnnotationMutation,
+    deleteAnnotationMutation,
+    entityTypes,
+  ]);
+
   // Calculate stats
   const stats = useMemo(() => {
-    const text = selectedDocument ? "" : ""; // We'd need document content for accurate stats
     const chars = annotations.reduce((sum, ann) => {
       const data = ann.annotation_data as TextSpanData;
       return sum + (data?.text?.length || 0);
@@ -567,7 +915,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       annotations: annotations.length,
       coverage: "—", // Would need total doc length
     };
-  }, [documents, annotations, selectedDocument]);
+  }, [documents, annotations]);
 
   // Get annotation counts per entity type
   const entityCounts = useMemo(() => {
@@ -586,10 +934,73 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     return counts;
   }, [annotations]);
 
-  // Get active entity type info
-  const activeEntityType = entityTypes.find(
-    (et) => et.id === activeEntityTypeId,
-  );
+  const rowFieldStatus = useMemo(() => {
+    const byRow: Record<number, Set<string>> = {};
+    annotations.forEach((annotation) => {
+      if (!annotation.field_name.includes(".")) return;
+      const instanceNum = Number(
+        (annotation.annotation_data as unknown as Record<string, unknown>)
+          ?.instance_num,
+      );
+      if (!Number.isFinite(instanceNum) || instanceNum < 1) {
+        return;
+      }
+      if (!byRow[instanceNum]) {
+        byRow[instanceNum] = new Set<string>();
+      }
+      byRow[instanceNum].add(annotation.field_name);
+    });
+    return byRow;
+  }, [annotations]);
+
+  const rowCompletionRows = useMemo(() => {
+    const rows = new Set<number>([activeInstanceNum]);
+    Object.keys(rowFieldStatus).forEach((key) => {
+      const parsed = Number(key);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        rows.add(parsed);
+      }
+    });
+    rows.add(activeInstanceNum + 1);
+    return Array.from(rows)
+      .filter((row) => row > 0)
+      .sort((a, b) => a - b)
+      .slice(0, 8);
+  }, [activeInstanceNum, rowFieldStatus]);
+
+  const outputTableData = useMemo(() => {
+    const rows: Record<number, Record<string, string>> = {};
+    const columns = new Set<string>();
+
+    annotations.forEach((annotation) => {
+      if (!annotation.field_name.includes(".")) return;
+
+      const row = Number(
+        (annotation.annotation_data as unknown as Record<string, unknown>)
+          ?.instance_num,
+      );
+      if (!Number.isFinite(row) || row < 1) return;
+
+      if (!rows[row]) {
+        rows[row] = {};
+      }
+
+      const leaf = getFieldLeafName(annotation.field_name);
+      columns.add(leaf);
+      rows[row][leaf] = formatAnnotationValue(annotation.value, 160);
+    });
+
+    const sortedRows = Object.keys(rows)
+      .map((row) => Number(row))
+      .filter((row) => Number.isFinite(row))
+      .sort((a, b) => a - b)
+      .map((row) => ({ row, values: rows[row] }));
+
+    return {
+      columns: Array.from(columns),
+      rows: sortedRows,
+    };
+  }, [annotations, getFieldLeafName]);
 
   // Render document viewer based on file type
   const renderDocumentViewer = () => {
@@ -619,6 +1030,10 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
           annotations={annotations}
           entityTypes={entityTypes}
           activeEntityTypeId={activeEntityTypeId}
+          activeRowNumber={activeInstanceNum}
+          showTableGrid={tableDetectionMode && workflowMode === "table"}
+          forceFieldChooser={inlineFieldSwitcher}
+          preferredFieldIds={effectiveTemplateFields}
           onAnnotationCreate={handleAnnotationCreate}
           onAnnotationDelete={handleAnnotationDelete}
           onActiveEntityChange={setActiveEntityTypeId}
@@ -767,518 +1182,798 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     return JSON.stringify(jsonData, null, 2);
   }, [annotations, selectedDocument]);
 
-  return (
-    <div className="data-labeller-v2 flex h-full min-h-0 flex-col gap-4 overflow-auto">
+  return mounted ? (
+    <div className="data-labeller-v2 flex h-full flex-col gap-2">
       <Card className="shrink-0 overflow-hidden border-primary/20 bg-[var(--surface-panel)]">
-        <div className="bg-gradient-to-r from-primary to-[var(--interactive-primary-hover)] px-6 py-6 text-primary-foreground">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="space-y-2">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-primary-foreground/80">
-                annotation workspace
-              </p>
-              <h3 className="text-2xl font-semibold leading-tight text-primary-foreground">
+        <div
+          className="px-4 py-2 text-white"
+          style={{
+            background:
+              "linear-gradient(110deg, rgba(79, 2, 89, 0.9), rgba(56, 1, 64, 0.82))",
+          }}
+        >
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-1">
+              <h3 className="text-lg font-semibold leading-tight text-white">
                 Label source documents with schema-aligned entities
               </h3>
-              <p className="max-w-2xl text-sm text-primary-foreground/80">
-                Select a document, activate an entity type, and highlight content
-                to create ground truth labels for extraction quality workflows.
-              </p>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:min-w-[280px]">
-              <div className="rounded-lg border border-white/30 bg-white/10 px-3 py-2">
-                <p className="text-[11px] uppercase tracking-wider text-primary-foreground/80">
-                  Documents
+            <div className="grid grid-cols-4 gap-2 sm:min-w-[420px]">
+              <div className="rounded-lg border border-white/30 bg-white/10 px-3 py-1.5">
+                <p className="text-[10px] uppercase tracking-wider text-white/80">
+                  Docs
                 </p>
-                <p className="text-lg font-semibold">{stats.documents}</p>
+                <p className="text-sm font-semibold">{stats.documents}</p>
               </div>
-              <div className="rounded-lg border border-white/30 bg-white/10 px-3 py-2">
-                <p className="text-[11px] uppercase tracking-wider text-primary-foreground/80">
+              <div className="rounded-lg border border-white/30 bg-white/10 px-3 py-1.5">
+                <p className="text-[10px] uppercase tracking-wider text-white/80">
                   Annotations
                 </p>
-                <p className="text-lg font-semibold">{stats.annotations}</p>
+                <p className="text-sm font-semibold">{stats.annotations}</p>
               </div>
-              <div className="rounded-lg border border-white/30 bg-white/10 px-3 py-2">
-                <p className="text-[11px] uppercase tracking-wider text-primary-foreground/80">
-                  Words Tagged
+              <div className="rounded-lg border border-white/30 bg-white/10 px-3 py-1.5">
+                <p className="text-[10px] uppercase tracking-wider text-white/80">
+                  Suggestions
                 </p>
-                <p className="text-lg font-semibold">{stats.words}</p>
+                <p className="text-sm font-semibold">{suggestions.length}</p>
               </div>
-              <div className="rounded-lg border border-white/30 bg-white/10 px-3 py-2">
-                <p className="text-[11px] uppercase tracking-wider text-primary-foreground/80">
-                  Active Row
+              <div className="rounded-lg border border-white/30 bg-white/10 px-3 py-1.5">
+                <p className="text-[10px] uppercase tracking-wider text-white/80">
+                  Row
                 </p>
-                <p className="text-lg font-semibold">{activeInstanceNum}</p>
+                <p className="text-sm font-semibold">{activeInstanceNum}</p>
               </div>
             </div>
           </div>
         </div>
-        <CardContent className="flex flex-wrap items-center gap-2 py-4">
-          {selectedDocument ? (
-            <Badge variant="outline">Document: {selectedDocument.filename}</Badge>
-          ) : (
-            <Badge variant="outline">No document selected</Badge>
-          )}
-          {activeEntityType ? (
-            <Badge
-              variant="outline"
-              style={{
-                borderColor: `${activeEntityType.color}66`,
-                color: activeEntityType.color,
-                backgroundColor: `${activeEntityType.color}18`,
-              }}
-            >
-              Active Type: {activeEntityType.name}
-            </Badge>
-          ) : (
-            <Badge variant="outline">No active entity type</Badge>
-          )}
-          <span className="text-xs text-muted-foreground">
-            Keyboard: 1-9 select type, Esc deselect, Del removes last, Ctrl/Cmd +
-            ↑/↓ changes row
-          </span>
-        </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 xl:min-h-0 xl:grid-cols-[340px_minmax(0,1fr)]">
-        <div className="space-y-4 xl:pr-1">
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="space-y-1">
-                  <CardTitle className="text-base">Documents</CardTitle>
-                  <CardDescription>
-                    Select a document in this project to begin labelling.
-                  </CardDescription>
-                </div>
-                <Badge variant="outline">{documents.length}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-0">
-              {documents.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
-                  No documents in this project.
-                </div>
-              ) : (
-                <div className="dl-documents-list">
-                  {documents.map((doc) => (
-                    <button
-                      key={doc.id}
-                      type="button"
-                      className={`dl-document-item ${selectedDocId === doc.id ? "active" : ""}`}
-                      onClick={() => setSelectedDocId(doc.id)}
-                    >
-                      {doc.file_type === "pdf" ? (
-                        <FileText size={14} />
+      <div
+        className={cn(
+          "grid flex-1 grid-cols-1 gap-4 min-h-0",
+          sidebarVisible
+            ? sidebarCompact
+              ? "xl:grid-cols-[260px_minmax(0,1fr)]"
+              : "xl:grid-cols-[380px_minmax(0,1fr)]"
+            : "xl:grid-cols-1",
+        )}
+      >
+        {sidebarVisible && (
+          <div className="flex flex-col min-h-0 xl:pr-1">
+            <Card className="flex flex-1 flex-col overflow-hidden border-[var(--border-strong)] min-h-0">
+              <CardHeader className="space-y-1 border-b border-[var(--border-subtle)] py-2 px-3">
+                <CardTitle className="text-sm">Annotation Sidebar</CardTitle>
+              </CardHeader>
+              <CardContent className="min-h-0 flex-1 overflow-hidden pt-4">
+                <Tabs
+                  value={sidebarTab}
+                  onValueChange={(value) => setSidebarTab(value as SidebarTab)}
+                  className="flex h-full flex-col"
+                >
+                  <TabsList className="grid w-full grid-cols-4">
+                    {SIDEBAR_TABS.map((tab) => (
+                      <TabsTrigger key={tab.id} value={tab.id} className="text-xs">
+                        {tab.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+
+                <TabsContent value="context" className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-medium">Documents</p>
+                        <Badge variant="outline">{documents.length}</Badge>
+                      </div>
+                      {documents.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
+                          No documents in this project.
+                        </div>
                       ) : (
-                        <Image size={14} />
-                      )}
-                      <span className="dl-document-item-name">{doc.filename}</span>
-                      <span className="dl-document-item-meta">
-                        {documentAnnotationCounts[doc.id] || 0} ann.
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="space-y-1">
-                <CardTitle className="text-base">Table Row Number</CardTitle>
-                <CardDescription>
-                  Choose the row index used when annotating array fields.
-                </CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="dl-row-grid">
-                {Array.from({ length: 10 }, (_, idx) => idx + 1).map((num) => (
-                  <button
-                    key={num}
-                    type="button"
-                    onClick={() => setActiveInstanceNum(num)}
-                    className={`dl-row-chip ${activeInstanceNum === num ? "active" : ""}`}
-                  >
-                    {num}
-                  </button>
-                ))}
-              </div>
-              <div className="dl-row-current">
-                Current row: <strong>{activeInstanceNum}</strong>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="space-y-1">
-                  <CardTitle className="text-base">Entity Types</CardTitle>
-                  <CardDescription>
-                    Click an entity type to annotate directly with highlight
-                    selection.
-                  </CardDescription>
-                </div>
-                <Badge variant="outline">{entityTypes.length}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-0">
-              {entityTypes.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
-                  Select a classified document to load schema fields.
-                </div>
-              ) : (
-                <div className="dl-entity-types-list pr-1">
-                  {Object.entries(groupedEntityTypes).map(
-                    ([groupName, groupTypes]) => {
-                      const isExpanded = expandedGroups.has(groupName);
-                      const isRoot = groupName === "_root";
-
-                      return (
-                        <div key={groupName} className="dl-entity-group">
-                          {!isRoot && (
+                        <div className="dl-documents-list">
+                          {documents.map((doc) => (
                             <button
+                              key={doc.id}
                               type="button"
-                              className="dl-entity-group-header w-full text-left"
-                              onClick={() => {
-                                const newExpanded = new Set(expandedGroups);
-                                if (isExpanded) {
-                                  newExpanded.delete(groupName);
-                                } else {
-                                  newExpanded.add(groupName);
-                                }
-                                setExpandedGroups(newExpanded);
-                              }}
+                              className={cn(
+                                "dl-document-item",
+                                selectedDocId === doc.id && "active",
+                              )}
+                              onClick={() => setSelectedDocId(doc.id)}
                             >
-                              <ChevronDown
-                                size={14}
-                                className={
-                                  isExpanded
-                                    ? "transition-transform"
-                                    : "-rotate-90 transition-transform"
-                                }
-                              />
-                              <span>{groupName}</span>
-                              <span className="dl-entity-group-count">
-                                {groupTypes.length}
+                              {doc.file_type === "pdf" ? (
+                                <FileText size={14} />
+                              ) : (
+                                <Image size={14} />
+                              )}
+                              <span className="dl-document-item-name">{doc.filename}</span>
+                              <span className="dl-document-item-meta">
+                                {documentAnnotationCounts[doc.id] || 0} ann.
                               </span>
                             </button>
-                          )}
-                          {(isRoot || isExpanded) &&
-                            groupTypes.map((et) => {
-                              const globalIndex = entityTypes.findIndex(
-                                (e) => e.id === et.id,
-                              );
-                              const displayName =
-                                et.name.split(".").pop() || et.name;
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-medium">Row Selector</p>
+                        <span className="dl-kbd">R + #</span>
+                      </div>
+                      <div className="dl-row-grid">
+                        {Array.from({ length: 12 }, (_, idx) => idx + 1).map(
+                          (num) => (
+                            <button
+                              key={num}
+                              type="button"
+                              onClick={() => setActiveInstanceNum(num)}
+                              className={cn(
+                                "dl-row-chip",
+                                activeInstanceNum === num && "active",
+                              )}
+                            >
+                              {num}
+                            </button>
+                          ),
+                        )}
+                      </div>
+                      <div className="dl-row-current">
+                        Current row: <strong>{activeInstanceNum}</strong>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                      <p className="mb-2 text-sm font-medium">Workflow Mode</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(Object.keys(WORKFLOW_LABELS) as WorkflowMode[]).map(
+                          (mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              className={cn(
+                                "rounded-md border px-2 py-1.5 text-xs font-medium transition-colors",
+                                workflowMode === mode
+                                  ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)] text-[var(--interactive-accent)]"
+                                  : "border-[var(--border-subtle)] bg-white text-[var(--text-secondary)] hover:bg-[var(--surface-page)]",
+                              )}
+                              onClick={() => setWorkflowMode(mode)}
+                            >
+                              {WORKFLOW_LABELS[mode]}
+                            </button>
+                          ),
+                        )}
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span>Auto-advance row when complete</span>
+                          <Switch
+                            checked={autoAdvanceRow}
+                            onCheckedChange={setAutoAdvanceRow}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span>Inline field switcher on highlight</span>
+                          <Switch
+                            checked={inlineFieldSwitcher}
+                            onCheckedChange={setInlineFieldSwitcher}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span>Table detection grid overlay</span>
+                          <Switch
+                            checked={tableDetectionMode}
+                            onCheckedChange={setTableDetectionMode}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="schema" className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                      <div className="relative">
+                        <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          value={fieldFilter}
+                          onChange={(event) => setFieldFilter(event.target.value)}
+                          placeholder="Filter fields..."
+                          className="pl-8"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-medium">Entity Types</p>
+                        <Badge variant="outline">{entityTypes.length}</Badge>
+                      </div>
+                      {entityTypes.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
+                          Select a classified document to load schema fields.
+                        </div>
+                      ) : (
+                        <div className="dl-entity-types-list pr-1">
+                          {Object.entries(filteredGroupedEntityTypes).map(
+                            ([groupName, groupTypes]) => {
+                              const isRoot = groupName === "_root";
+                              const isExpanded =
+                                isRoot || expandedGroups.has(groupName);
 
                               return (
-                                <button
-                                  type="button"
-                                  key={et.id}
-                                  className={`dl-entity-type-item ${activeEntityTypeId === et.id ? "active" : ""}`}
-                                  style={{
-                                    ...(activeEntityTypeId === et.id
-                                      ? { color: et.color }
-                                      : undefined),
-                                    paddingLeft: isRoot ? "8px" : "24px",
-                                  }}
-                                  onClick={() =>
-                                    setActiveEntityTypeId(
-                                      activeEntityTypeId === et.id
-                                        ? null
-                                        : et.id,
-                                    )
-                                  }
-                                >
-                                  <div
-                                    className="dl-entity-color-dot"
-                                    style={{ background: et.color }}
-                                  />
-                                  <span className="dl-entity-type-name">
-                                    {displayName}
+                                <div key={groupName} className="dl-entity-group">
+                                  {!isRoot && (
+                                    <button
+                                      type="button"
+                                      className="dl-entity-group-header w-full text-left"
+                                      onClick={() => {
+                                        const next = new Set(expandedGroups);
+                                        if (next.has(groupName)) {
+                                          next.delete(groupName);
+                                        } else {
+                                          next.add(groupName);
+                                        }
+                                        setExpandedGroups(next);
+                                      }}
+                                    >
+                                      <ChevronDown
+                                        size={14}
+                                        className={cn(
+                                          "transition-transform",
+                                          !isExpanded && "-rotate-90",
+                                        )}
+                                      />
+                                      <span>{groupName}</span>
+                                      <span className="dl-entity-group-count">
+                                        {groupTypes.length}
+                                      </span>
+                                    </button>
+                                  )}
+                                  {isExpanded &&
+                                    groupTypes.map((type) => {
+                                      const fieldName = type.name;
+                                      const displayName = getFieldLeafName(fieldName);
+                                      const globalIndex = entityTypes.findIndex(
+                                        (entityType) => entityType.id === type.id,
+                                      );
+                                      return (
+                                        <button
+                                          key={type.id}
+                                          type="button"
+                                          className={cn(
+                                            "dl-entity-type-item",
+                                            activeEntityTypeId === type.id && "active",
+                                          )}
+                                          style={{
+                                            ...(activeEntityTypeId === type.id
+                                              ? { color: type.color }
+                                              : undefined),
+                                            paddingLeft: isRoot ? "8px" : "24px",
+                                          }}
+                                          onClick={() =>
+                                            setActiveEntityTypeId(
+                                              activeEntityTypeId === type.id
+                                                ? null
+                                                : type.id,
+                                            )
+                                          }
+                                        >
+                                          <div
+                                            className="dl-entity-color-dot"
+                                            style={{ background: type.color }}
+                                          />
+                                          <span className="dl-entity-type-name">
+                                            {displayName}
+                                          </span>
+                                          {globalIndex < 9 && (
+                                            <span className="dl-kbd">
+                                              {globalIndex + 1}
+                                            </span>
+                                          )}
+                                          <span className="dl-entity-type-count">
+                                            {entityCounts[fieldName] || 0}
+                                          </span>
+                                        </button>
+                                      );
+                                    })}
+                                </div>
+                              );
+                            },
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-medium">Row Template Fields</p>
+                        <Badge variant="outline">{effectiveTemplateFields.length}</Badge>
+                      </div>
+                      {rowAwareFieldNames.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          No row-based fields found in the active schema.
+                        </p>
+                      ) : (
+                        <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
+                          {activeGroupFieldNames.map((field) => {
+                            const selected =
+                              selectedTemplateFields.includes(field);
+                            return (
+                              <button
+                                key={field}
+                                type="button"
+                                onClick={() =>
+                                  setSelectedTemplateFields((prev) =>
+                                    prev.includes(field)
+                                      ? prev.filter((entry) => entry !== field)
+                                      : [...prev, field],
+                                  )
+                                }
+                                className={cn(
+                                  "flex w-full items-center justify-between rounded-md border px-2 py-1 text-xs",
+                                  selected
+                                    ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
+                                    : "border-[var(--border-subtle)] bg-white",
+                                )}
+                              >
+                                <span>{getFieldLeafName(field)}</span>
+                                {selected ? <Check size={13} /> : <X size={13} />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                      <p className="mb-2 text-sm font-medium">Field Completion</p>
+                      {effectiveTemplateFields.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Select at least one row-template field to track progress.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {rowCompletionRows.map((row) => {
+                            const done = effectiveTemplateFields.filter((field) =>
+                              rowFieldStatus[row]?.has(field),
+                            ).length;
+                            const progress = Math.round(
+                              (done / effectiveTemplateFields.length) * 100,
+                            );
+                            return (
+                              <div
+                                key={row}
+                                className={cn(
+                                  "rounded-md border px-2 py-2",
+                                  row === activeInstanceNum
+                                    ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
+                                    : "border-[var(--border-subtle)] bg-white",
+                                )}
+                              >
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="font-medium">Row {row}</span>
+                                  <span>
+                                    {done}/{effectiveTemplateFields.length}
                                   </span>
-                                  {globalIndex < 9 && (
-                                    <span className="dl-kbd">
-                                      {globalIndex + 1}
+                                </div>
+                                <div className="mt-1.5 h-1.5 rounded-full bg-[var(--surface-page)]">
+                                  <div
+                                    className="h-full rounded-full bg-[var(--interactive-accent)] transition-all"
+                                    style={{ width: `${progress}%` }}
+                                  />
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  {effectiveTemplateFields
+                                    .slice(0, 4)
+                                    .map((field) => {
+                                      const isComplete = !!rowFieldStatus[row]?.has(
+                                        field,
+                                      );
+                                      return (
+                                        <span
+                                          key={`${row}-${field}`}
+                                          className={cn(
+                                            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]",
+                                            isComplete
+                                              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                                              : "border-rose-200 bg-rose-50 text-rose-700",
+                                          )}
+                                        >
+                                          {isComplete ? (
+                                            <Check size={10} />
+                                          ) : (
+                                            <X size={10} />
+                                          )}
+                                          {getFieldLeafName(field)}
+                                        </span>
+                                      );
+                                    })}
+                                  {effectiveTemplateFields.length > 4 && (
+                                    <span className="inline-flex items-center rounded-full border border-[var(--border-subtle)] px-2 py-0.5 text-[10px] text-muted-foreground">
+                                      +{effectiveTemplateFields.length - 4} more
                                     </span>
                                   )}
-                                  <span className="dl-entity-type-count">
-                                    {entityCounts[et.name] || 0}
-                                  </span>
-                                </button>
-                              );
-                            })}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
-                      );
-                    },
-                  )}
-                </div>
-              )}
-              <div className="dl-shortcut-hint">
-                <span className="dl-kbd">1</span>-<span className="dl-kbd">9</span>{" "}
-                activate type, <span className="dl-kbd">Esc</span> deselect,{" "}
-                <span className="dl-kbd">Del</span> remove last
-              </div>
-            </CardContent>
-          </Card>
+                      )}
+                    </div>
+                  </div>
+                </TabsContent>
 
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="space-y-1">
-                  <CardTitle className="text-base">Annotations</CardTitle>
-                  <CardDescription>
-                    Review labels and click any row to focus it in the document.
-                  </CardDescription>
-                </div>
-                <Badge variant="outline">{annotations.length}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-0">
-              {annotations.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
-                  No annotations yet.
-                </div>
-              ) : (
-                <div className="dl-annotations-list max-h-[320px] overflow-y-auto pr-1">
-                  {annotations.map((ann) => {
-                    const et = entityTypes.find((e) => e.name === ann.field_name);
-                    const color = et?.color || BEAZLEY_PALETTE.light;
-                    const preview = formatAnnotationValue(ann.value, 30);
-                    const instanceNum = (ann.annotation_data as any)?.instance_num;
+                <TabsContent value="annotations" className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-medium">Annotations</p>
+                        <Badge variant="outline">{annotations.length}</Badge>
+                      </div>
+                      {annotations.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
+                          No annotations yet.
+                        </div>
+                      ) : (
+                        <div className="dl-annotations-list max-h-[360px] overflow-y-auto pr-1">
+                          {annotations.map((ann) => {
+                            const entityType = entityTypes.find(
+                              (entity) => entity.name === ann.field_name,
+                            );
+                            const color = entityType?.color || BEAZLEY_PALETTE.light;
+                            const preview = formatAnnotationValue(ann.value, 40);
+                            const instanceNum = Number(
+                              (ann.annotation_data as unknown as Record<
+                                string,
+                                unknown
+                              >)?.instance_num,
+                            );
 
-                    return (
-                      <div
-                        key={ann.id}
-                        className="dl-annotation-item"
-                        onClick={() => focusAnnotationInDocument(ann)}
-                      >
-                        {instanceNum && (
-                          <span className="dl-annotation-label-chip dl-annotation-chip-meta">
-                            {instanceNum}
-                          </span>
-                        )}
-                        <span
-                          className="dl-annotation-label-chip"
-                          style={{ background: `${color}30`, color }}
-                        >
-                          {ann.field_name.split(".").pop()}
-                        </span>
-                        <span className="dl-annotation-text-preview">
-                          "{preview}
-                          {(ann.value?.length || 0) > 30 ? "..." : ""}"
-                        </span>
+                            return (
+                              <div
+                                key={ann.id}
+                                className="dl-annotation-item"
+                                onClick={() => focusAnnotationInDocument(ann)}
+                              >
+                                {Number.isFinite(instanceNum) && (
+                                  <span className="dl-annotation-label-chip dl-annotation-chip-meta">
+                                    {instanceNum}
+                                  </span>
+                                )}
+                                <span
+                                  className="dl-annotation-label-chip"
+                                  style={{ background: `${color}30`, color }}
+                                >
+                                  {getFieldLeafName(ann.field_name)}
+                                </span>
+                                <span className="dl-annotation-text-preview">
+                                  "{preview}"
+                                </span>
+                                <button
+                                  type="button"
+                                  className="dl-annotation-remove"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleAnnotationDelete(ann.id);
+                                  }}
+                                  title="Remove"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-medium">AI Suggestions</p>
+                        <Badge variant="outline">{suggestions.length}</Badge>
+                      </div>
+                      {suggestions.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Run Suggest from the workspace header to generate model
+                          proposals.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {suggestions.map((suggestion) => (
+                            <div
+                              key={suggestion.id}
+                              className="rounded-md border border-[var(--border-subtle)] bg-white p-2"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-medium">
+                                  {getFieldLeafName(suggestion.field_name)}
+                                </span>
+                                <Badge variant="outline">
+                                  {Math.round((suggestion.confidence || 0) * 100)}%
+                                </Badge>
+                              </div>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {formatAnnotationValue(suggestion.value, 120)}
+                              </p>
+                              <div className="mt-2 flex gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => handleSuggestionApprove(suggestion)}
+                                >
+                                  Accept
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => handleSuggestionReject(suggestion.id)}
+                                >
+                                  Reject
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="output" className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium">Output Controls</p>
                         <button
                           type="button"
-                          className="dl-annotation-remove"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleAnnotationDelete(ann.id);
-                          }}
-                          title="Remove"
+                          className="dl-kbd"
+                          onClick={() => setOutputCollapsed((prev) => !prev)}
                         >
-                          ×
+                          {outputCollapsed ? "Expand" : "Collapse"}
                         </button>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                      <div className="flex flex-wrap gap-2">
+                        <div className="dl-export-dropdown" ref={exportMenuRef}>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setExportMenuVisible(!exportMenuVisible)}
+                          >
+                            Export <ChevronDown className="ml-1 h-3 w-3" />
+                          </Button>
+                          <div
+                            className={`dl-export-menu ${exportMenuVisible ? "visible" : ""}`}
+                          >
+                            <button
+                              type="button"
+                              className="dl-export-menu-item"
+                              onClick={() => exportAs("json")}
+                            >
+                              JSON
+                            </button>
+                            <button
+                              type="button"
+                              className="dl-export-menu-item"
+                              onClick={() => exportAs("jsonl")}
+                            >
+                              JSONL
+                            </button>
+                            <button
+                              type="button"
+                              className="dl-export-menu-item"
+                              onClick={() => exportAs("csv")}
+                            >
+                              CSV
+                            </button>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="gap-1.5"
+                          onClick={copyAnnotations}
+                          disabled={annotations.length === 0}
+                        >
+                          <Copy className="h-3 w-3" />
+                          Copy
+                        </Button>
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          className={cn(
+                            "rounded-md border px-2 py-1 text-xs",
+                            outputView === "json"
+                              ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
+                              : "border-[var(--border-subtle)] bg-white",
+                          )}
+                          onClick={() => setOutputView("json")}
+                        >
+                          JSON view
+                        </button>
+                        <button
+                          type="button"
+                          className={cn(
+                            "rounded-md border px-2 py-1 text-xs",
+                            outputView === "table"
+                              ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
+                              : "border-[var(--border-subtle)] bg-white",
+                          )}
+                          onClick={() => setOutputView("table")}
+                        >
+                          Table view
+                        </button>
+                      </div>
+                    </div>
 
-          <Card className="overflow-hidden">
-            <CardHeader className="border-b border-[var(--border-subtle)] py-4">
+                    {!outputCollapsed && (
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-0">
+                        {outputView === "json" ? (
+                          <pre
+                            className={`dl-output-content ${annotations.length > 0 ? "has-content" : ""}`}
+                          >
+                            {outputSummary}
+                          </pre>
+                        ) : outputTableData.rows.length === 0 ? (
+                          <div className="p-3 text-xs text-muted-foreground">
+                            No row-based annotations yet. Add row fields to view
+                            structured table output.
+                          </div>
+                        ) : (
+                          <div className="max-h-[360px] overflow-auto p-3">
+                            <table className="w-full border-collapse text-xs">
+                              <thead>
+                                <tr className="border-b border-[var(--border-subtle)]">
+                                  <th className="px-2 py-1 text-left font-medium text-muted-foreground">
+                                    Row
+                                  </th>
+                                  {outputTableData.columns.map((column) => (
+                                    <th
+                                      key={column}
+                                      className="px-2 py-1 text-left font-medium text-muted-foreground"
+                                    >
+                                      {column}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {outputTableData.rows.map((row) => (
+                                  <tr
+                                    key={row.row}
+                                    className="border-b border-[var(--border-subtle)]"
+                                  >
+                                    <td className="px-2 py-1 font-medium">
+                                      {row.row}
+                                    </td>
+                                    {outputTableData.columns.map((column) => (
+                                      <td key={column} className="px-2 py-1">
+                                        {row.values[column] || "—"}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        <div
+          className={cn(
+            "flex flex-col min-h-0",
+            sidebarVisible && "border-l border-[var(--border-subtle)] pl-0 xl:pl-4",
+          )}
+        >
+          <Card className="flex flex-1 flex-col overflow-hidden min-h-0">
+            <CardHeader className="space-y-2 border-b border-[var(--border-subtle)] py-2 px-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="space-y-1">
-                  <CardTitle className="text-sm">Output</CardTitle>
-                  <CardDescription>
-                    Structured annotation payload for downstream evaluation and
-                    export.
-                  </CardDescription>
+                <div className="flex items-center gap-2">
+                  {activeEntityType && (
+                    <div className="flex items-center gap-1.5 text-sm">
+                      <div
+                        className="w-2 h-2 rounded-full"
+                        style={{ background: activeEntityType.color }}
+                      />
+                      <span className="font-medium">{activeEntityType.name}</span>
+                      {activeEntityType.name.includes(".") && (
+                        <span className="text-xs text-muted-foreground">Row {activeInstanceNum}</span>
+                      )}
+                    </div>
+                  )}
+                  {selectedDocument && (
+                    <Badge variant="outline" className="text-xs">
+                      {selectedDocument.filename}
+                    </Badge>
+                  )}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <div className="dl-export-dropdown" ref={exportMenuRef}>
+                <div className="flex flex-wrap items-center gap-1.5 justify-end">
+                  {sidebarMode !== "hidden" && (
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => setExportMenuVisible(!exportMenuVisible)}
+                      className="h-7 px-2 text-xs"
+                      onClick={toggleSidebarSize}
                     >
-                      Export <ChevronDown className="ml-1 h-3 w-3" />
+                      {sidebarMode === "expanded" ? "Shrink Panel" : "Expand Panel"}
                     </Button>
-                    <div
-                      className={`dl-export-menu ${exportMenuVisible ? "visible" : ""}`}
-                    >
-                      <button
-                        type="button"
-                        className="dl-export-menu-item"
-                        onClick={() => exportAs("json")}
-                      >
-                        JSON
-                      </button>
-                      <button
-                        type="button"
-                        className="dl-export-menu-item"
-                        onClick={() => exportAs("jsonl")}
-                      >
-                        JSONL
-                      </button>
-                      <button
-                        type="button"
-                        className="dl-export-menu-item"
-                        onClick={() => exportAs("csv")}
-                      >
-                        CSV
-                      </button>
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={copyAnnotations}
-                    disabled={annotations.length === 0}
-                  >
-                    <Copy className="h-3 w-3" />
-                    Copy
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <pre
-                className={`dl-output-content ${annotations.length > 0 ? "has-content" : ""}`}
-              >
-                {outputSummary}
-              </pre>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="min-h-0">
-          <Card className="flex min-h-[760px] flex-col overflow-hidden xl:min-h-[980px]">
-            <CardHeader className="space-y-3 border-b border-[var(--border-subtle)]">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 space-y-1">
-                  <CardTitle className="text-base">Labelling Workspace</CardTitle>
-                  <CardDescription>
-                    {activeEntityType ? (
-                      <span>
-                        Labelling as <strong>{activeEntityType.name}</strong>
-                        {selectedDocument && (
-                          <>
-                            {" "}
-                            in <strong>{selectedDocument.filename}</strong>
-                          </>
-                        )}
-                        . Highlight text or draw a box to create an annotation.
-                      </span>
-                    ) : entityTypes.length === 0 ? (
-                      <span>Select a classified document to load schema fields.</span>
-                    ) : (
-                      <span>
-                        Select an entity type, then highlight text to label it.
-                      </span>
-                    )}
-                  </CardDescription>
-                </div>
-                {selectedDocument && (
-                  <Badge variant="outline" className="max-w-full">
-                    {selectedDocument.filename}
-                  </Badge>
-                )}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={handleAISuggest}
-                  disabled={!selectedDocId || loadingSuggestions}
-                  title="Generate AI annotation suggestions"
-                >
-                  {loadingSuggestions ? (
-                    <Loader2 size={13} className="animate-spin" />
-                  ) : (
-                    <Sparkles size={13} />
                   )}
-                  Suggest
-                  {suggestions.length > 0 && (
-                    <span className="dl-annotation-label-chip dl-annotation-chip-meta">
-                      {suggestions.length}
-                    </span>
-                  )}
-                </Button>
-
-                {suggestions.length > 0 && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={handleAcceptAllSuggestions}
-                    disabled={!selectedDocId || loadingSuggestions}
-                    title={`Accept all ${suggestions.length} suggestions`}
-                  >
-                    <Sparkles size={13} />
-                    Accept All ({suggestions.length})
-                  </Button>
-                )}
-
-                {selectedDocId && annotations.length > 0 && (
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="gap-1.5 text-destructive hover:bg-destructive hover:text-destructive-foreground"
-                    onClick={handleDeleteAllAnnotations}
-                    title={`Delete all ${annotations.length} annotations`}
+                    className="h-7 px-2 text-xs"
+                    onClick={toggleSidebarVisibility}
                   >
-                    <Trash2 size={13} />
-                    Delete All ({annotations.length})
+                    {sidebarMode === "hidden" ? "Show Panel" : "Hide Panel"}
                   </Button>
-                )}
-
-                {activeEntityType && (
-                  <div className="dl-active-label-indicator">
-                    <div
-                      className="dl-active-label-dot"
-                      style={{ background: activeEntityType.color }}
-                    />
-                    <span>{activeEntityType.name}</span>
-                    {activeEntityType.name.includes(".") && (
-                      <span className="dl-row-pill">Row {activeInstanceNum}</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1 h-7 px-2 text-xs"
+                    onClick={handleAISuggest}
+                    disabled={!selectedDocId || loadingSuggestions}
+                    title="Generate AI annotation suggestions"
+                  >
+                    {loadingSuggestions ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={12} />
                     )}
-                  </div>
-                )}
-              </div>
+                    Suggest
+                  </Button>
 
-              <div className="dl-stats-bar rounded-lg border border-[var(--border-subtle)]">
-                <div>
-                  Documents: <strong>{stats.documents}</strong>
-                </div>
-                <div>
-                  Annotations: <strong>{stats.annotations}</strong>
-                </div>
-                <div>
-                  Words annotated: <strong>{stats.words}</strong>
+                  {suggestions.length > 0 && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="gap-1 h-7 px-2 text-xs"
+                      onClick={handleAcceptAllSuggestions}
+                      disabled={!selectedDocId || loadingSuggestions}
+                    >
+                      Accept All ({suggestions.length})
+                    </Button>
+                  )}
+
+                  {selectedDocId && annotations.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1 h-7 px-2 text-xs text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                      onClick={handleDeleteAllAnnotations}
+                    >
+                      <Trash2 size={12} />
+                      Delete All
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="flex-1 min-h-0 overflow-hidden p-0">
-              <div className="h-full min-h-[580px] xl:min-h-[780px]">
+            <CardContent className="flex-1 min-h-0 overflow-auto p-0">
+              <div className="h-full min-h-0">
                 {renderDocumentViewer()}
               </div>
             </CardContent>
           </Card>
         </div>
       </div>
-
     </div>
-  );
+  ) : null;
 }

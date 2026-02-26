@@ -44,9 +44,14 @@ export default function Dashboard() {
   });
 
   const projects = useMemo(() => {
-    const stored = localStorage.getItem("uu-projects");
-    if (!stored) return [];
-    return JSON.parse(stored) as Array<{ id: string; name: string }>;
+    if (typeof window === 'undefined') return [];
+    try {
+      const stored = localStorage.getItem("uu-projects");
+      if (!stored) return [];
+      return JSON.parse(stored) as Array<{ id: string; name: string }>;
+    } catch {
+      return [];
+    }
   }, []);
 
   const totalDocs = ingestStatus?.documents || 0;
@@ -79,7 +84,7 @@ export default function Dashboard() {
                 extraction command center
               </p>
               <h2 className="text-2xl md:text-3xl font-semibold leading-tight">
-                Build, label, evaluate, and deploy extraction systems in one flow.
+                Build, label, evaluate, and deploy
               </h2>
               <div className="pt-2">
                 <Button

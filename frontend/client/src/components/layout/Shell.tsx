@@ -1,9 +1,18 @@
-import { useMemo, useState, type ComponentType, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import {
   Bell,
   BookOpen,
+  ChevronLeft,
+  ChevronRight,
   FolderOpen,
   LayoutDashboard,
   LifeBuoy,
@@ -50,6 +59,12 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
+type DesktopRailMode = "expanded" | "compact" | "hidden";
+const DESKTOP_RAIL_MODE_STORAGE_KEY = "shell:desktop-rail-mode";
+
+const isDesktopRailMode = (value: string | null): value is DesktopRailMode =>
+  value === "expanded" || value === "compact" || value === "hidden";
+
 const SidebarLogo = () => (
   <img src="/logo.svg" alt="Intelligent Ingestion Logo" className="h-9 w-9" />
 );
@@ -59,6 +74,7 @@ interface RailContentProps {
   section: AppSection;
   projectId?: string;
   onNavigate?: () => void;
+  compact?: boolean;
 }
 
 function RailContent({
@@ -66,6 +82,7 @@ function RailContent({
   section,
   projectId,
   onNavigate,
+  compact = false,
 }: RailContentProps) {
   const workspaceLinks = useMemo(() => {
     if (!projectId) return [];
@@ -81,17 +98,26 @@ function RailContent({
 
   return (
     <div className="h-full bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col">
-      <div className="h-16 flex items-center px-4 border-b border-sidebar-border gap-3">
+      <div
+        className={cn(
+          "h-16 flex items-center border-b border-sidebar-border",
+          compact ? "justify-center px-2" : "px-4 gap-3",
+        )}
+      >
         <SidebarLogo />
-        <div className="min-w-0">
-          <p className="text-sm font-semibold leading-tight truncate">
-            Intelligent Ingestion
-          </p>
-          <p className="text-[11px] text-sidebar-foreground/70">Extraction Studio</p>
-        </div>
+        {!compact && (
+          <div className="min-w-0">
+            <p className="text-sm font-semibold leading-tight truncate">
+              Intelligent Ingestion
+            </p>
+            <p className="text-[11px] text-sidebar-foreground/70">
+              Extraction Studio
+            </p>
+          </div>
+        )}
       </div>
 
-      <div className="px-3 py-4 flex-1 overflow-y-auto">
+      <div className={cn("py-4 flex-1 overflow-y-auto", compact ? "px-2" : "px-3")}>
         <nav className="space-y-1">
           {NAV_ITEMS.map((item) => {
             const isActive =
@@ -104,21 +130,24 @@ function RailContent({
                 key={item.href}
                 href={item.href}
                 onClick={onNavigate}
+                aria-label={item.label}
+                title={item.label}
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-md border border-transparent",
+                  "flex items-center text-sm font-medium rounded-md border border-transparent",
+                  compact ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
                   isActive
                     ? "bg-sidebar-accent text-sidebar-accent-foreground border-sidebar-accent/35"
                     : "text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent/35",
                 )}
               >
                 <item.icon className="h-4 w-4" />
-                {item.label}
+                {!compact && item.label}
               </Link>
             );
           })}
         </nav>
 
-        {workspaceLinks.length > 0 && (
+        {workspaceLinks.length > 0 && !compact && (
           <div className="mt-8">
             <h4 className="px-3 text-[11px] font-semibold text-sidebar-foreground/65 mb-2 uppercase tracking-wider">
               Current Project
@@ -139,26 +168,44 @@ function RailContent({
         )}
       </div>
 
-      <div className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-full bg-sidebar-accent/80 flex items-center justify-center text-xs font-semibold">
-            JD
+      <div className={cn("border-t border-sidebar-border", compact ? "p-2" : "p-4")}>
+        {compact ? (
+          <div className="flex flex-col items-center gap-2">
+            <div className="h-8 w-8 rounded-full bg-sidebar-accent/80 flex items-center justify-center text-xs font-semibold">
+              JD
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent/35"
+              onClick={onNavigate}
+              title="Support"
+              aria-label="Support"
+            >
+              <LifeBuoy className="h-4 w-4" />
+            </Button>
           </div>
-          <div className="flex-1 overflow-hidden">
-            <p className="text-sm font-medium truncate">Jane Doe</p>
-            <p className="text-xs text-sidebar-foreground/70 truncate">
-              Operations Analyst
-            </p>
+        ) : (
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-full bg-sidebar-accent/80 flex items-center justify-center text-xs font-semibold">
+              JD
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <p className="text-sm font-medium truncate">Jane Doe</p>
+              <p className="text-xs text-sidebar-foreground/70 truncate">
+                Operations Analyst
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent/35"
+              onClick={onNavigate}
+            >
+              <LifeBuoy className="h-4 w-4" />
+            </Button>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent/35"
-            onClick={onNavigate}
-          >
-            <LifeBuoy className="h-4 w-4" />
-          </Button>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -192,6 +239,42 @@ export function Shell({
 }: ShellProps) {
   const [location] = useLocation();
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
+  const [desktopRailMode, setDesktopRailMode] = useState<DesktopRailMode>(() => {
+    if (typeof window === "undefined") return "expanded";
+    const storedValue = window.localStorage.getItem(DESKTOP_RAIL_MODE_STORAGE_KEY);
+    return isDesktopRailMode(storedValue) ? storedValue : "expanded";
+  });
+  const lastVisibleRailModeRef = useRef<Exclude<DesktopRailMode, "hidden">>(
+    "expanded",
+  );
+  const isDesktopRailCompact = desktopRailMode === "compact";
+
+  useEffect(() => {
+    if (!showProjectRail) return;
+    window.localStorage.setItem(DESKTOP_RAIL_MODE_STORAGE_KEY, desktopRailMode);
+  }, [desktopRailMode, showProjectRail]);
+
+  useEffect(() => {
+    if (desktopRailMode === "hidden") return;
+    lastVisibleRailModeRef.current = desktopRailMode;
+  }, [desktopRailMode]);
+
+  const toggleDesktopRailCompact = () => {
+    setDesktopRailMode((current) => {
+      if (current === "hidden") return "compact";
+      return current === "expanded" ? "compact" : "expanded";
+    });
+  };
+
+  const toggleDesktopRailVisibility = () => {
+    setDesktopRailMode((current) => {
+      if (current === "hidden") {
+        return lastVisibleRailModeRef.current;
+      }
+      lastVisibleRailModeRef.current = current;
+      return "hidden";
+    });
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -219,6 +302,49 @@ export function Shell({
             >
               <Menu className="h-5 w-5" />
             </Button>
+          )}
+
+          {showProjectRail && (
+            <div className="hidden lg:flex items-center gap-1">
+              {desktopRailMode !== "hidden" && (
+                <Button
+                  variant="quiet"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={toggleDesktopRailCompact}
+                  aria-label={
+                    isDesktopRailCompact ? "Expand navigation rail" : "Shrink navigation rail"
+                  }
+                  title={
+                    isDesktopRailCompact ? "Expand navigation rail" : "Shrink navigation rail"
+                  }
+                >
+                  {isDesktopRailCompact ? (
+                    <ChevronRight className="h-4 w-4" />
+                  ) : (
+                    <ChevronLeft className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
+              <Button
+                variant="quiet"
+                size="icon"
+                className="h-9 w-9"
+                onClick={toggleDesktopRailVisibility}
+                aria-label={
+                  desktopRailMode === "hidden" ? "Show navigation rail" : "Hide navigation rail"
+                }
+                title={
+                  desktopRailMode === "hidden" ? "Show navigation rail" : "Hide navigation rail"
+                }
+              >
+                {desktopRailMode === "hidden" ? (
+                  <Menu className="h-4 w-4" />
+                ) : (
+                  <X className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
           )}
 
           <div className="min-w-0">
@@ -253,9 +379,19 @@ export function Shell({
       </header>
 
       <div className="flex">
-        {showProjectRail && (
-          <aside className="hidden lg:block w-72 shrink-0 sticky top-[6.25rem] h-[calc(100vh-6.25rem)]">
-            <RailContent location={location} section={section} projectId={projectId} />
+        {showProjectRail && desktopRailMode !== "hidden" && (
+          <aside
+            className={cn(
+              "hidden lg:block shrink-0 sticky top-[6.25rem] h-[calc(100vh-6.25rem)] transition-[width] duration-200 ease-out",
+              isDesktopRailCompact ? "w-20" : "w-72",
+            )}
+          >
+            <RailContent
+              location={location}
+              section={section}
+              projectId={projectId}
+              compact={isDesktopRailCompact}
+            />
           </aside>
         )}
 

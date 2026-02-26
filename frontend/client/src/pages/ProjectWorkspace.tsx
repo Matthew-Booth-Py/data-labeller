@@ -125,11 +125,26 @@ export default function ProjectWorkspace() {
   }, []);
 
   const project = useMemo<Project>(() => {
-    const stored = localStorage.getItem("uu-projects");
-    if (stored) {
-      const projects: Project[] = JSON.parse(stored);
-      const found = projects.find((p) => p.id === id);
-      if (found) return found;
+    if (typeof window === 'undefined') {
+      return {
+        id: id || "unknown",
+        name: id
+          ? id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+          : "Project",
+        description: "",
+        docCount: 0,
+      };
+    }
+
+    try {
+      const stored = localStorage.getItem("uu-projects");
+      if (stored) {
+        const projects: Project[] = JSON.parse(stored);
+        const found = projects.find((p) => p.id === id);
+        if (found) return found;
+      }
+    } catch {
+      // Ignore storage errors
     }
 
     return {
@@ -224,14 +239,14 @@ export default function ProjectWorkspace() {
       contentClassName="py-0 px-0 md:px-0"
       contentFullWidth
     >
-      <div className="flex flex-col h-[calc(100vh-13.5rem)] min-h-[620px]">
+      <div className="flex flex-col h-[calc(100vh-8rem)] min-h-[800px]">
         <Tabs
           value={activeTab}
           onValueChange={handleTabChange}
           className="flex-1 flex flex-col overflow-hidden"
         >
           <div className="border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]/90 backdrop-blur supports-[backdrop-filter]:bg-[var(--surface-elevated)]/75">
-            <div className="max-w-[1300px] mx-auto px-4 md:px-8">
+            <div className="max-w-[1420px] mx-auto px-4 md:px-8">
               <TabsList className="w-full justify-start bg-transparent border-0 p-0 py-3 gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap">
                 {WORKSPACE_TABS.map((tabId) => {
                   const tabMeta = WORKSPACE_TAB_META[tabId];
@@ -255,7 +270,7 @@ export default function ProjectWorkspace() {
             </div>
           </div>
 
-          <div className="max-w-[1300px] mx-auto flex-1 flex flex-col min-h-0 w-full">
+          <div className="max-w-[1420px] mx-auto flex-1 flex flex-col min-h-0 w-full">
             <div className="flex-1 overflow-hidden bg-gradient-to-b from-[var(--surface-elevated)]/50 via-transparent to-transparent">
               <TabsContent
                 value="schema"
@@ -277,9 +292,11 @@ export default function ProjectWorkspace() {
               </TabsContent>
               <TabsContent
                 value="labeller"
-                className="h-full m-0 p-6 overflow-auto"
+                className="h-full m-0 p-0 overflow-hidden"
               >
-                <DataLabeller />
+                <div className="h-full p-4 xl:px-5 overflow-hidden">
+                  <DataLabeller />
+                </div>
               </TabsContent>
               <TabsContent
                 value="labels"
