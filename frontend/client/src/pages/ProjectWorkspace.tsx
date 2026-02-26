@@ -277,7 +277,7 @@ export default function ProjectWorkspace() {
               </TabsContent>
               <TabsContent
                 value="labeller"
-                className="h-full m-0 p-0 overflow-hidden"
+                className="h-full m-0 p-6 overflow-auto"
               >
                 <DataLabeller />
               </TabsContent>

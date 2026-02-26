@@ -33,6 +33,15 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { formatAnnotationValue } from "@/lib/utils";
 import { BEAZLEY_PALETTE } from "@/theme/design-tokens";
 
@@ -759,394 +768,512 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   }, [annotations, selectedDocument]);
 
   return (
-    <div className="data-labeller-v2 flex h-full overflow-hidden">
-      {/* Sidebar */}
-      <div className="dl-sidebar dl-contrast-panel">
-        <div className="dl-sidebar-header">
-          <FileText size={16} />
-          Data Labelling Tool
-        </div>
-
-        {/* Documents section */}
-        <div className="dl-sidebar-section">
-          <div className="dl-section-title">
-            Documents
-            <span className="dl-meta-note">{documents.length}</span>
+    <div className="data-labeller-v2 space-y-6">
+      <Card className="overflow-hidden border-primary/20 bg-[var(--surface-panel)]">
+        <div className="bg-gradient-to-r from-primary to-[var(--interactive-primary-hover)] px-6 py-6 text-primary-foreground">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="space-y-2">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-primary-foreground/80">
+                annotation workspace
+              </p>
+              <h3 className="text-2xl font-semibold leading-tight text-primary-foreground">
+                Label source documents with schema-aligned entities
+              </h3>
+              <p className="max-w-2xl text-sm text-primary-foreground/80">
+                Select a document, activate an entity type, and highlight content
+                to create ground truth labels for extraction quality workflows.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:min-w-[280px]">
+              <div className="rounded-lg border border-white/30 bg-white/10 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wider text-primary-foreground/80">
+                  Documents
+                </p>
+                <p className="text-lg font-semibold">{stats.documents}</p>
+              </div>
+              <div className="rounded-lg border border-white/30 bg-white/10 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wider text-primary-foreground/80">
+                  Annotations
+                </p>
+                <p className="text-lg font-semibold">{stats.annotations}</p>
+              </div>
+              <div className="rounded-lg border border-white/30 bg-white/10 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wider text-primary-foreground/80">
+                  Words Tagged
+                </p>
+                <p className="text-lg font-semibold">{stats.words}</p>
+              </div>
+              <div className="rounded-lg border border-white/30 bg-white/10 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wider text-primary-foreground/80">
+                  Active Row
+                </p>
+                <p className="text-lg font-semibold">{activeInstanceNum}</p>
+              </div>
+            </div>
           </div>
-          <div className="dl-section-content">
-            {documents.length === 0 ? (
-              <div className="dl-empty-note">No documents in this project</div>
-            ) : (
-              <div className="dl-documents-list">
-                {documents.map((doc) => (
+        </div>
+        <CardContent className="flex flex-wrap items-center gap-2 py-4">
+          {selectedDocument ? (
+            <Badge variant="outline">Document: {selectedDocument.filename}</Badge>
+          ) : (
+            <Badge variant="outline">No document selected</Badge>
+          )}
+          {activeEntityType ? (
+            <Badge
+              variant="outline"
+              style={{
+                borderColor: `${activeEntityType.color}66`,
+                color: activeEntityType.color,
+                backgroundColor: `${activeEntityType.color}18`,
+              }}
+            >
+              Active Type: {activeEntityType.name}
+            </Badge>
+          ) : (
+            <Badge variant="outline">No active entity type</Badge>
+          )}
+          <span className="text-xs text-muted-foreground">
+            Keyboard: 1-9 select type, Esc deselect, Del removes last, Ctrl/Cmd +
+            ↑/↓ changes row
+          </span>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="space-y-1">
+                  <CardTitle className="text-base">Documents</CardTitle>
+                  <CardDescription>
+                    Select a document in this project to begin labelling.
+                  </CardDescription>
+                </div>
+                <Badge variant="outline">{documents.length}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {documents.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
+                  No documents in this project.
+                </div>
+              ) : (
+                <div className="dl-documents-list">
+                  {documents.map((doc) => (
+                    <button
+                      key={doc.id}
+                      type="button"
+                      className={`dl-document-item ${selectedDocId === doc.id ? "active" : ""}`}
+                      onClick={() => setSelectedDocId(doc.id)}
+                    >
+                      {doc.file_type === "pdf" ? (
+                        <FileText size={14} />
+                      ) : (
+                        <Image size={14} />
+                      )}
+                      <span className="dl-document-item-name">{doc.filename}</span>
+                      <span className="dl-document-item-meta">
+                        {documentAnnotationCounts[doc.id] || 0} ann.
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="space-y-1">
+                <CardTitle className="text-base">Table Row Number</CardTitle>
+                <CardDescription>
+                  Choose the row index used when annotating array fields.
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="dl-row-grid">
+                {Array.from({ length: 10 }, (_, idx) => idx + 1).map((num) => (
                   <button
-                    key={doc.id}
+                    key={num}
                     type="button"
-                    className={`dl-document-item ${selectedDocId === doc.id ? "active" : ""}`}
-                    onClick={() => setSelectedDocId(doc.id)}
+                    onClick={() => setActiveInstanceNum(num)}
+                    className={`dl-row-chip ${activeInstanceNum === num ? "active" : ""}`}
                   >
-                    {doc.file_type === "pdf" ? (
-                      <FileText size={14} />
-                    ) : (
-                      <Image size={14} />
-                    )}
-                    <span className="dl-document-item-name">{doc.filename}</span>
-                    <span className="dl-document-item-meta">
-                      {documentAnnotationCounts[doc.id] || 0} ann.
-                    </span>
+                    {num}
                   </button>
                 ))}
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* Row Number Selector for Array Fields */}
-        <div className="dl-sidebar-section">
-          <div className="dl-section-title">
-            Table Row Number
-            <span className="dl-meta-note">for array fields</span>
-          </div>
-          <div className="dl-section-content">
-            <div className="dl-row-grid">
-              {Array.from({ length: 10 }, (_, idx) => idx + 1).map((num) => (
-                <button
-                  key={num}
-                  type="button"
-                  onClick={() => setActiveInstanceNum(num)}
-                  className={`dl-row-chip ${activeInstanceNum === num ? "active" : ""}`}
-                >
-                  {num}
-                </button>
-              ))}
-            </div>
-            <div className="dl-row-current">
-              Current row: <strong>{activeInstanceNum}</strong>
-            </div>
-          </div>
-        </div>
-
-        {/* Entity Types section */}
-        <div className="dl-sidebar-section">
-          <div className="dl-section-title">
-            Entity Types
-            <span className="dl-meta-note">click to activate</span>
-          </div>
-          <div className="dl-section-content">
-            {entityTypes.length === 0 ? (
-              <div className="dl-empty-note">
-                Select a classified document to see schema fields
+              <div className="dl-row-current">
+                Current row: <strong>{activeInstanceNum}</strong>
               </div>
-            ) : (
-              <div className="dl-entity-types-list">
-                {Object.entries(groupedEntityTypes).map(
-                  ([groupName, groupTypes]) => {
-                    const isExpanded = expandedGroups.has(groupName);
-                    const isRoot = groupName === "_root";
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="space-y-1">
+                  <CardTitle className="text-base">Entity Types</CardTitle>
+                  <CardDescription>
+                    Click an entity type to annotate directly with highlight
+                    selection.
+                  </CardDescription>
+                </div>
+                <Badge variant="outline">{entityTypes.length}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {entityTypes.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
+                  Select a classified document to load schema fields.
+                </div>
+              ) : (
+                <div className="dl-entity-types-list max-h-[320px] overflow-y-auto pr-1">
+                  {Object.entries(groupedEntityTypes).map(
+                    ([groupName, groupTypes]) => {
+                      const isExpanded = expandedGroups.has(groupName);
+                      const isRoot = groupName === "_root";
+
+                      return (
+                        <div key={groupName} className="dl-entity-group">
+                          {!isRoot && (
+                            <button
+                              type="button"
+                              className="dl-entity-group-header w-full text-left"
+                              onClick={() => {
+                                const newExpanded = new Set(expandedGroups);
+                                if (isExpanded) {
+                                  newExpanded.delete(groupName);
+                                } else {
+                                  newExpanded.add(groupName);
+                                }
+                                setExpandedGroups(newExpanded);
+                              }}
+                            >
+                              <ChevronDown
+                                size={14}
+                                className={
+                                  isExpanded
+                                    ? "transition-transform"
+                                    : "-rotate-90 transition-transform"
+                                }
+                              />
+                              <span>{groupName}</span>
+                              <span className="dl-entity-group-count">
+                                {groupTypes.length}
+                              </span>
+                            </button>
+                          )}
+                          {(isRoot || isExpanded) &&
+                            groupTypes.map((et) => {
+                              const globalIndex = entityTypes.findIndex(
+                                (e) => e.id === et.id,
+                              );
+                              const displayName =
+                                et.name.split(".").pop() || et.name;
+
+                              return (
+                                <button
+                                  type="button"
+                                  key={et.id}
+                                  className={`dl-entity-type-item ${activeEntityTypeId === et.id ? "active" : ""}`}
+                                  style={{
+                                    ...(activeEntityTypeId === et.id
+                                      ? { color: et.color }
+                                      : undefined),
+                                    paddingLeft: isRoot ? "8px" : "24px",
+                                  }}
+                                  onClick={() =>
+                                    setActiveEntityTypeId(
+                                      activeEntityTypeId === et.id
+                                        ? null
+                                        : et.id,
+                                    )
+                                  }
+                                >
+                                  <div
+                                    className="dl-entity-color-dot"
+                                    style={{ background: et.color }}
+                                  />
+                                  <span className="dl-entity-type-name">
+                                    {displayName}
+                                  </span>
+                                  {globalIndex < 9 && (
+                                    <span className="dl-kbd">
+                                      {globalIndex + 1}
+                                    </span>
+                                  )}
+                                  <span className="dl-entity-type-count">
+                                    {entityCounts[et.name] || 0}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                        </div>
+                      );
+                    },
+                  )}
+                </div>
+              )}
+              <div className="dl-shortcut-hint">
+                <span className="dl-kbd">1</span>-<span className="dl-kbd">9</span>{" "}
+                activate type, <span className="dl-kbd">Esc</span> deselect,{" "}
+                <span className="dl-kbd">Del</span> remove last
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="space-y-1">
+                  <CardTitle className="text-base">Annotations</CardTitle>
+                  <CardDescription>
+                    Review labels and click any row to focus it in the document.
+                  </CardDescription>
+                </div>
+                <Badge variant="outline">{annotations.length}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {annotations.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
+                  No annotations yet.
+                </div>
+              ) : (
+                <div className="dl-annotations-list max-h-[320px] overflow-y-auto pr-1">
+                  {annotations.map((ann) => {
+                    const et = entityTypes.find((e) => e.name === ann.field_name);
+                    const color = et?.color || BEAZLEY_PALETTE.light;
+                    const preview = formatAnnotationValue(ann.value, 30);
+                    const instanceNum = (ann.annotation_data as any)?.instance_num;
 
                     return (
-                      <div key={groupName} className="dl-entity-group">
-                        {!isRoot && (
-                          <button
-                            type="button"
-                            className="dl-entity-group-header w-full text-left"
-                            onClick={() => {
-                              const newExpanded = new Set(expandedGroups);
-                              if (isExpanded) {
-                                newExpanded.delete(groupName);
-                              } else {
-                                newExpanded.add(groupName);
-                              }
-                              setExpandedGroups(newExpanded);
-                            }}
-                          >
-                            <ChevronDown
-                              size={14}
-                              className={
-                                isExpanded
-                                  ? "transition-transform"
-                                  : "-rotate-90 transition-transform"
-                              }
-                            />
-                            <span>{groupName}</span>
-                            <span className="dl-entity-group-count">
-                              {groupTypes.length}
-                            </span>
-                          </button>
+                      <div
+                        key={ann.id}
+                        className="dl-annotation-item"
+                        onClick={() => focusAnnotationInDocument(ann)}
+                      >
+                        {instanceNum && (
+                          <span className="dl-annotation-label-chip dl-annotation-chip-meta">
+                            {instanceNum}
+                          </span>
                         )}
-                        {(isRoot || isExpanded) &&
-                          groupTypes.map((et) => {
-                            const globalIndex = entityTypes.findIndex(
-                              (e) => e.id === et.id,
-                            );
-                            const displayName =
-                              et.name.split(".").pop() || et.name;
-
-                            return (
-                              <button
-                                type="button"
-                                key={et.id}
-                                className={`dl-entity-type-item ${activeEntityTypeId === et.id ? "active" : ""}`}
-                                style={{
-                                  ...(activeEntityTypeId === et.id
-                                    ? { color: et.color }
-                                    : undefined),
-                                  paddingLeft: isRoot ? "8px" : "24px",
-                                }}
-                                onClick={() =>
-                                  setActiveEntityTypeId(
-                                    activeEntityTypeId === et.id ? null : et.id,
-                                  )
-                                }
-                              >
-                                <div
-                                  className="dl-entity-color-dot"
-                                  style={{ background: et.color }}
-                                />
-                                <span className="dl-entity-type-name">
-                                  {displayName}
-                                </span>
-                                {globalIndex < 9 && (
-                                  <span className="dl-kbd">
-                                    {globalIndex + 1}
-                                  </span>
-                                )}
-                                <span className="dl-entity-type-count">
-                                  {entityCounts[et.name] || 0}
-                                </span>
-                              </button>
-                            );
-                          })}
+                        <span
+                          className="dl-annotation-label-chip"
+                          style={{ background: `${color}30`, color }}
+                        >
+                          {ann.field_name.split(".").pop()}
+                        </span>
+                        <span className="dl-annotation-text-preview">
+                          "{preview}
+                          {(ann.value?.length || 0) > 30 ? "..." : ""}"
+                        </span>
+                        <button
+                          type="button"
+                          className="dl-annotation-remove"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAnnotationDelete(ann.id);
+                          }}
+                          title="Remove"
+                        >
+                          ×
+                        </button>
                       </div>
                     );
-                  },
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="min-h-0 space-y-4">
+          <Card className="flex min-h-[620px] flex-col overflow-hidden">
+            <CardHeader className="space-y-3 border-b border-[var(--border-subtle)]">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <CardTitle className="text-base">Labelling Workspace</CardTitle>
+                  <CardDescription>
+                    {activeEntityType ? (
+                      <span>
+                        Labelling as <strong>{activeEntityType.name}</strong>
+                        {selectedDocument && (
+                          <>
+                            {" "}
+                            in <strong>{selectedDocument.filename}</strong>
+                          </>
+                        )}
+                        . Highlight text or draw a box to create an annotation.
+                      </span>
+                    ) : entityTypes.length === 0 ? (
+                      <span>Select a classified document to load schema fields.</span>
+                    ) : (
+                      <span>
+                        Select an entity type, then highlight text to label it.
+                      </span>
+                    )}
+                  </CardDescription>
+                </div>
+                {selectedDocument && (
+                  <Badge variant="outline" className="max-w-full">
+                    {selectedDocument.filename}
+                  </Badge>
                 )}
               </div>
-            )}
-          </div>
-          <div className="dl-shortcut-hint">
-            <span className="dl-kbd">1</span>-<span className="dl-kbd">9</span>{" "}
-            activate type · <span className="dl-kbd">Esc</span> deselect ·{" "}
-            <span className="dl-kbd">Del</span> remove last ·{" "}
-            <span className="dl-kbd">Ctrl</span>+
-            <span className="dl-kbd">↑</span>/<span className="dl-kbd">↓</span>{" "}
-            row
-          </div>
-        </div>
 
-        {/* Annotations section */}
-        <div className="dl-sidebar-section flex-grow">
-          <div className="dl-section-title">
-            Annotations
-            <span className="dl-meta-note">{annotations.length}</span>
-          </div>
-          <div className="dl-section-content flex-1 overflow-y-auto">
-            {annotations.length === 0 ? (
-              <div className="dl-empty-note">No annotations yet</div>
-            ) : (
-              <div className="dl-annotations-list">
-                {annotations.map((ann) => {
-                  const et = entityTypes.find((e) => e.name === ann.field_name);
-                  const color = et?.color || BEAZLEY_PALETTE.light;
-                  const preview = formatAnnotationValue(ann.value, 30);
-                  const instanceNum = (ann.annotation_data as any)
-                    ?.instance_num;
-
-                  return (
-                    <div
-                      key={ann.id}
-                      className="dl-annotation-item"
-                      onClick={() => focusAnnotationInDocument(ann)}
-                    >
-                      {instanceNum && (
-                        <span className="dl-annotation-label-chip dl-annotation-chip-meta">
-                          {instanceNum}
-                        </span>
-                      )}
-                      <span
-                        className="dl-annotation-label-chip"
-                        style={{ background: `${color}30`, color }}
-                      >
-                        {ann.field_name.split(".").pop()}
-                      </span>
-                      <span className="dl-annotation-text-preview">
-                        "{preview}
-                        {(ann.value?.length || 0) > 30 ? "..." : ""}"
-                      </span>
-                      <button
-                        type="button"
-                        className="dl-annotation-remove"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleAnnotationDelete(ann.id);
-                        }}
-                        title="Remove"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Main content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Toolbar */}
-        <div className="dl-toolbar">
-          <div className="dl-toolbar-info">
-            {activeEntityType ? (
-              <span>
-                Labelling as <strong>{activeEntityType.name}</strong>
-                {selectedDocument && (
-                  <>
-                    {" "}
-                    in <strong>{selectedDocument.filename}</strong>
-                  </>
-                )}{" "}
-                — highlight text to annotate
-              </span>
-            ) : entityTypes.length === 0 ? (
-              <span>Select a classified document to see schema fields</span>
-            ) : (
-              <span>
-                Select an entity type, then highlight text to label it
-              </span>
-            )}
-          </div>
-          {selectedDocId && (
-            <button
-              type="button"
-              className="dl-btn dl-btn-sm dl-btn-icon"
-              onClick={handleAISuggest}
-              disabled={loadingSuggestions}
-              title="Generate AI annotation suggestions"
-            >
-              {loadingSuggestions ? (
-                <Loader2 size={12} className="animate-spin" />
-              ) : (
-                <Sparkles size={12} />
-              )}
-              Suggest
-              {suggestions.length > 0 && (
-                <span className="dl-annotation-label-chip dl-annotation-chip-meta">
-                  {suggestions.length}
-                </span>
-              )}
-            </button>
-          )}
-          {selectedDocId && suggestions.length > 0 && (
-            <button
-              type="button"
-              className="dl-btn dl-btn-sm dl-btn-primary dl-btn-icon"
-              onClick={handleAcceptAllSuggestions}
-              disabled={loadingSuggestions}
-              title={`Accept all ${suggestions.length} suggestions`}
-            >
-              <Sparkles size={12} />
-              Accept All ({suggestions.length})
-            </button>
-          )}
-          {selectedDocId && annotations.length > 0 && (
-            <button
-              type="button"
-              className="dl-btn dl-btn-sm dl-btn-danger dl-btn-icon"
-              onClick={handleDeleteAllAnnotations}
-              title={`Delete all ${annotations.length} annotations`}
-            >
-              <Trash2 size={12} />
-              Delete All ({annotations.length})
-            </button>
-          )}
-          {activeEntityType && (
-            <div className="dl-active-label-indicator">
-              <div
-                className="dl-active-label-dot"
-                style={{ background: activeEntityType.color }}
-              />
-              <span>{activeEntityType.name}</span>
-              {activeEntityType.name.includes(".") && (
-                <span className="dl-row-pill">Row {activeInstanceNum}</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Stats bar */}
-        <div className="dl-stats-bar">
-          <div>
-            Documents: <strong>{stats.documents}</strong>
-          </div>
-          <div>
-            Annotations: <strong>{stats.annotations}</strong>
-          </div>
-          <div>
-            Words annotated: <strong>{stats.words}</strong>
-          </div>
-        </div>
-
-        {/* Document viewer */}
-        <div className="flex-1 min-h-0 overflow-hidden">
-          {renderDocumentViewer()}
-        </div>
-
-        {/* Output panel */}
-        <div className="dl-output-panel">
-          <div className="dl-output-header">
-            <span className="dl-output-label">Output</span>
-            <div className="dl-output-buttons">
-              <div className="dl-export-dropdown" ref={exportMenuRef}>
-                <button
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
                   type="button"
-                  className="dl-btn dl-btn-sm"
-                  onClick={() => setExportMenuVisible(!exportMenuVisible)}
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={handleAISuggest}
+                  disabled={!selectedDocId || loadingSuggestions}
+                  title="Generate AI annotation suggestions"
                 >
-                  Export <ChevronDown className="ml-1 h-3 w-3" />
-                </button>
-                <div
-                  className={`dl-export-menu ${exportMenuVisible ? "visible" : ""}`}
-                >
-                  <button
+                  {loadingSuggestions ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <Sparkles size={13} />
+                  )}
+                  Suggest
+                  {suggestions.length > 0 && (
+                    <span className="dl-annotation-label-chip dl-annotation-chip-meta">
+                      {suggestions.length}
+                    </span>
+                  )}
+                </Button>
+
+                {suggestions.length > 0 && (
+                  <Button
                     type="button"
-                    className="dl-export-menu-item"
-                    onClick={() => exportAs("json")}
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={handleAcceptAllSuggestions}
+                    disabled={!selectedDocId || loadingSuggestions}
+                    title={`Accept all ${suggestions.length} suggestions`}
                   >
-                    JSON
-                  </button>
-                  <button
+                    <Sparkles size={13} />
+                    Accept All ({suggestions.length})
+                  </Button>
+                )}
+
+                {selectedDocId && annotations.length > 0 && (
+                  <Button
                     type="button"
-                    className="dl-export-menu-item"
-                    onClick={() => exportAs("jsonl")}
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                    onClick={handleDeleteAllAnnotations}
+                    title={`Delete all ${annotations.length} annotations`}
                   >
-                    JSONL
-                  </button>
-                  <button
-                    type="button"
-                    className="dl-export-menu-item"
-                    onClick={() => exportAs("csv")}
-                  >
-                    CSV
-                  </button>
+                    <Trash2 size={13} />
+                    Delete All ({annotations.length})
+                  </Button>
+                )}
+
+                {activeEntityType && (
+                  <div className="dl-active-label-indicator">
+                    <div
+                      className="dl-active-label-dot"
+                      style={{ background: activeEntityType.color }}
+                    />
+                    <span>{activeEntityType.name}</span>
+                    {activeEntityType.name.includes(".") && (
+                      <span className="dl-row-pill">Row {activeInstanceNum}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="dl-stats-bar rounded-lg border border-[var(--border-subtle)]">
+                <div>
+                  Documents: <strong>{stats.documents}</strong>
+                </div>
+                <div>
+                  Annotations: <strong>{stats.annotations}</strong>
+                </div>
+                <div>
+                  Words annotated: <strong>{stats.words}</strong>
                 </div>
               </div>
-              <button
-                type="button"
-                className="dl-btn dl-btn-sm dl-btn-primary"
-                onClick={copyAnnotations}
+            </CardHeader>
+            <CardContent className="flex-1 min-h-0 p-0">
+              <div className="h-full min-h-[420px]">{renderDocumentViewer()}</div>
+            </CardContent>
+          </Card>
+
+          <Card className="overflow-hidden">
+            <CardHeader className="border-b border-[var(--border-subtle)] py-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="space-y-1">
+                  <CardTitle className="text-sm">Output</CardTitle>
+                  <CardDescription>
+                    Structured annotation payload for downstream evaluation and
+                    export.
+                  </CardDescription>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <div className="dl-export-dropdown" ref={exportMenuRef}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setExportMenuVisible(!exportMenuVisible)}
+                    >
+                      Export <ChevronDown className="ml-1 h-3 w-3" />
+                    </Button>
+                    <div
+                      className={`dl-export-menu ${exportMenuVisible ? "visible" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        className="dl-export-menu-item"
+                        onClick={() => exportAs("json")}
+                      >
+                        JSON
+                      </button>
+                      <button
+                        type="button"
+                        className="dl-export-menu-item"
+                        onClick={() => exportAs("jsonl")}
+                      >
+                        JSONL
+                      </button>
+                      <button
+                        type="button"
+                        className="dl-export-menu-item"
+                        onClick={() => exportAs("csv")}
+                      >
+                        CSV
+                      </button>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={copyAnnotations}
+                    disabled={annotations.length === 0}
+                  >
+                    <Copy className="h-3 w-3" />
+                    Copy
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <pre
+                className={`dl-output-content ${annotations.length > 0 ? "has-content" : ""}`}
               >
-                <Copy className="mr-1 h-3 w-3" />
-                Copy
-              </button>
-            </div>
-          </div>
-          <div
-            className={`dl-output-content ${annotations.length > 0 ? "has-content" : ""}`}
-          >
-            {outputSummary}
-          </div>
+                {outputSummary}
+              </pre>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
