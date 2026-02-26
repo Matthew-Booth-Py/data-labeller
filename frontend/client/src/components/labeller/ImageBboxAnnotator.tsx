@@ -10,6 +10,7 @@ import type {
   BoundingBoxData,
   AnnotationSuggestion,
 } from "@/lib/api";
+import { BEAZLEY_PALETTE } from "@/theme/design-tokens";
 import type { EntityType } from "./TextSpanAnnotator";
 
 interface ImageBboxAnnotatorProps {
@@ -79,7 +80,7 @@ export function ImageBboxAnnotator({
   const getAnnotationColor = useCallback(
     (fieldName: string): string => {
       const et = entityTypes.find((e) => e.name === fieldName);
-      return et?.color || "#8b949e";
+      return et?.color || BEAZLEY_PALETTE.light;
     },
     [entityTypes],
   );
@@ -236,7 +237,7 @@ export function ImageBboxAnnotator({
     const width = Math.abs(currentX - startX);
     const height = Math.abs(currentY - startY);
 
-    const color = activeEntityType?.color || "#8b949e";
+    const color = activeEntityType?.color || BEAZLEY_PALETTE.light;
 
     return (
       <div
@@ -267,70 +268,36 @@ export function ImageBboxAnnotator({
       return (
         <div
           key={suggestion.id}
-          className="absolute group"
+          className="absolute group dl-suggestion-box"
           style={{
             left: `${bbox.x * scale}px`,
             top: `${bbox.y * scale}px`,
             width: `${bbox.width * scale}px`,
             height: `${bbox.height * scale}px`,
-            backgroundColor: "rgba(240, 136, 62, 0.15)",
-            border: "2px dashed #f0883e",
-            borderRadius: "2px",
           }}
           title={`AI suggestion: ${suggestion.field_name}\n"${suggestion.value}"`}
         >
           {/* Label with accept/reject */}
-          <div
-            style={{
-              position: "absolute",
-              top: "-20px",
-              left: 0,
-              background: "#f0883e",
-              color: "#0d1117",
-              fontSize: "9px",
-              fontWeight: 700,
-              padding: "1px 4px",
-              borderRadius: "3px",
-              whiteSpace: "nowrap",
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              zIndex: 20,
-            }}
-          >
+          <div className="dl-overlay-label dl-suggestion-label">
             ✦ {label}
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onSuggestionApprove?.(suggestion);
               }}
-              style={{
-                background: "#238636",
-                border: "none",
-                color: "#fff",
-                borderRadius: "2px",
-                padding: "0 3px",
-                cursor: "pointer",
-                fontSize: "9px",
-              }}
+              className="dl-popup-action approve"
               title="Approve"
             >
               ✓
             </button>
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onSuggestionReject?.(suggestion.id);
               }}
-              style={{
-                background: "#f85149",
-                border: "none",
-                color: "#fff",
-                borderRadius: "2px",
-                padding: "0 3px",
-                cursor: "pointer",
-                fontSize: "9px",
-              }}
+              className="dl-popup-action reject"
               title="Reject"
             >
               ✕
@@ -369,8 +336,8 @@ export function ImageBboxAnnotator({
             width: `${bbox.width * scale}px`,
             height: `${bbox.height * scale}px`,
             backgroundColor: `${color}30`,
-            borderColor: isEditing ? "#58a6ff" : color,
-            boxShadow: isEditing ? "0 0 0 2px #58a6ff" : undefined,
+            borderColor: isEditing ? "var(--dl-accent)" : color,
+            boxShadow: isEditing ? "0 0 0 2px var(--dl-accent)" : undefined,
           }}
           onClick={(e) => {
             e.stopPropagation();
@@ -382,8 +349,8 @@ export function ImageBboxAnnotator({
         >
           {/* Label */}
           <div
-            className="absolute -top-6 left-0 text-white text-xs px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity"
-            style={{ backgroundColor: color }}
+            className="dl-overlay-label text-xs opacity-0 transition-opacity group-hover:opacity-100"
+            style={{ backgroundColor: color, color: BEAZLEY_PALETTE.dark }}
           >
             {annotation.field_name}
           </div>
@@ -392,25 +359,18 @@ export function ImageBboxAnnotator({
     });
   };
 
+  const bboxAnnotations = annotations.filter((a) => a.annotation_type === "bbox");
+
   return (
-    <div className="flex flex-col h-full" style={{ background: "#0d1117" }}>
+    <div className="dl-viewer flex h-full flex-col">
       {/* Toolbar */}
-      <div
-        className="flex items-center justify-between px-5 py-2 border-b"
-        style={{ borderColor: "#30363d", background: "#161b22" }}
-      >
-        <div
-          className="flex items-center gap-2 text-sm"
-          style={{ color: "#8b949e" }}
-        >
+      <div className="dl-toolbar justify-between">
+        <div className="dl-toolbar-info flex items-center gap-2">
           {activeEntityType ? (
             <>
               <Square size={16} style={{ color: activeEntityType.color }} />
               <span>
-                Draw a box to label as{" "}
-                <strong style={{ color: "#c9d1d9" }}>
-                  {activeEntityType.name}
-                </strong>
+                Draw a box to label as <strong>{activeEntityType.name}</strong>
               </span>
             </>
           ) : (
@@ -421,15 +381,15 @@ export function ImageBboxAnnotator({
         </div>
         <div className="flex items-center gap-2">
           <button
+            type="button"
             className="dl-btn dl-btn-sm"
             onClick={() => setScale((s) => Math.max(0.5, s - 0.1))}
           >
             <ZoomOut size={14} />
           </button>
-          <span className="text-sm" style={{ color: "#8b949e" }}>
-            {Math.round(scale * 100)}%
-          </span>
+          <span className="dl-zoom-value">{Math.round(scale * 100)}%</span>
           <button
+            type="button"
             className="dl-btn dl-btn-sm"
             onClick={() => setScale((s) => Math.min(2.0, s + 0.1))}
           >
@@ -439,11 +399,7 @@ export function ImageBboxAnnotator({
       </div>
 
       {/* Image container */}
-      <div
-        ref={containerRef}
-        className="flex-1 overflow-auto p-6"
-        style={{ background: "#0d1117" }}
-      >
+      <div ref={containerRef} className="dl-viewer flex-1 overflow-auto p-6">
         <div
           className="relative inline-block"
           style={{
@@ -483,36 +439,35 @@ export function ImageBboxAnnotator({
       </div>
 
       {/* Annotations summary */}
-      {annotations.filter((a) => a.annotation_type === "bbox").length > 0 && (
+      {bboxAnnotations.length > 0 && (
         <div
-          className="px-5 py-3 border-t"
-          style={{ borderColor: "#30363d", background: "#161b22" }}
+          className="dl-contrast-panel border-t px-5 py-3"
+          style={{ borderColor: "var(--dl-border)" }}
         >
           <div className="flex flex-wrap gap-2">
-            {annotations
-              .filter((a) => a.annotation_type === "bbox")
-              .map((annotation) => {
-                const color = getAnnotationColor(annotation.field_name);
-                return (
+            {bboxAnnotations.map((annotation) => {
+              const color = getAnnotationColor(annotation.field_name);
+              return (
+                <button
+                  key={annotation.id}
+                  type="button"
+                  className="dl-overlay-chip cursor-pointer hover:opacity-70"
+                  style={{
+                    background: `${color}20`,
+                    borderColor: `${color}66`,
+                  }}
+                  onClick={() => onAnnotationDelete(annotation.id)}
+                  title="Click to delete"
+                >
                   <div
-                    key={annotation.id}
-                    className="flex items-center gap-2 px-2 py-1 rounded text-xs cursor-pointer hover:opacity-70"
-                    style={{
-                      background: `${color}20`,
-                      border: `1px solid ${color}40`,
-                    }}
-                    onClick={() => onAnnotationDelete(annotation.id)}
-                    title="Click to delete"
-                  >
-                    <div
-                      className="w-2 h-2 rounded-full"
-                      style={{ background: color }}
-                    />
-                    <span style={{ color }}>{annotation.field_name}</span>
-                    <span style={{ color: "#8b949e" }}>×</span>
-                  </div>
-                );
-              })}
+                    className="h-2 w-2 rounded-full"
+                    style={{ background: color }}
+                  />
+                  <span style={{ color }}>{annotation.field_name}</span>
+                  <span className="dl-overlay-chip-remove">×</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

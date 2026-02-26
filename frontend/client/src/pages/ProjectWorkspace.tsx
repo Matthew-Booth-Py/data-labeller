@@ -229,7 +229,7 @@ export default function ProjectWorkspace() {
           onValueChange={handleTabChange}
           className="flex-1 flex flex-col overflow-hidden"
         >
-          <div className="px-4 md:px-6 border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]/90 backdrop-blur supports-[backdrop-filter]:bg-[var(--surface-elevated)]/75">
+          <div className="border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]/90 backdrop-blur supports-[backdrop-filter]:bg-[var(--surface-elevated)]/75">
             <TabsList className="w-full justify-start bg-transparent border-0 p-0 py-3 gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap">
               {WORKSPACE_TABS.map((tabId) => {
                 const tabMeta = WORKSPACE_TAB_META[tabId];

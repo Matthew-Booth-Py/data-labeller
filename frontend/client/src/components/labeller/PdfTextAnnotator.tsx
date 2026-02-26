@@ -11,6 +11,7 @@ import type {
   BoundingBoxData,
   AnnotationSuggestion,
 } from "@/lib/api";
+import { BEAZLEY_PALETTE } from "@/theme/design-tokens";
 import type { EntityType } from "./TextSpanAnnotator";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -101,7 +102,7 @@ export function PdfTextAnnotator({
   const getEntityColor = useCallback(
     (fieldName: string): string => {
       const et = entityTypes.find((e) => e.name === fieldName);
-      return et?.color || "#8b949e";
+      return et?.color || BEAZLEY_PALETTE.light;
     },
     [entityTypes],
   );
@@ -376,63 +377,30 @@ export function PdfTextAnnotator({
       return (
         <div
           key={suggestion.id}
-          className="absolute pointer-events-auto group"
+          className="absolute pointer-events-auto group dl-suggestion-box"
           style={{
             left: `${bbox.x}%`,
             top: `${bbox.y}%`,
             width: `${bbox.width}%`,
             height: `${bbox.height}%`,
-            backgroundColor: "rgba(240, 136, 62, 0.15)",
-            border: "2px dashed #f0883e",
-            borderRadius: "2px",
           }}
           title={`AI suggestion: ${suggestion.field_name}\n"${suggestion.value}"`}
         >
           {/* Label tag */}
-          <div
-            style={{
-              position: "absolute",
-              top: "-18px",
-              left: 0,
-              background: "#f0883e",
-              color: "#0d1117",
-              fontSize: "9px",
-              fontWeight: 700,
-              padding: "1px 4px",
-              borderRadius: "3px",
-              whiteSpace: "nowrap",
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-            }}
-          >
+          <div className="dl-overlay-label dl-suggestion-label">
             ✦ {label}
             <button
+              type="button"
               onClick={() => onSuggestionApprove?.(suggestion)}
-              style={{
-                background: "#238636",
-                border: "none",
-                color: "#fff",
-                borderRadius: "2px",
-                padding: "0 3px",
-                cursor: "pointer",
-                fontSize: "9px",
-              }}
+              className="dl-popup-action approve"
               title="Approve"
             >
               ✓
             </button>
             <button
+              type="button"
               onClick={() => onSuggestionReject?.(suggestion.id)}
-              style={{
-                background: "#f85149",
-                border: "none",
-                color: "#fff",
-                borderRadius: "2px",
-                padding: "0 3px",
-                cursor: "pointer",
-                fontSize: "9px",
-              }}
+              className="dl-popup-action reject"
               title="Reject"
             >
               ✕
@@ -444,16 +412,10 @@ export function PdfTextAnnotator({
   };
 
   return (
-    <div className="flex flex-col h-full" style={{ background: "#0d1117" }}>
+    <div className="dl-viewer flex h-full flex-col">
       {/* Toolbar */}
-      <div
-        className="flex items-center justify-between px-5 py-2 border-b"
-        style={{ borderColor: "#30363d", background: "#161b22" }}
-      >
-        <div
-          className="flex items-center gap-2 text-sm"
-          style={{ color: "#8b949e" }}
-        >
+      <div className="dl-toolbar justify-between">
+        <div className="dl-toolbar-info flex items-center gap-2">
           {activeEntityType ? (
             <>
               <span
@@ -461,10 +423,7 @@ export function PdfTextAnnotator({
                 style={{ background: activeEntityType.color }}
               />
               <span>
-                Labelling as{" "}
-                <strong style={{ color: "#c9d1d9" }}>
-                  {activeEntityType.name}
-                </strong>{" "}
+                Labelling as <strong>{activeEntityType.name}</strong>{" "}
                 — highlight text to annotate
               </span>
             </>
@@ -476,18 +435,15 @@ export function PdfTextAnnotator({
         </div>
         <div className="flex items-center gap-2">
           <button
+            type="button"
             className="dl-btn dl-btn-sm"
             onClick={() => setScale((s) => Math.max(0.5, s - 0.25))}
           >
             <ZoomOut size={14} />
           </button>
-          <span
-            className="text-sm font-mono"
-            style={{ color: "#8b949e", minWidth: "50px", textAlign: "center" }}
-          >
-            {Math.round(scale * 100)}%
-          </span>
+          <span className="dl-zoom-value">{Math.round(scale * 100)}%</span>
           <button
+            type="button"
             className="dl-btn dl-btn-sm"
             onClick={() => setScale((s) => Math.min(4.0, s + 0.25))}
           >
@@ -497,47 +453,28 @@ export function PdfTextAnnotator({
       </div>
 
       {/* PDF Viewer */}
-      <div
-        ref={containerRef}
-        className="flex-1 overflow-auto"
-        style={{ background: "#0d1117" }}
-      >
+      <div ref={containerRef} className="dl-viewer flex-1 overflow-auto">
         <Document
           file={pdfUrl}
           onLoadSuccess={onDocumentLoadSuccess}
           onLoadError={onDocumentLoadError}
           loading={
-            <div
-              className="flex flex-col items-center justify-center h-96 gap-3"
-              style={{ color: "#8b949e" }}
-            >
-              <Loader2
-                className="h-8 w-8 animate-spin"
-                style={{ color: "#58a6ff" }}
-              />
+            <div className="dl-viewer-loading flex h-96 flex-col items-center justify-center gap-3">
+              <Loader2 className="dl-accent-icon h-8 w-8 animate-spin" />
               <span>Loading PDF...</span>
             </div>
           }
           error={
             <div className="flex flex-col items-center justify-center h-96 gap-3">
-              <span style={{ fontSize: "48px", opacity: 0.3 }}>⚠️</span>
-              <span style={{ color: "#f85149" }}>Failed to load PDF</span>
-              <span style={{ color: "#484f58", fontSize: "12px" }}>
-                {error}
-              </span>
+              <span className="text-5xl opacity-30">⚠️</span>
+              <span className="dl-viewer-error">Failed to load PDF</span>
+              <span className="dl-viewer-error-muted text-xs">{error}</span>
             </div>
           }
         >
           <div className="flex flex-col items-center gap-4 p-6">
             {Array.from(new Array(numPages), (_, index) => (
-              <div
-                key={`page_${index + 1}`}
-                className="relative"
-                style={{
-                  background: "#fff",
-                  boxShadow: "0 2px 12px rgba(0,0,0,0.5)",
-                }}
-              >
+              <div key={`page_${index + 1}`} className="relative dl-viewer-surface">
                 <Page
                   pageNumber={index + 1}
                   scale={scale}
@@ -546,35 +483,19 @@ export function PdfTextAnnotator({
                 />
 
                 {/* Annotation overlay */}
-                <div
-                  className="absolute inset-0 pointer-events-none overflow-hidden"
-                  style={{ zIndex: 10 }}
-                >
+                <div className="absolute inset-0 z-10 pointer-events-none overflow-hidden">
                   {renderAnnotationHighlights(index + 1)}
                 </div>
 
                 {/* Suggestion overlay */}
-                <div
-                  className="absolute inset-0 overflow-visible"
-                  style={{ zIndex: 11, pointerEvents: "none" }}
-                >
-                  <div
-                    style={{
-                      position: "relative",
-                      width: "100%",
-                      height: "100%",
-                      pointerEvents: "none",
-                    }}
-                  >
+                <div className="absolute inset-0 z-[11] pointer-events-none overflow-visible">
+                  <div className="relative h-full w-full pointer-events-none">
                     {renderSuggestionOverlays(index + 1)}
                   </div>
                 </div>
 
                 {/* Page label */}
-                <div
-                  className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs whitespace-nowrap"
-                  style={{ color: "#484f58" }}
-                >
+                <div className="dl-viewer-page-label absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs">
                   Page {index + 1} of {numPages}
                 </div>
               </div>
@@ -604,38 +525,30 @@ export function PdfTextAnnotator({
             });
 
             return Object.entries(grouped).map(([parent, types]) => (
-              <div key={parent}>
+              <div key={parent} className="dl-popup-group">
                 {parent !== "_root" && (
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      color: "#8b949e",
-                      fontWeight: 600,
-                      padding: "4px 8px",
-                      borderBottom: "1px solid #21262d",
-                      marginTop: "4px",
-                    }}
-                  >
-                    {parent}
-                  </div>
+                  <div className="dl-popup-group-title">{parent}</div>
                 )}
-                {types.map((et) => {
-                  const displayName = et.name.split(".").pop() || et.name;
-                  return (
-                    <button
-                      key={et.id}
-                      className="dl-popup-entity-btn"
-                      style={{
-                        background: `${et.color}30`,
-                        color: et.color,
-                        borderColor: `${et.color}40`,
-                      }}
-                      onClick={() => applyFromPopup(et.id)}
-                    >
-                      {displayName}
-                    </button>
-                  );
-                })}
+                <div className="dl-popup-group-buttons">
+                  {types.map((et) => {
+                    const displayName = et.name.split(".").pop() || et.name;
+                    return (
+                      <button
+                        key={et.id}
+                        type="button"
+                        className="dl-popup-entity-btn"
+                        style={{
+                          background: `${et.color}30`,
+                          color: et.color,
+                          borderColor: `${et.color}66`,
+                        }}
+                        onClick={() => applyFromPopup(et.id)}
+                      >
+                        {displayName}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             ));
           })()}

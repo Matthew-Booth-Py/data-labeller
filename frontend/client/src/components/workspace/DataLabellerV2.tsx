@@ -1,5 +1,5 @@
 /**
- * DataLabellerV2 - New dark-themed data labelling interface
+ * DataLabellerV2 - Beazley-themed data labelling interface
  * Features:
  * - Text span selection for PDFs and text files
  * - Bounding box annotation for images
@@ -7,8 +7,8 @@
  * - Keyboard shortcuts for power users
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   api,
   type GroundTruthAnnotation,
@@ -34,24 +34,27 @@ import {
   Trash2,
 } from "lucide-react";
 import { formatAnnotationValue } from "@/lib/utils";
+import { BEAZLEY_PALETTE } from "@/theme/design-tokens";
 
-// Color palette for entity types
+// Neutral, high-contrast annotation palette (intentionally brand-agnostic)
 const ENTITY_COLORS = [
-  "#7ee787", // green
-  "#58a6ff", // blue
-  "#d2a8ff", // purple
-  "#f0883e", // orange
-  "#ffd33d", // yellow
-  "#f85149", // red
-  "#a5d6ff", // light blue
-  "#ff7b72", // coral
+  "#60A5FA", // blue
+  "#34D399", // emerald
+  "#FBBF24", // amber
+  "#F87171", // red
+  "#A78BFA", // violet
+  "#2DD4BF", // teal
+  "#FB923C", // orange
+  "#F472B6", // pink
+  "#93C5FD", // light blue
+  "#86EFAC", // light green
 ];
 
 interface DataLabellerV2Props {}
 
 export function DataLabellerV2({}: DataLabellerV2Props) {
-  const queryClient = useQueryClient();
   const projectId = localStorage.getItem("selected-project") || "all";
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
 
   // Persist state in sessionStorage (survives tab switches, cleared when browser closes)
   const [selectedDocId, setSelectedDocId] = useState<string | null>(() => {
@@ -382,9 +385,9 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       ) as HTMLElement | null;
       if (target) {
         target.scrollIntoView({ behavior: "smooth", block: "center" });
-        target.style.outline = "2px solid #58a6ff";
+        target.classList.add("dl-focus-outline");
         setTimeout(() => {
-          target.style.outline = "";
+          target.classList.remove("dl-focus-outline");
         }, 1200);
         return;
       }
@@ -399,6 +402,33 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   useEffect(() => {
     setSuggestions([]);
   }, [selectedDocId]);
+
+  // Close export menu on outside click or escape.
+  useEffect(() => {
+    if (!exportMenuVisible) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!exportMenuRef.current?.contains(event.target as Node)) {
+        setExportMenuVisible(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setExportMenuVisible(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [exportMenuVisible]);
 
   // AI suggest annotations
   const handleAISuggest = useCallback(async () => {
@@ -535,6 +565,14 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     const counts: Record<string, number> = {};
     for (const ann of annotations) {
       counts[ann.field_name] = (counts[ann.field_name] || 0) + 1;
+    }
+    return counts;
+  }, [annotations]);
+
+  const documentAnnotationCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const ann of annotations) {
+      counts[ann.document_id] = (counts[ann.document_id] || 0) + 1;
     }
     return counts;
   }, [annotations]);
@@ -721,9 +759,9 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   }, [annotations, selectedDocument]);
 
   return (
-    <div className="data-labeller-v2 flex h-full">
+    <div className="data-labeller-v2 flex h-full overflow-hidden">
       {/* Sidebar */}
-      <div className="dl-sidebar">
+      <div className="dl-sidebar dl-contrast-panel">
         <div className="dl-sidebar-header">
           <FileText size={16} />
           Data Labelling Tool
@@ -733,30 +771,17 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
         <div className="dl-sidebar-section">
           <div className="dl-section-title">
             Documents
-            <span
-              style={{
-                fontSize: "11px",
-                color: "#484f58",
-                textTransform: "none",
-                letterSpacing: 0,
-                fontWeight: 400,
-              }}
-            >
-              {documents.length}
-            </span>
+            <span className="dl-meta-note">{documents.length}</span>
           </div>
           <div className="dl-section-content">
             {documents.length === 0 ? (
-              <div
-                style={{ fontSize: "12px", color: "#484f58", padding: "4px 0" }}
-              >
-                No documents in this project
-              </div>
+              <div className="dl-empty-note">No documents in this project</div>
             ) : (
               <div className="dl-documents-list">
                 {documents.map((doc) => (
-                  <div
+                  <button
                     key={doc.id}
+                    type="button"
                     className={`dl-document-item ${selectedDocId === doc.id ? "active" : ""}`}
                     onClick={() => setSelectedDocId(doc.id)}
                   >
@@ -765,15 +790,11 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                     ) : (
                       <Image size={14} />
                     )}
-                    <span className="dl-document-item-name">
-                      {doc.filename}
-                    </span>
+                    <span className="dl-document-item-name">{doc.filename}</span>
                     <span className="dl-document-item-meta">
-                      {annotations.filter((a) => a.document_id === doc.id)
-                        .length || 0}{" "}
-                      ann.
+                      {documentAnnotationCounts[doc.id] || 0} ann.
                     </span>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -781,70 +802,26 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
         </div>
 
         {/* Row Number Selector for Array Fields */}
-        <div
-          className="dl-sidebar-section"
-          style={{ borderBottom: "1px solid #21262d", paddingBottom: "12px" }}
-        >
+        <div className="dl-sidebar-section">
           <div className="dl-section-title">
             Table Row Number
-            <span
-              style={{
-                fontSize: "11px",
-                color: "#484f58",
-                textTransform: "none",
-                letterSpacing: 0,
-                fontWeight: 400,
-              }}
-            >
-              for array fields
-            </span>
+            <span className="dl-meta-note">for array fields</span>
           </div>
           <div className="dl-section-content">
-            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+            <div className="dl-row-grid">
+              {Array.from({ length: 10 }, (_, idx) => idx + 1).map((num) => (
                 <button
                   key={num}
+                  type="button"
                   onClick={() => setActiveInstanceNum(num)}
-                  style={{
-                    padding: "6px 12px",
-                    borderRadius: "4px",
-                    border:
-                      activeInstanceNum === num
-                        ? "2px solid #58a6ff"
-                        : "1px solid #30363d",
-                    background:
-                      activeInstanceNum === num
-                        ? "rgba(88, 166, 255, 0.15)"
-                        : "#21262d",
-                    color: activeInstanceNum === num ? "#58a6ff" : "#c9d1d9",
-                    cursor: "pointer",
-                    fontSize: "13px",
-                    fontWeight: activeInstanceNum === num ? "600" : "400",
-                    transition: "all 0.15s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (activeInstanceNum !== num) {
-                      e.currentTarget.style.borderColor = "#58a6ff";
-                      e.currentTarget.style.background =
-                        "rgba(88, 166, 255, 0.05)";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (activeInstanceNum !== num) {
-                      e.currentTarget.style.borderColor = "#30363d";
-                      e.currentTarget.style.background = "#21262d";
-                    }
-                  }}
+                  className={`dl-row-chip ${activeInstanceNum === num ? "active" : ""}`}
                 >
                   {num}
                 </button>
               ))}
             </div>
-            <div
-              style={{ marginTop: "8px", fontSize: "12px", color: "#8b949e" }}
-            >
-              Current row:{" "}
-              <strong style={{ color: "#58a6ff" }}>{activeInstanceNum}</strong>
+            <div className="dl-row-current">
+              Current row: <strong>{activeInstanceNum}</strong>
             </div>
           </div>
         </div>
@@ -853,23 +830,11 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
         <div className="dl-sidebar-section">
           <div className="dl-section-title">
             Entity Types
-            <span
-              style={{
-                fontSize: "11px",
-                color: "#484f58",
-                textTransform: "none",
-                letterSpacing: 0,
-                fontWeight: 400,
-              }}
-            >
-              click to activate
-            </span>
+            <span className="dl-meta-note">click to activate</span>
           </div>
           <div className="dl-section-content">
             {entityTypes.length === 0 ? (
-              <div
-                style={{ fontSize: "12px", color: "#484f58", padding: "4px 0" }}
-              >
+              <div className="dl-empty-note">
                 Select a classified document to see schema fields
               </div>
             ) : (
@@ -882,8 +847,9 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                     return (
                       <div key={groupName} className="dl-entity-group">
                         {!isRoot && (
-                          <div
-                            className="dl-entity-group-header"
+                          <button
+                            type="button"
+                            className="dl-entity-group-header w-full text-left"
                             onClick={() => {
                               const newExpanded = new Set(expandedGroups);
                               if (isExpanded) {
@@ -893,42 +859,23 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                               }
                               setExpandedGroups(newExpanded);
                             }}
-                            style={{
-                              fontSize: "12px",
-                              fontWeight: 600,
-                              color: "#8b949e",
-                              padding: "6px 8px",
-                              cursor: "pointer",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "6px",
-                              borderBottom: "1px solid #21262d",
-                              marginBottom: "4px",
-                            }}
                           >
                             <ChevronDown
                               size={14}
-                              style={{
-                                transform: isExpanded
-                                  ? "rotate(0deg)"
-                                  : "rotate(-90deg)",
-                                transition: "transform 0.15s",
-                              }}
+                              className={
+                                isExpanded
+                                  ? "transition-transform"
+                                  : "-rotate-90 transition-transform"
+                              }
                             />
                             <span>{groupName}</span>
-                            <span
-                              style={{
-                                marginLeft: "auto",
-                                fontSize: "11px",
-                                color: "#484f58",
-                              }}
-                            >
+                            <span className="dl-entity-group-count">
                               {groupTypes.length}
                             </span>
-                          </div>
+                          </button>
                         )}
                         {(isRoot || isExpanded) &&
-                          groupTypes.map((et, i) => {
+                          groupTypes.map((et) => {
                             const globalIndex = entityTypes.findIndex(
                               (e) => e.id === et.id,
                             );
@@ -936,7 +883,8 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                               et.name.split(".").pop() || et.name;
 
                             return (
-                              <div
+                              <button
+                                type="button"
                                 key={et.id}
                                 className={`dl-entity-type-item ${activeEntityTypeId === et.id ? "active" : ""}`}
                                 style={{
@@ -966,7 +914,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                                 <span className="dl-entity-type-count">
                                   {entityCounts[et.name] || 0}
                                 </span>
-                              </div>
+                              </button>
                             );
                           })}
                       </div>
@@ -987,44 +935,19 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
         </div>
 
         {/* Annotations section */}
-        <div
-          className="dl-sidebar-section"
-          style={{
-            flex: 1,
-            overflow: "hidden",
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
+        <div className="dl-sidebar-section flex-grow">
           <div className="dl-section-title">
             Annotations
-            <span
-              style={{
-                fontSize: "11px",
-                color: "#484f58",
-                textTransform: "none",
-                letterSpacing: 0,
-                fontWeight: 400,
-              }}
-            >
-              {annotations.length}
-            </span>
+            <span className="dl-meta-note">{annotations.length}</span>
           </div>
-          <div
-            className="dl-section-content"
-            style={{ flex: 1, overflowY: "auto" }}
-          >
+          <div className="dl-section-content flex-1 overflow-y-auto">
             {annotations.length === 0 ? (
-              <div
-                style={{ fontSize: "12px", color: "#484f58", padding: "4px 0" }}
-              >
-                No annotations yet
-              </div>
+              <div className="dl-empty-note">No annotations yet</div>
             ) : (
               <div className="dl-annotations-list">
                 {annotations.map((ann) => {
                   const et = entityTypes.find((e) => e.name === ann.field_name);
-                  const color = et?.color || "#8b949e";
+                  const color = et?.color || BEAZLEY_PALETTE.light;
                   const preview = formatAnnotationValue(ann.value, 30);
                   const instanceNum = (ann.annotation_data as any)
                     ?.instance_num;
@@ -1036,16 +959,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                       onClick={() => focusAnnotationInDocument(ann)}
                     >
                       {instanceNum && (
-                        <span
-                          className="dl-annotation-label-chip"
-                          style={{
-                            background: "#30363d",
-                            color: "#8b949e",
-                            fontSize: "10px",
-                            padding: "2px 6px",
-                            fontWeight: 600,
-                          }}
-                        >
+                        <span className="dl-annotation-label-chip dl-annotation-chip-meta">
                           {instanceNum}
                         </span>
                       )}
@@ -1060,6 +974,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                         {(ann.value?.length || 0) > 30 ? "..." : ""}"
                       </span>
                       <button
+                        type="button"
                         className="dl-annotation-remove"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1104,11 +1019,11 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
           </div>
           {selectedDocId && (
             <button
-              className="dl-btn dl-btn-sm"
+              type="button"
+              className="dl-btn dl-btn-sm dl-btn-icon"
               onClick={handleAISuggest}
               disabled={loadingSuggestions}
               title="Generate AI annotation suggestions"
-              style={{ display: "flex", alignItems: "center", gap: "4px" }}
             >
               {loadingSuggestions ? (
                 <Loader2 size={12} className="animate-spin" />
@@ -1117,17 +1032,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
               )}
               Suggest
               {suggestions.length > 0 && (
-                <span
-                  style={{
-                    background: "#f0883e",
-                    color: "#0d1117",
-                    borderRadius: "10px",
-                    padding: "0 5px",
-                    fontSize: "10px",
-                    fontWeight: 700,
-                    marginLeft: 2,
-                  }}
-                >
+                <span className="dl-annotation-label-chip dl-annotation-chip-meta">
                   {suggestions.length}
                 </span>
               )}
@@ -1135,11 +1040,11 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
           )}
           {selectedDocId && suggestions.length > 0 && (
             <button
-              className="dl-btn dl-btn-sm dl-btn-primary"
+              type="button"
+              className="dl-btn dl-btn-sm dl-btn-primary dl-btn-icon"
               onClick={handleAcceptAllSuggestions}
               disabled={loadingSuggestions}
               title={`Accept all ${suggestions.length} suggestions`}
-              style={{ display: "flex", alignItems: "center", gap: "4px" }}
             >
               <Sparkles size={12} />
               Accept All ({suggestions.length})
@@ -1147,15 +1052,10 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
           )}
           {selectedDocId && annotations.length > 0 && (
             <button
-              className="dl-btn dl-btn-sm"
+              type="button"
+              className="dl-btn dl-btn-sm dl-btn-danger dl-btn-icon"
               onClick={handleDeleteAllAnnotations}
               title={`Delete all ${annotations.length} annotations`}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-                color: "#f85149",
-              }}
             >
               <Trash2 size={12} />
               Delete All ({annotations.length})
@@ -1169,19 +1069,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
               />
               <span>{activeEntityType.name}</span>
               {activeEntityType.name.includes(".") && (
-                <span
-                  style={{
-                    marginLeft: "8px",
-                    padding: "2px 6px",
-                    background: "rgba(88, 166, 255, 0.15)",
-                    borderRadius: "3px",
-                    fontSize: "11px",
-                    color: "#58a6ff",
-                    fontWeight: 600,
-                  }}
-                >
-                  Row {activeInstanceNum}
-                </span>
+                <span className="dl-row-pill">Row {activeInstanceNum}</span>
               )}
             </div>
           )}
@@ -1210,29 +1098,33 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
           <div className="dl-output-header">
             <span className="dl-output-label">Output</span>
             <div className="dl-output-buttons">
-              <div className="dl-export-dropdown">
+              <div className="dl-export-dropdown" ref={exportMenuRef}>
                 <button
+                  type="button"
                   className="dl-btn dl-btn-sm"
                   onClick={() => setExportMenuVisible(!exportMenuVisible)}
                 >
-                  Export <ChevronDown size={12} style={{ marginLeft: 4 }} />
+                  Export <ChevronDown className="ml-1 h-3 w-3" />
                 </button>
                 <div
                   className={`dl-export-menu ${exportMenuVisible ? "visible" : ""}`}
                 >
                   <button
+                    type="button"
                     className="dl-export-menu-item"
                     onClick={() => exportAs("json")}
                   >
                     JSON
                   </button>
                   <button
+                    type="button"
                     className="dl-export-menu-item"
                     onClick={() => exportAs("jsonl")}
                   >
                     JSONL
                   </button>
                   <button
+                    type="button"
                     className="dl-export-menu-item"
                     onClick={() => exportAs("csv")}
                   >
@@ -1241,10 +1133,11 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                 </div>
               </div>
               <button
+                type="button"
                 className="dl-btn dl-btn-sm dl-btn-primary"
                 onClick={copyAnnotations}
               >
-                <Copy size={12} style={{ marginRight: 4 }} />
+                <Copy className="mr-1 h-3 w-3" />
                 Copy
               </button>
             </div>

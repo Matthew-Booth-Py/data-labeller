@@ -1,10 +1,11 @@
 /**
  * TextSpanAnnotator - Component for annotating text with inline span selection
- * Based on the dark-themed data labelling UI design
+ * Styled to match the Beazley data labeller theme
  */
 
 import { useEffect, useRef, useCallback } from "react";
 import type { GroundTruthAnnotation, TextSpanData } from "@/lib/api";
+import { BEAZLEY_PALETTE } from "@/theme/design-tokens";
 
 export interface EntityType {
   id: string;
@@ -149,14 +150,17 @@ export function TextSpanAnnotator({
       // Build popup content with hierarchy
       let popupHtml = "";
       Object.entries(grouped).forEach(([parent, types]) => {
+        popupHtml += `<div class="dl-popup-group">`;
         if (parent !== "_root") {
-          popupHtml += `<div style="font-size:11px;color:#8b949e;font-weight:600;padding:4px 8px;border-bottom:1px solid #21262d;margin-top:4px">${escapeHtml(parent)}</div>`;
+          popupHtml += `<div class="dl-popup-group-title">${escapeHtml(parent)}</div>`;
         }
+        popupHtml += `<div class="dl-popup-group-buttons">`;
         types.forEach((et) => {
           const displayName = et.name.split(".").pop() || et.name;
-          popupHtml += `<button class="dl-popup-entity-btn" style="background:${et.color}30; color:${et.color}; border-color:${et.color}40"
+          popupHtml += `<button class="dl-popup-entity-btn" style="background:${et.color}30; color:${et.color}; border-color:${et.color}66"
            data-entity-id="${et.id}" data-start="${selStart}" data-end="${selEnd}">${escapeHtml(displayName)}</button>`;
         });
+        popupHtml += `</div></div>`;
       });
 
       popup.innerHTML = popupHtml;
@@ -284,20 +288,6 @@ export function TextSpanAnnotator({
     };
   }, [handleMouseUp, handleMouseDown, handleKeyDown, handlePopupClick]);
 
-  // Scroll to annotation when clicked in sidebar
-  const scrollToAnnotation = useCallback((id: string) => {
-    const span = displayRef.current?.querySelector(
-      `[data-annotation-id="${id}"]`,
-    ) as HTMLElement;
-    if (span) {
-      span.scrollIntoView({ behavior: "smooth", block: "center" });
-      span.style.outline = "2px solid #58a6ff";
-      setTimeout(() => {
-        span.style.outline = "";
-      }, 1200);
-    }
-  }, []);
-
   // Render text with annotation highlights
   const renderAnnotatedText = () => {
     if (!text) {
@@ -343,7 +333,7 @@ export function TextSpanAnnotator({
 
       // Find entity type for color
       const entityType = entityTypes.find((et) => et.name === ann.field_name);
-      const color = entityType?.color || "#8b949e";
+      const color = entityType?.color || BEAZLEY_PALETTE.light;
       const bgColor = color + "30";
 
       // Build tooltip with row number if available
@@ -368,7 +358,7 @@ export function TextSpanAnnotator({
           {text.substring(data.start, data.end)}
           <span
             className="dl-label-tag"
-            style={{ background: color, color: "#0d1117" }}
+            style={{ background: color, color: BEAZLEY_PALETTE.dark }}
           >
             {ann.field_name}
           </span>
@@ -407,9 +397,9 @@ TextSpanAnnotator.scrollToAnnotation = (id: string) => {
   ) as HTMLElement;
   if (span) {
     span.scrollIntoView({ behavior: "smooth", block: "center" });
-    span.style.outline = "2px solid #58a6ff";
+    span.classList.add("dl-focus-outline");
     setTimeout(() => {
-      span.style.outline = "";
+      span.classList.remove("dl-focus-outline");
     }, 1200);
   }
 };
