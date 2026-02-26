@@ -548,12 +548,13 @@ export function PdfTextAnnotator({
     };
 
     document.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("mouseup", handleMouseUp);
+    // Use capture so PDF.js/React handlers cannot swallow the event before we process selection.
+    document.addEventListener("mouseup", handleMouseUp, true);
     document.addEventListener("mousedown", handleMouseDown);
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("mouseup", handleMouseUp, true);
       document.removeEventListener("mousedown", handleMouseDown);
     };
   }, [
