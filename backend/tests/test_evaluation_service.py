@@ -491,8 +491,7 @@ class TestComparisonSchemaBuilding:
         assert len(pred_values) == 1
         assert pred_values[0]["value"] == ["GAAP additions", "Proceeds from capital-related"]
 
-    def test_build_schema_rejects_legacy_prediction_hierarchy_fields(self, service):
-        """Schema mismatch should fail when GT uses hierarchy_path and predictions do not."""
+    def test_build_schema_normalizes_gt_to_flat_when_pred_flat(self, service):
         from uu_backend.models.taxonomy import ExtractedField
 
         extraction = MagicMock()
@@ -524,8 +523,18 @@ class TestComparisonSchemaBuilding:
             },
         ]
 
-        with pytest.raises(ValueError, match="Hierarchy schema mismatch"):
-            service._build_comparison_schema(ground_truth, extraction)
+        schema = service._build_comparison_schema(ground_truth, extraction)
+
+        # GT normalized to flat keys so they align with prediction keys
+        assert "period_1_value" in schema
+        assert len(schema["period_1_value"]["ground_truth"]) == 1
+        assert schema["period_1_value"]["ground_truth"][0]["value"] == "(1.0)"
+        assert len(schema["period_1_value"]["predicted"]) == 1
+        assert "hierarchy_path" in schema
+        assert len(schema["hierarchy_path"]["ground_truth"]) == 1
+        assert (
+            schema["hierarchy_path"]["ground_truth"][0]["value"] == "Proceeds from capital-related"
+        )
 
 
 class TestEndToEndScenario:

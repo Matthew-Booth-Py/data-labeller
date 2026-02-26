@@ -166,26 +166,41 @@ class EvaluationService:
         for extracted_field in extraction.fields:
             self._flatten_to_schema(extracted_field.field_name, extracted_field.value, schema)
 
-        # Check if either predictions OR ground truth use hierarchy_path
+        # Check if either predictions OR ground truth use hierarchy_path (dotted field names)
         pred_uses_hierarchy_path = any(
             "hierarchy_path" in field_name for field_name in schema.keys()
         )
         gt_uses_hierarchy_path = any("hierarchy_path" in gt["field_name"] for gt in ground_truth)
 
-        # Enforce schema contract: GT and predictions must use the same hierarchy schema.
-        if pred_uses_hierarchy_path != gt_uses_hierarchy_path:
-            raise ValueError(
-                "Hierarchy schema mismatch: ground truth and predictions must use the same schema "
-                f"(gt_uses_hierarchy_path={gt_uses_hierarchy_path}, "
-                f"pred_uses_hierarchy_path={pred_uses_hierarchy_path})."
+        # When one side uses hierarchical names and the other flat, normalize to flat (leaf).
+        normalize_gt_to_flat = gt_uses_hierarchy_path and not pred_uses_hierarchy_path
+        normalize_pred_to_flat = pred_uses_hierarchy_path and not gt_uses_hierarchy_path
+
+        if normalize_gt_to_flat:
+            # Predictions use dotted keys (e.g. forward_looking_estimates_table.period_1_value);
+            # flatten to leaf keys so GT (normalized to leaf) matches.
+            flat_schema: dict[str, dict[str, Any]] = defaultdict(
+                lambda: {"ground_truth": [], "predicted": []}
             )
+            for field_name, data in schema.items():
+                leaf = field_name.split(".")[-1]
+                flat_schema[leaf]["predicted"].extend(data["predicted"])
+            schema = flat_schema
+        elif normalize_pred_to_flat:
+            # GT uses dotted keys; flatten prediction keys to leaf so they match.
+            flat_schema = defaultdict(lambda: {"ground_truth": [], "predicted": []})
+            for field_name, data in schema.items():
+                leaf = field_name.split(".")[-1]
+                flat_schema[leaf]["predicted"].extend(data["predicted"])
+            schema = flat_schema
 
         gt_with_instances = self._assign_gt_instances(ground_truth, schema)
 
         # Add ground truth values with assigned instances
         for gt in gt_with_instances:
             field_name = gt["field_name"]
-            schema[field_name]["ground_truth"].append(
+            key = field_name.split(".")[-1] if normalize_gt_to_flat else field_name
+            schema[key]["ground_truth"].append(
                 {"value": gt["value"], "instance": gt.get("instance_num")}
             )
 
