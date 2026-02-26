@@ -47,6 +47,21 @@ class EvaluationService:
         ground_truth = await self._get_ground_truth(document_id)
         logger.info(f"[EVAL] Found {len(ground_truth)} ground truth annotations")
 
+        # Log ground truth details
+        logger.warning("[EVAL DEBUG] Ground truth annotations:")
+        gt_by_field = {}
+        for gt in ground_truth:
+            field_name = gt["field_name"]
+            if field_name not in gt_by_field:
+                gt_by_field[field_name] = []
+            gt_by_field[field_name].append(gt["value"])
+        for field_name, values in gt_by_field.items():
+            logger.warning(f"[EVAL DEBUG]   {field_name}: {len(values)} values")
+            for i, val in enumerate(values[:5]):  # Show first 5
+                logger.warning(f"[EVAL DEBUG]     [{i}] {repr(val)}")
+            if len(values) > 5:
+                logger.warning(f"[EVAL DEBUG]     ... and {len(values) - 5} more")
+
         # 2. Get or run extraction
         logger.info("[EVAL] Step 2: Running extraction...")
 
@@ -71,16 +86,38 @@ class EvaluationService:
 
             loop = asyncio.get_event_loop()
             with ThreadPoolExecutor() as executor:
-                # Use .extract_auto() method which auto-routes to correct extraction strategy
-                # (vision for tables, standard for text-based documents)
+                # Use .extract_structured_with_retrieval_vision() to match UI extraction
+                # (use_llm=false, use_structured_output=true, use_retrieval=true)
                 extraction = await loop.run_in_executor(
-                    executor, self.extraction_service.extract_auto, document_id
+                    executor,
+                    self.extraction_service.extract_structured_with_retrieval_vision,
+                    document_id,
                 )
         else:
             extraction = await self._get_cached_extraction(document_id)
 
         extraction_time_ms = (time.time() - extraction_start) * 1000
         logger.info(f"[EVAL] Extraction completed in {extraction_time_ms:.2f}ms")
+
+        # Log extraction results
+        logger.warning("[EVAL DEBUG] Extraction results:")
+        logger.warning(f"[EVAL DEBUG]   Document ID: {extraction.document_id}")
+        logger.warning(f"[EVAL DEBUG]   Number of fields: {len(extraction.fields)}")
+        for field in extraction.fields:
+            logger.warning(
+                f"[EVAL DEBUG]   Field: {field.field_name}, "
+                f"Type: {type(field.value).__name__}, "
+                f"Confidence: {field.confidence}"
+            )
+            # Show value preview
+            if isinstance(field.value, list):
+                logger.warning(f"[EVAL DEBUG]     Value: list with {len(field.value)} items")
+                for i, item in enumerate(field.value[:3]):  # Show first 3 items
+                    logger.warning(f"[EVAL DEBUG]       [{i}] {item}")
+                if len(field.value) > 3:
+                    logger.warning(f"[EVAL DEBUG]       ... and {len(field.value) - 3} more")
+            else:
+                logger.warning(f"[EVAL DEBUG]     Value: {repr(field.value)}")
 
         # 3. Build comparison schema
         logger.info("[EVAL] Step 3: Building comparison schema...")
@@ -139,7 +176,9 @@ class EvaluationService:
 
     async def _get_cached_extraction(self, document_id: str):
         """Get cached extraction result."""
-        return await sync_to_async(self.extraction_service.extract_auto)(document_id)
+        return await sync_to_async(
+            self.extraction_service.extract_structured_with_retrieval_vision
+        )(document_id)
 
     def _build_comparison_schema(
         self, ground_truth: list[dict[str, Any]], extraction: Any
@@ -172,9 +211,22 @@ class EvaluationService:
         )
         gt_uses_hierarchy_path = any("hierarchy_path" in gt["field_name"] for gt in ground_truth)
 
+        logger.warning(
+            f"[EVAL DEBUG] Schema normalization check:\n"
+            f"[EVAL DEBUG]   pred_uses_hierarchy_path: {pred_uses_hierarchy_path}\n"
+            f"[EVAL DEBUG]   gt_uses_hierarchy_path: {gt_uses_hierarchy_path}\n"
+            f"[EVAL DEBUG]   Prediction field names: {list(schema.keys())}\n"
+            f"[EVAL DEBUG]   GT field names: {set(gt['field_name'] for gt in ground_truth)}"
+        )
+
         # When one side uses hierarchical names and the other flat, normalize to flat (leaf).
         normalize_gt_to_flat = gt_uses_hierarchy_path and not pred_uses_hierarchy_path
         normalize_pred_to_flat = pred_uses_hierarchy_path and not gt_uses_hierarchy_path
+
+        logger.warning(
+            f"[EVAL DEBUG]   normalize_gt_to_flat: {normalize_gt_to_flat}\n"
+            f"[EVAL DEBUG]   normalize_pred_to_flat: {normalize_pred_to_flat}"
+        )
 
         if normalize_gt_to_flat:
             # Predictions use dotted keys (e.g. forward_looking_estimates_table.period_1_value);
@@ -609,8 +661,29 @@ class EvaluationService:
                 }
             }
         """
-        # Build the prompt
+        logger.info("[EVAL] _evaluate_with_llm: building prompt...")
+
+        # Log the full comparison schema for debugging
+        logger.warning("[EVAL DEBUG] Full comparison_schema:")
+        for field_name, data in comparison_schema.items():
+            gt_values = [item["value"] for item in data["ground_truth"]]
+            pred_values = [item["value"] for item in data["predicted"]]
+            logger.warning(
+                f"[EVAL DEBUG]   {field_name}:\n"
+                f"[EVAL DEBUG]     GT ({len(gt_values)}): {gt_values}\n"
+                f"[EVAL DEBUG]     Pred ({len(pred_values)}): {pred_values}"
+            )
+
         prompt = self._build_evaluation_prompt(comparison_schema)
+        field_names = list(comparison_schema.keys())
+        n_fields, n_chars = len(field_names), len(prompt)
+        logger.info(
+            "[EVAL] LLM request: %d fields, prompt length=%d chars",
+            n_fields,
+            n_chars,
+        )
+        logger.debug("[EVAL] comparison_schema fields: %s", field_names)
+        logger.warning("[EVAL DEBUG] Full evaluation prompt:\n%s", prompt)
 
         try:
             # Single LLM call
@@ -618,17 +691,38 @@ class EvaluationService:
             from concurrent.futures import ThreadPoolExecutor
             from functools import partial
 
+            logger.info("[EVAL] Calling LLM (run_in_executor)...")
             loop = asyncio.get_event_loop()
             with ThreadPoolExecutor() as executor:
-                # Use partial to properly pass keyword arguments
                 complete_fn = partial(
                     self.openai_client.complete_json, prompt=prompt, max_completion_tokens=4000
                 )
                 result = await loop.run_in_executor(executor, complete_fn)
+            logger.info("[EVAL] LLM call returned")
 
-            return result.get("evaluations", {})
+            evaluations = result.get("evaluations", {})
+            logger.info(
+                "[EVAL] LLM response: %d evaluations (keys: %s)",
+                len(evaluations),
+                list(evaluations.keys()),
+            )
+            logger.warning("[EVAL DEBUG] Full LLM response:\n%s", json.dumps(result, indent=2))
+
+            # Log detailed evaluation results for each field
+            for field_name, eval_data in evaluations.items():
+                matches = eval_data.get("matches", [])
+                missing = eval_data.get("missing_gt_indices", [])
+                extra = eval_data.get("extra_pred_indices", [])
+                logger.warning(
+                    f"[EVAL DEBUG] Field '{field_name}': "
+                    f"{len(matches)} matches, {len(missing)} missing GT, {len(extra)} extra pred"
+                )
+                for match in matches[:3]:  # Show first 3 matches
+                    logger.warning(f"[EVAL DEBUG]   Match: {match}")
+
+            return evaluations
         except Exception as e:
-            logger.error(f"LLM evaluation failed: {e}")
+            logger.error("LLM evaluation failed: %s", e)
             # Fall back to simple exact matching
             return self._fallback_exact_match(comparison_schema)
 

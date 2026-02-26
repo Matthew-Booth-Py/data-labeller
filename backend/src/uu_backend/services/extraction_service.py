@@ -2,6 +2,7 @@
 
 import base64
 import io
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,12 @@ from django.utils import timezone
 
 from uu_backend.config import get_settings
 from uu_backend.llm.openai_client import get_openai_client
-from uu_backend.models.taxonomy import ExtractedField, ExtractionResult, SchemaField
+from uu_backend.models.taxonomy import (
+    ExtractedField,
+    ExtractionResult,
+    FieldType,
+    SchemaField,
+)
 from uu_backend.repositories import get_repository
 from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.services.schema_generator import generate_pydantic_schema
@@ -44,13 +50,8 @@ class ExtractionService:
             "5) If not found, return null."
         )
 
-    def _should_use_vision_extraction(
-        self, schema_fields: list[SchemaField], file_type: str
-    ) -> bool:
-        """Check if vision extraction should be used for table fields in PDFs."""
-        if file_type.lower() != "pdf":
-            return False
-
+    def _has_table_like_field(self, schema_fields: list[SchemaField]) -> bool:
+        """True if any field is an array (table-like) or has explicit visual_content_type=table."""
         for field in schema_fields:
             content_type = getattr(field, "visual_content_type", None)
             if content_type:
@@ -59,8 +60,17 @@ class ExtractionService:
                 )
                 if type_value == "table":
                     return True
-
+            if field.type == FieldType.ARRAY and field.items:
+                return True
         return False
+
+    def _should_use_vision_extraction(
+        self, schema_fields: list[SchemaField], file_type: str
+    ) -> bool:
+        """Check if vision extraction should be used for table fields in PDFs."""
+        if file_type.lower() != "pdf":
+            return False
+        return self._has_table_like_field(schema_fields)
 
     def extract_auto(
         self,
@@ -103,14 +113,20 @@ class ExtractionService:
         schema_fields = doc_type.schema_fields or []
 
         if self._should_use_vision_extraction(schema_fields, file_type):
-            logger.info("Using vision extraction for table fields")
+            logger.warning(
+                f"[EXTRACTION DEBUG] extract_auto: Using vision extraction for table fields "
+                f"(document_id={document_id})"
+            )
             return self.extract_structured_with_retrieval_vision(
                 document_id=document_id,
                 prompt_version_id=prompt_version_id,
                 top_k_per_field=top_k_per_field,
             )
         else:
-            logger.info("Using standard extraction")
+            logger.warning(
+                f"[EXTRACTION DEBUG] extract_auto: Using standard extraction "
+                f"(document_id={document_id})"
+            )
             return self.extract_structured(
                 document_id=document_id,
                 prompt_version_id=prompt_version_id,
@@ -240,6 +256,26 @@ Extract all fields according to the schema. Return null for fields that cannot b
             f"fields={len(effective_schema_fields)})"
         )
 
+        # Log the extraction prompt and schema
+        logger.warning("[EXTRACTION DEBUG] System prompt:")
+        logger.warning(system_prompt)
+        logger.warning("[EXTRACTION DEBUG] User messages:")
+        for msg in messages:
+            if msg["role"] == "user":
+                if isinstance(msg["content"], str):
+                    logger.warning(f"[EXTRACTION DEBUG] {msg['content']}")
+                elif isinstance(msg["content"], list):
+                    for item in msg["content"]:
+                        if item["type"] == "text":
+                            logger.warning(f"[EXTRACTION DEBUG] {item['text']}")
+                        elif item["type"] == "image_url":
+                            logger.warning("[EXTRACTION DEBUG] [Image content]")
+
+        logger.warning(
+            f"[EXTRACTION DEBUG] Schema field names: "
+            f"{[f.name for f in effective_schema_fields]}"
+        )
+
         try:
             response = self.client.beta.chat.completions.parse(
                 model=model_name,
@@ -248,6 +284,11 @@ Extract all fields according to the schema. Return null for fields that cannot b
             )
 
             extracted_data = response.choices[0].message.parsed
+
+            logger.warning(
+                f"[EXTRACTION DEBUG] Raw extraction output:\n"
+                f"{json.dumps(extracted_data.model_dump(), indent=2)}"
+            )
 
             print(f"Extracted: {extracted_data.model_dump()}")
 
@@ -682,6 +723,14 @@ fields not found in the table.""",
             {"role": "user", "content": user_content},
         ]
 
+        # Log extraction prompt details
+        logger.warning("[EXTRACTION DEBUG] Vision extraction prompt:")
+        logger.warning(f"[EXTRACTION DEBUG] System prompt:\n{system_prompt}")
+        logger.warning(f"[EXTRACTION DEBUG] User prompt (text part):\n{user_content[0]['text']}")
+        logger.warning(
+            f"[EXTRACTION DEBUG] Schema fields: " f"{[f.name for f in effective_schema_fields]}"
+        )
+
         try:
             response = self.client.beta.chat.completions.parse(
                 model=model_name,
@@ -690,6 +739,11 @@ fields not found in the table.""",
             )
 
             extracted_data = response.choices[0].message.parsed
+
+            logger.warning(
+                f"[EXTRACTION DEBUG] Raw extraction output:\n"
+                f"{json.dumps(extracted_data.model_dump(), indent=2)}"
+            )
 
             extracted_fields = []
             for field in effective_schema_fields:

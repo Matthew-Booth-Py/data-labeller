@@ -737,15 +737,39 @@ class ExtractDocumentView(APIView):
         )
         service = get_extraction_service()
 
+        logger.warning(
+            f"[EXTRACTION API] POST /extract for document {document_id}\n"
+            f"[EXTRACTION API]   use_llm={use_llm}\n"
+            f"[EXTRACTION API]   use_structured_output={use_structured_output}\n"
+            f"[EXTRACTION API]   use_retrieval={use_retrieval}\n"
+            f"[EXTRACTION API]   use_retrieval_vision={use_retrieval_vision}"
+        )
+
         try:
             if use_retrieval_vision or use_retrieval:
+                logger.warning(
+                    f"[EXTRACTION API] Calling extract_structured_with_retrieval_vision "
+                    f"for {document_id}"
+                )
                 result = service.extract_structured_with_retrieval_vision(document_id)
             elif use_structured_output:
+                logger.warning(f"[EXTRACTION API] Calling extract_structured for {document_id}")
                 result = service.extract_structured(document_id)
             else:
+                logger.warning(
+                    f"[EXTRACTION API] Calling extract_from_annotations for {document_id}"
+                )
                 result = service.extract_from_annotations(  # type: ignore
                     document_id, use_llm_refinement=use_llm
                 )
+
+            logger.warning(
+                f"[EXTRACTION API] Extraction completed for {document_id}\n"
+                f"[EXTRACTION API]   Fields returned: "
+                f"{[f.field_name for f in result.fields]}\n"
+                f"[EXTRACTION API]   Full result:\n"
+                f"{json.dumps([{'field_name': f.field_name, 'value': f.value, 'confidence': f.confidence} for f in result.fields], indent=2)}"
+            )
 
             return Response(
                 {
