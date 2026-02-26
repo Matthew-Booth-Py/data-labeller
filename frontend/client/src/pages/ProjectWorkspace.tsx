@@ -200,8 +200,8 @@ export default function ProjectWorkspace() {
             <AlertDialogHeader>
               <AlertDialogTitle>Create Project Version?</AlertDialogTitle>
               <AlertDialogDescription>
-                This captures the current schema, prompts, and model settings as a
-                versioned deployment artifact.
+                This captures the current schema, prompts, and model settings as
+                a versioned deployment artifact.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -230,56 +230,79 @@ export default function ProjectWorkspace() {
           onValueChange={handleTabChange}
           className="flex-1 flex flex-col overflow-hidden"
         >
-          <div className="px-4 md:px-8 border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]/90 backdrop-blur supports-[backdrop-filter]:bg-[var(--surface-elevated)]/75">
-            <TabsList className="w-full justify-start bg-transparent border-0 p-0 py-3 gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap">
-              {WORKSPACE_TABS.map((tabId) => {
-                const tabMeta = WORKSPACE_TAB_META[tabId];
-                const Icon = tabMeta.icon;
+          <div className="border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]/90 backdrop-blur supports-[backdrop-filter]:bg-[var(--surface-elevated)]/75">
+            <div className="max-w-[1300px] mx-auto px-4 md:px-8">
+              <TabsList className="w-full justify-start bg-transparent border-0 p-0 py-3 gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap">
+                {WORKSPACE_TABS.map((tabId) => {
+                  const tabMeta = WORKSPACE_TAB_META[tabId];
+                  const Icon = tabMeta.icon;
 
-                return (
-                  <TabsTrigger
-                    key={tabId}
-                    value={tabId}
-                    className={cn(
-                      "h-9 px-3.5 gap-2 text-xs md:text-sm",
-                      tabMeta.className,
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {tabMeta.label}
-                  </TabsTrigger>
-                );
-              })}
-            </TabsList>
+                  return (
+                    <TabsTrigger
+                      key={tabId}
+                      value={tabId}
+                      className={cn(
+                        "h-9 px-3.5 gap-2 text-xs md:text-sm",
+                        tabMeta.className,
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {tabMeta.label}
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+            </div>
           </div>
 
           <div className="max-w-[1300px] mx-auto flex-1 flex flex-col min-h-0 w-full">
-          <div className="flex-1 overflow-hidden bg-gradient-to-b from-[var(--surface-elevated)]/50 via-transparent to-transparent">
-            <TabsContent value="schema" className="h-full m-0 overflow-auto p-4">
-              <SchemaViewer projectId={id} />
-            </TabsContent>
-            <TabsContent value="documents" className="h-full m-0 p-6 overflow-auto">
-              <DocumentPool projectId={id} />
-            </TabsContent>
-            <TabsContent value="extraction" className="h-full m-0 p-6 overflow-auto">
-              <ExtractionRunner projectId={id} />
-            </TabsContent>
-            <TabsContent value="labeller" className="h-full m-0 p-0 overflow-hidden">
-              <DataLabeller />
-            </TabsContent>
-            <TabsContent value="labels" className="h-full m-0 p-6 overflow-auto">
-              <LabelsView />
-            </TabsContent>
-            <TabsContent value="evaluate" className="h-full m-0 p-6 overflow-auto">
-              <EvaluateView />
-            </TabsContent>
-            <TabsContent value="api" className="h-full m-0 p-6 overflow-auto">
-              <APIManagement />
-            </TabsContent>
-            <TabsContent value="deployment" className="h-full m-0 p-6 overflow-auto">
-              <DeploymentView projectId={id} />
-            </TabsContent>
-          </div>
+            <div className="flex-1 overflow-hidden bg-gradient-to-b from-[var(--surface-elevated)]/50 via-transparent to-transparent">
+              <TabsContent
+                value="schema"
+                className="h-full m-0 overflow-auto p-4"
+              >
+                <SchemaViewer projectId={id} />
+              </TabsContent>
+              <TabsContent
+                value="documents"
+                className="h-full m-0 p-6 overflow-auto"
+              >
+                <DocumentPool projectId={id} />
+              </TabsContent>
+              <TabsContent
+                value="extraction"
+                className="h-full m-0 p-6 overflow-auto"
+              >
+                <ExtractionRunner projectId={id} />
+              </TabsContent>
+              <TabsContent
+                value="labeller"
+                className="h-full m-0 p-0 overflow-hidden"
+              >
+                <DataLabeller />
+              </TabsContent>
+              <TabsContent
+                value="labels"
+                className="h-full m-0 p-6 overflow-auto"
+              >
+                <LabelsView />
+              </TabsContent>
+              <TabsContent
+                value="evaluate"
+                className="h-full m-0 p-6 overflow-auto"
+              >
+                <EvaluateView />
+              </TabsContent>
+              <TabsContent value="api" className="h-full m-0 p-6 overflow-auto">
+                <APIManagement />
+              </TabsContent>
+              <TabsContent
+                value="deployment"
+                className="h-full m-0 p-6 overflow-auto"
+              >
+                <DeploymentView projectId={id} />
+              </TabsContent>
+            </div>
           </div>
         </Tabs>
       </div>
