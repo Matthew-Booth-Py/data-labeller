@@ -914,7 +914,7 @@ export function PdfTextAnnotator({
                           style={{
                             /* Opaque tint so button text is readable over document */
                             background: `${et.color}E6`,
-                            color: et.color,
+                            color: "#ffffff",
                             border: `1px solid ${et.color}99`,
                           }}
                           onClick={() => applyFromPopup(et.id)}
