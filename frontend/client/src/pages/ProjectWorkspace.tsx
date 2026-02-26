@@ -3,10 +3,21 @@ import { useParams } from "wouter";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Save } from "lucide-react";
-import { useState, useMemo, useEffect } from "react";
+import {
+  BarChart3,
+  BookOpenText,
+  Boxes,
+  Braces,
+  FileText,
+  Rocket,
+  Save,
+  Tags,
+  Waypoints,
+} from "lucide-react";
+import { useState, useMemo, useEffect, type ComponentType } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,6 +68,24 @@ const WORKSPACE_TABS: WorkspaceTabId[] = [
   "api",
   "deployment",
 ];
+
+const WORKSPACE_TAB_META: Record<
+  WorkspaceTabId,
+  {
+    label: string;
+    icon: ComponentType<{ className?: string }>;
+    className?: string;
+  }
+> = {
+  schema: { label: "Schema", icon: Braces },
+  documents: { label: "Documents", icon: FileText },
+  extraction: { label: "Extraction", icon: Waypoints },
+  labeller: { label: "Data Labeller", icon: BookOpenText },
+  labels: { label: "Labels", icon: Tags },
+  evaluate: { label: "Evaluate", icon: BarChart3 },
+  api: { label: "API Management", icon: Boxes },
+  deployment: { label: "Deployment", icon: Rocket, className: "ml-auto" },
+};
 
 function isWorkspaceTabId(value: string): value is WorkspaceTabId {
   return WORKSPACE_TABS.includes(value as WorkspaceTabId);
@@ -200,36 +229,30 @@ export default function ProjectWorkspace() {
           onValueChange={handleTabChange}
           className="flex-1 flex flex-col overflow-hidden"
         >
-          <div className="px-4 md:px-6 border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]">
-            <TabsList className="h-12 w-full justify-start bg-transparent border-0 p-0 gap-2 overflow-x-auto">
-              <TabsTrigger value="schema" className="h-9 px-4">
-                Schema
-              </TabsTrigger>
-              <TabsTrigger value="documents" className="h-9 px-4">
-                Documents
-              </TabsTrigger>
-              <TabsTrigger value="extraction" className="h-9 px-4">
-                Extraction
-              </TabsTrigger>
-              <TabsTrigger value="labeller" className="h-9 px-4">
-                Data Labeller
-              </TabsTrigger>
-              <TabsTrigger value="labels" className="h-9 px-4">
-                Labels
-              </TabsTrigger>
-              <TabsTrigger value="evaluate" className="h-9 px-4">
-                Evaluate
-              </TabsTrigger>
-              <TabsTrigger value="api" className="h-9 px-4">
-                API Management
-              </TabsTrigger>
-              <TabsTrigger value="deployment" className="h-9 px-4 ml-auto">
-                Deployment
-              </TabsTrigger>
+          <div className="px-4 md:px-6 border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]/90 backdrop-blur supports-[backdrop-filter]:bg-[var(--surface-elevated)]/75">
+            <TabsList className="w-full justify-start bg-transparent border-0 p-0 py-3 gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap">
+              {WORKSPACE_TABS.map((tabId) => {
+                const tabMeta = WORKSPACE_TAB_META[tabId];
+                const Icon = tabMeta.icon;
+
+                return (
+                  <TabsTrigger
+                    key={tabId}
+                    value={tabId}
+                    className={cn(
+                      "h-9 px-3.5 gap-2 text-xs md:text-sm",
+                      tabMeta.className,
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {tabMeta.label}
+                  </TabsTrigger>
+                );
+              })}
             </TabsList>
           </div>
 
-          <div className="flex-1 overflow-hidden bg-muted/15">
+          <div className="flex-1 overflow-hidden bg-gradient-to-b from-[var(--surface-elevated)]/50 via-transparent to-transparent">
             <TabsContent value="schema" className="h-full m-0 overflow-auto p-4">
               <SchemaViewer projectId={id} />
             </TabsContent>

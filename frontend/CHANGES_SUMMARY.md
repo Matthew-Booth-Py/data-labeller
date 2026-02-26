@@ -56,3 +56,20 @@ This summary captures the UI/UX revamp implemented across the frontend.
 - `npm --prefix frontend run check` passed.
 - `npm --prefix frontend run build` passed.
 - Build emits chunk-size warning only (non-blocking).
+
+## 8. Post-Revamp Quality Pass (Evaluation + Navigation)
+- Elevated workspace module tabs in `client/src/pages/ProjectWorkspace.tsx`:
+  - icon-led tab triggers
+  - improved active/focus states
+  - upgraded rail surface treatment and horizontal behavior on narrow screens
+- Refined shared tabs primitive in `client/src/components/ui/tabs.tsx`:
+  - stronger active-state affordance
+  - clearer focus rings
+  - smoother transitions and improved spacing
+- Rebuilt `client/src/components/workspace/EvaluateView.tsx` for parity with revamped pages:
+  - evaluation hero and clearer run controls
+  - richer summary KPI cards and diagnostics (match type distribution + weak fields)
+  - improved result tabs/tables with stronger hierarchy and status semantics
+  - delete-run confirmation dialog and explicit error/loading states
+  - fixed instance view row keying to avoid React key warnings
+- Improved 404 route quality in `client/src/App.tsx` with branded, actionable recovery UX.
