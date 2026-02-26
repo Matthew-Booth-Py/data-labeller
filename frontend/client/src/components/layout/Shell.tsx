@@ -174,6 +174,8 @@ interface ShellProps {
   projectId?: string;
   showProjectRail?: boolean;
   contentClassName?: string;
+  /** When true, children are not wrapped in max-w-[1300px]; use for pages that need full-width sections (e.g. tab bar) */
+  contentFullWidth?: boolean;
 }
 
 export function Shell({
@@ -186,6 +188,7 @@ export function Shell({
   projectId,
   showProjectRail = true,
   contentClassName,
+  contentFullWidth = false,
 }: ShellProps) {
   const [location] = useLocation();
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
@@ -283,7 +286,11 @@ export function Shell({
           )}
 
           <main className={cn("px-4 md:px-8 py-6", contentClassName)}>
-            <div className="max-w-[1300px] mx-auto">{children}</div>
+            {contentFullWidth ? (
+              children
+            ) : (
+              <div className="max-w-[1300px] mx-auto">{children}</div>
+            )}
           </main>
         </div>
       </div>

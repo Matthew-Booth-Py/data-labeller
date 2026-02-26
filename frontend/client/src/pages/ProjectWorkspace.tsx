@@ -222,6 +222,7 @@ export default function ProjectWorkspace() {
         </Badge>
       }
       contentClassName="py-0 px-0 md:px-0"
+      contentFullWidth
     >
       <div className="flex flex-col h-[calc(100vh-13.5rem)] min-h-[620px]">
         <Tabs
@@ -229,7 +230,7 @@ export default function ProjectWorkspace() {
           onValueChange={handleTabChange}
           className="flex-1 flex flex-col overflow-hidden"
         >
-          <div className="border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]/90 backdrop-blur supports-[backdrop-filter]:bg-[var(--surface-elevated)]/75">
+          <div className="px-4 md:px-8 border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]/90 backdrop-blur supports-[backdrop-filter]:bg-[var(--surface-elevated)]/75">
             <TabsList className="w-full justify-start bg-transparent border-0 p-0 py-3 gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap">
               {WORKSPACE_TABS.map((tabId) => {
                 const tabMeta = WORKSPACE_TAB_META[tabId];
@@ -252,6 +253,7 @@ export default function ProjectWorkspace() {
             </TabsList>
           </div>
 
+          <div className="max-w-[1300px] mx-auto flex-1 flex flex-col min-h-0 w-full">
           <div className="flex-1 overflow-hidden bg-gradient-to-b from-[var(--surface-elevated)]/50 via-transparent to-transparent">
             <TabsContent value="schema" className="h-full m-0 overflow-auto p-4">
               <SchemaViewer projectId={id} />
@@ -277,6 +279,7 @@ export default function ProjectWorkspace() {
             <TabsContent value="deployment" className="h-full m-0 p-6 overflow-auto">
               <DeploymentView projectId={id} />
             </TabsContent>
+          </div>
           </div>
         </Tabs>
       </div>
