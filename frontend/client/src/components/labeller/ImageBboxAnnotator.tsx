@@ -359,7 +359,9 @@ export function ImageBboxAnnotator({
     });
   };
 
-  const bboxAnnotations = annotations.filter((a) => a.annotation_type === "bbox");
+  const bboxAnnotations = annotations.filter(
+    (a) => a.annotation_type === "bbox",
+  );
 
   return (
     <div className="dl-viewer flex h-full flex-col">

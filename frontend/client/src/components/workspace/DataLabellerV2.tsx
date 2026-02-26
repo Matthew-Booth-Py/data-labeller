@@ -99,8 +99,7 @@ const setsEqual = (a: Set<string>, b: Set<string>) => {
 
 const isLabellerSidebarMode = (
   value: string | null,
-): value is LabellerSidebarMode =>
-  value === "expanded" || value === "hidden";
+): value is LabellerSidebarMode => value === "expanded" || value === "hidden";
 
 export function DataLabellerV2({}: DataLabellerV2Props) {
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
@@ -110,7 +109,9 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   const [projectId, setProjectId] = useState<string>("all");
   const [projects, setProjects] = useState<any[]>([]);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
-  const [activeEntityTypeId, setActiveEntityTypeId] = useState<string | null>(null);
+  const [activeEntityTypeId, setActiveEntityTypeId] = useState<string | null>(
+    null,
+  );
   const [activeInstanceNum, setActiveInstanceNum] = useState<number>(1);
 
   // Load from storage after mount
@@ -124,17 +125,23 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
         setProjects(JSON.parse(storedProjects));
       }
 
-      const storedDocId = sessionStorage.getItem(`labeller-selected-doc-${storedProjectId}`);
+      const storedDocId = sessionStorage.getItem(
+        `labeller-selected-doc-${storedProjectId}`,
+      );
       if (storedDocId) {
         setSelectedDocId(storedDocId);
       }
 
-      const storedEntityId = sessionStorage.getItem(`labeller-active-entity-${storedProjectId}`);
+      const storedEntityId = sessionStorage.getItem(
+        `labeller-active-entity-${storedProjectId}`,
+      );
       if (storedEntityId) {
         setActiveEntityTypeId(storedEntityId);
       }
 
-      const storedRow = sessionStorage.getItem(`labeller-active-row-${storedProjectId}`);
+      const storedRow = sessionStorage.getItem(
+        `labeller-active-row-${storedProjectId}`,
+      );
       if (storedRow) {
         const parsed = parseInt(storedRow, 10);
         if (Number.isFinite(parsed)) {
@@ -144,7 +151,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     } catch (error) {
       console.error("Error loading from storage:", error);
     }
-    
+
     setMounted(true);
   }, []);
 
@@ -165,7 +172,9 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   const [outputView, setOutputView] = useState<OutputViewMode>("json");
   const [sidebarMode, setSidebarMode] = useState<LabellerSidebarMode>(() => {
     if (typeof window === "undefined") return "expanded";
-    const stored = window.localStorage.getItem(LABELLER_SIDEBAR_MODE_STORAGE_KEY);
+    const stored = window.localStorage.getItem(
+      LABELLER_SIDEBAR_MODE_STORAGE_KEY,
+    );
     return stored === "hidden"
       ? "hidden"
       : isLabellerSidebarMode(stored)
@@ -489,11 +498,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
 
   // Handle annotation creation
   const handleAnnotationCreate = useCallback(
-    (
-      fieldName: string,
-      value: any,
-      data: TextSpanData | BoundingBoxData,
-    ) => {
+    (fieldName: string, value: any, data: TextSpanData | BoundingBoxData) => {
       const annotationType = "start" in data ? "text_span" : "bbox";
 
       // Check if this is an array field (contains dot notation like "field.property")
@@ -530,7 +535,9 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
               (annotation.annotation_data as unknown as Record<string, unknown>)
                 ?.instance_num,
             );
-            return Number.isFinite(instanceNum) && instanceNum === activeInstanceNum;
+            return (
+              Number.isFinite(instanceNum) && instanceNum === activeInstanceNum
+            );
           })
           .map((annotation) => annotation.field_name),
       );
@@ -766,7 +773,12 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       }
 
       // Row prompt shortcut: R + number
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "r") {
+      if (
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "r"
+      ) {
         rowShortcutAwaitRef.current = true;
         rowShortcutDigitsRef.current = "";
         scheduleRowShortcutTimeout();
@@ -801,7 +813,8 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
           ? entityTypes.findIndex((et) => et.id === activeEntityTypeId)
           : -1;
         const nextIndex =
-          ((currentIndex + direction) % entityTypes.length + entityTypes.length) %
+          (((currentIndex + direction) % entityTypes.length) +
+            entityTypes.length) %
           entityTypes.length;
         setActiveEntityTypeId(entityTypes[nextIndex]?.id || null);
         return;
@@ -822,7 +835,11 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       }
 
       // Undo annotation
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.shiftKey &&
+        e.key.toLowerCase() === "z"
+      ) {
         const lastAnnotation = annotations[annotations.length - 1];
         if (lastAnnotation) {
           deleteAnnotationMutation.mutate(lastAnnotation.id);
@@ -1213,7 +1230,9 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       <div
         className={cn(
           "grid flex-1 grid-cols-1 gap-4 min-h-0",
-          sidebarVisible ? "xl:grid-cols-[380px_minmax(0,1fr)]" : "xl:grid-cols-1",
+          sidebarVisible
+            ? "xl:grid-cols-[380px_minmax(0,1fr)]"
+            : "xl:grid-cols-1",
         )}
       >
         {sidebarVisible && (
@@ -1230,621 +1249,685 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                 >
                   <TabsList className="grid w-full grid-cols-4">
                     {SIDEBAR_TABS.map((tab) => (
-                      <TabsTrigger key={tab.id} value={tab.id} className="text-xs">
+                      <TabsTrigger
+                        key={tab.id}
+                        value={tab.id}
+                        className="text-xs"
+                      >
                         {tab.label}
                       </TabsTrigger>
                     ))}
                   </TabsList>
 
-                <TabsContent value="context" className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
-                  <div className="space-y-3">
-                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
-                      <div className="mb-2 flex items-center justify-between">
-                        <p className="text-sm font-medium">Documents</p>
-                        <Badge variant="outline">{documents.length}</Badge>
-                      </div>
-                      {documents.length === 0 ? (
-                        <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
-                          No documents in this project.
+                  <TabsContent
+                    value="context"
+                    className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1"
+                  >
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-sm font-medium">Documents</p>
+                          <Badge variant="outline">{documents.length}</Badge>
                         </div>
-                      ) : (
-                        <div className="dl-documents-list">
-                          {documents.map((doc) => (
-                            <button
-                              key={doc.id}
-                              type="button"
-                              className={cn(
-                                "dl-document-item",
-                                selectedDocId === doc.id && "active",
-                              )}
-                              onClick={() => setSelectedDocId(doc.id)}
-                            >
-                              {doc.file_type === "pdf" ? (
-                                <FileText size={14} />
-                              ) : (
-                                <Image size={14} />
-                              )}
-                              <span className="dl-document-item-name">{doc.filename}</span>
-                              <span className="dl-document-item-meta">
-                                {documentAnnotationCounts[doc.id] || 0} ann.
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
-                      <div className="mb-2 flex items-center justify-between">
-                        <p className="text-sm font-medium">Row Selector</p>
-                        <span className="dl-kbd">R + #</span>
-                      </div>
-                      <div className="dl-row-grid">
-                        {Array.from({ length: 12 }, (_, idx) => idx + 1).map(
-                          (num) => (
-                            <button
-                              key={num}
-                              type="button"
-                              onClick={() => setActiveInstanceNum(num)}
-                              className={cn(
-                                "dl-row-chip",
-                                activeInstanceNum === num && "active",
-                              )}
-                            >
-                              {num}
-                            </button>
-                          ),
-                        )}
-                      </div>
-                      <div className="dl-row-current">
-                        Current row: <strong>{activeInstanceNum}</strong>
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
-                      <p className="mb-2 text-sm font-medium">Workflow Mode</p>
-                      <div className="grid grid-cols-3 gap-2">
-                        {(Object.keys(WORKFLOW_LABELS) as WorkflowMode[]).map(
-                          (mode) => (
-                            <button
-                              key={mode}
-                              type="button"
-                              className={cn(
-                                "rounded-md border px-2 py-1.5 text-xs font-medium transition-colors",
-                                workflowMode === mode
-                                  ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)] text-[var(--interactive-accent)]"
-                                  : "border-[var(--border-subtle)] bg-white text-[var(--text-secondary)] hover:bg-[var(--surface-page)]",
-                              )}
-                              onClick={() => setWorkflowMode(mode)}
-                            >
-                              {WORKFLOW_LABELS[mode]}
-                            </button>
-                          ),
-                        )}
-                      </div>
-                      <div className="mt-3 space-y-2">
-                        <div className="flex items-center justify-between gap-3 text-xs">
-                          <span>Auto-advance row when complete</span>
-                          <Switch
-                            checked={autoAdvanceRow}
-                            onCheckedChange={setAutoAdvanceRow}
-                          />
-                        </div>
-                        <div className="flex items-center justify-between gap-3 text-xs">
-                          <span>Inline field switcher on highlight</span>
-                          <Switch
-                            checked={inlineFieldSwitcher}
-                            onCheckedChange={setInlineFieldSwitcher}
-                          />
-                        </div>
-                        <div className="flex items-center justify-between gap-3 text-xs">
-                          <span>Table detection grid overlay</span>
-                          <Switch
-                            checked={tableDetectionMode}
-                            onCheckedChange={setTableDetectionMode}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="schema" className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
-                  <div className="space-y-3">
-                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
-                      <div className="relative">
-                        <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          value={fieldFilter}
-                          onChange={(event) => setFieldFilter(event.target.value)}
-                          placeholder="Filter fields..."
-                          className="pl-8"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
-                      <div className="mb-2 flex items-center justify-between">
-                        <p className="text-sm font-medium">Entity Types</p>
-                        <Badge variant="outline">{entityTypes.length}</Badge>
-                      </div>
-                      {entityTypes.length === 0 ? (
-                        <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
-                          Select a classified document to load schema fields.
-                        </div>
-                      ) : (
-                        <div className="dl-entity-types-list pr-1">
-                          {Object.entries(filteredGroupedEntityTypes).map(
-                            ([groupName, groupTypes]) => {
-                              const isRoot = groupName === "_root";
-                              const isExpanded =
-                                isRoot || expandedGroups.has(groupName);
-
-                              return (
-                                <div key={groupName} className="dl-entity-group">
-                                  {!isRoot && (
-                                    <button
-                                      type="button"
-                                      className="dl-entity-group-header w-full text-left"
-                                      onClick={() => {
-                                        const next = new Set(expandedGroups);
-                                        if (next.has(groupName)) {
-                                          next.delete(groupName);
-                                        } else {
-                                          next.add(groupName);
-                                        }
-                                        setExpandedGroups(next);
-                                      }}
-                                    >
-                                      <ChevronDown
-                                        size={14}
-                                        className={cn(
-                                          "transition-transform",
-                                          !isExpanded && "-rotate-90",
-                                        )}
-                                      />
-                                      <span>{groupName}</span>
-                                      <span className="dl-entity-group-count">
-                                        {groupTypes.length}
-                                      </span>
-                                    </button>
-                                  )}
-                                  {isExpanded &&
-                                    groupTypes.map((type) => {
-                                      const fieldName = type.name;
-                                      const displayName = getFieldLeafName(fieldName);
-                                      const globalIndex = entityTypes.findIndex(
-                                        (entityType) => entityType.id === type.id,
-                                      );
-                                      return (
-                                        <button
-                                          key={type.id}
-                                          type="button"
-                                          className={cn(
-                                            "dl-entity-type-item",
-                                            activeEntityTypeId === type.id && "active",
-                                          )}
-                                          style={{
-                                            ...(activeEntityTypeId === type.id
-                                              ? { color: type.color }
-                                              : undefined),
-                                            paddingLeft: isRoot ? "8px" : "24px",
-                                          }}
-                                          onClick={() =>
-                                            setActiveEntityTypeId(
-                                              activeEntityTypeId === type.id
-                                                ? null
-                                                : type.id,
-                                            )
-                                          }
-                                        >
-                                          <div
-                                            className="dl-entity-color-dot"
-                                            style={{ background: type.color }}
-                                          />
-                                          <span className="dl-entity-type-name">
-                                            {displayName}
-                                          </span>
-                                          {globalIndex < 9 && (
-                                            <span className="dl-kbd">
-                                              {globalIndex + 1}
-                                            </span>
-                                          )}
-                                          <span className="dl-entity-type-count">
-                                            {entityCounts[fieldName] || 0}
-                                          </span>
-                                        </button>
-                                      );
-                                    })}
-                                </div>
-                              );
-                            },
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
-                      <div className="mb-2 flex items-center justify-between">
-                        <p className="text-sm font-medium">Row Template Fields</p>
-                        <Badge variant="outline">{effectiveTemplateFields.length}</Badge>
-                      </div>
-                      {rowAwareFieldNames.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">
-                          No row-based fields found in the active schema.
-                        </p>
-                      ) : (
-                        <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
-                          {activeGroupFieldNames.map((field) => {
-                            const selected =
-                              selectedTemplateFields.includes(field);
-                            return (
-                              <button
-                                key={field}
-                                type="button"
-                                onClick={() =>
-                                  setSelectedTemplateFields((prev) =>
-                                    prev.includes(field)
-                                      ? prev.filter((entry) => entry !== field)
-                                      : [...prev, field],
-                                  )
-                                }
-                                className={cn(
-                                  "flex w-full items-center justify-between rounded-md border px-2 py-1 text-xs",
-                                  selected
-                                    ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
-                                    : "border-[var(--border-subtle)] bg-white",
-                                )}
-                              >
-                                <span>{getFieldLeafName(field)}</span>
-                                {selected ? <Check size={13} /> : <X size={13} />}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
-                      <p className="mb-2 text-sm font-medium">Field Completion</p>
-                      {effectiveTemplateFields.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">
-                          Select at least one row-template field to track progress.
-                        </p>
-                      ) : (
-                        <div className="space-y-2">
-                          {rowCompletionRows.map((row) => {
-                            const done = effectiveTemplateFields.filter((field) =>
-                              rowFieldStatus[row]?.has(field),
-                            ).length;
-                            const progress = Math.round(
-                              (done / effectiveTemplateFields.length) * 100,
-                            );
-                            return (
-                              <div
-                                key={row}
-                                className={cn(
-                                  "rounded-md border px-2 py-2",
-                                  row === activeInstanceNum
-                                    ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
-                                    : "border-[var(--border-subtle)] bg-white",
-                                )}
-                              >
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="font-medium">Row {row}</span>
-                                  <span>
-                                    {done}/{effectiveTemplateFields.length}
-                                  </span>
-                                </div>
-                                <div className="mt-1.5 h-1.5 rounded-full bg-[var(--surface-page)]">
-                                  <div
-                                    className="h-full rounded-full bg-[var(--interactive-accent)] transition-all"
-                                    style={{ width: `${progress}%` }}
-                                  />
-                                </div>
-                                <div className="mt-2 flex flex-wrap gap-1">
-                                  {effectiveTemplateFields
-                                    .slice(0, 4)
-                                    .map((field) => {
-                                      const isComplete = !!rowFieldStatus[row]?.has(
-                                        field,
-                                      );
-                                      return (
-                                        <span
-                                          key={`${row}-${field}`}
-                                          className={cn(
-                                            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]",
-                                            isComplete
-                                              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                                              : "border-rose-200 bg-rose-50 text-rose-700",
-                                          )}
-                                        >
-                                          {isComplete ? (
-                                            <Check size={10} />
-                                          ) : (
-                                            <X size={10} />
-                                          )}
-                                          {getFieldLeafName(field)}
-                                        </span>
-                                      );
-                                    })}
-                                  {effectiveTemplateFields.length > 4 && (
-                                    <span className="inline-flex items-center rounded-full border border-[var(--border-subtle)] px-2 py-0.5 text-[10px] text-muted-foreground">
-                                      +{effectiveTemplateFields.length - 4} more
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="annotations" className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
-                  <div className="space-y-3">
-                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
-                      <div className="mb-2 flex items-center justify-between">
-                        <p className="text-sm font-medium">Annotations</p>
-                        <Badge variant="outline">{annotations.length}</Badge>
-                      </div>
-                      {annotations.length === 0 ? (
-                        <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
-                          No annotations yet.
-                        </div>
-                      ) : (
-                        <div className="dl-annotations-list max-h-[360px] overflow-y-auto pr-1">
-                          {annotations.map((ann) => {
-                            const entityType = entityTypes.find(
-                              (entity) => entity.name === ann.field_name,
-                            );
-                            const color = entityType?.color || BEAZLEY_PALETTE.light;
-                            const preview = formatAnnotationValue(ann.value, 40);
-                            const instanceNum = Number(
-                              (ann.annotation_data as unknown as Record<
-                                string,
-                                unknown
-                              >)?.instance_num,
-                            );
-
-                            return (
-                              <div
-                                key={ann.id}
-                                className="dl-annotation-item"
-                                onClick={() => focusAnnotationInDocument(ann)}
-                              >
-                                {Number.isFinite(instanceNum) && (
-                                  <span className="dl-annotation-label-chip dl-annotation-chip-meta">
-                                    {instanceNum}
-                                  </span>
-                                )}
-                                <span
-                                  className="dl-annotation-label-chip"
-                                  style={{ background: `${color}30`, color }}
-                                >
-                                  {getFieldLeafName(ann.field_name)}
-                                </span>
-                                <span className="dl-annotation-text-preview">
-                                  "{preview}"
-                                </span>
-                                <button
-                                  type="button"
-                                  className="dl-annotation-remove"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    handleAnnotationDelete(ann.id);
-                                  }}
-                                  title="Remove"
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
-                      <div className="mb-2 flex items-center justify-between">
-                        <p className="text-sm font-medium">AI Suggestions</p>
-                        <Badge variant="outline">{suggestions.length}</Badge>
-                      </div>
-                      {suggestions.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">
-                          Run Suggest from the workspace header to generate model
-                          proposals.
-                        </p>
-                      ) : (
-                        <div className="space-y-2">
-                          {suggestions.map((suggestion) => (
-                            <div
-                              key={suggestion.id}
-                              className="rounded-md border border-[var(--border-subtle)] bg-white p-2"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-medium">
-                                  {getFieldLeafName(suggestion.field_name)}
-                                </span>
-                                <Badge variant="outline">
-                                  {Math.round((suggestion.confidence || 0) * 100)}%
-                                </Badge>
-                              </div>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {formatAnnotationValue(suggestion.value, 120)}
-                              </p>
-                              <div className="mt-2 flex gap-2">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  className="h-7 px-2 text-xs"
-                                  onClick={() => handleSuggestionApprove(suggestion)}
-                                >
-                                  Accept
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 px-2 text-xs"
-                                  onClick={() => handleSuggestionReject(suggestion.id)}
-                                >
-                                  Reject
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="output" className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
-                  <div className="space-y-3">
-                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <p className="text-sm font-medium">Output Controls</p>
-                        <button
-                          type="button"
-                          className="dl-kbd"
-                          onClick={() => setOutputCollapsed((prev) => !prev)}
-                        >
-                          {outputCollapsed ? "Expand" : "Collapse"}
-                        </button>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <div className="dl-export-dropdown" ref={exportMenuRef}>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setExportMenuVisible(!exportMenuVisible)}
-                          >
-                            Export <ChevronDown className="ml-1 h-3 w-3" />
-                          </Button>
-                          <div
-                            className={`dl-export-menu ${exportMenuVisible ? "visible" : ""}`}
-                          >
-                            <button
-                              type="button"
-                              className="dl-export-menu-item"
-                              onClick={() => exportAs("json")}
-                            >
-                              JSON
-                            </button>
-                            <button
-                              type="button"
-                              className="dl-export-menu-item"
-                              onClick={() => exportAs("jsonl")}
-                            >
-                              JSONL
-                            </button>
-                            <button
-                              type="button"
-                              className="dl-export-menu-item"
-                              onClick={() => exportAs("csv")}
-                            >
-                              CSV
-                            </button>
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="gap-1.5"
-                          onClick={copyAnnotations}
-                          disabled={annotations.length === 0}
-                        >
-                          <Copy className="h-3 w-3" />
-                          Copy
-                        </Button>
-                      </div>
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          type="button"
-                          className={cn(
-                            "rounded-md border px-2 py-1 text-xs",
-                            outputView === "json"
-                              ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
-                              : "border-[var(--border-subtle)] bg-white",
-                          )}
-                          onClick={() => setOutputView("json")}
-                        >
-                          JSON view
-                        </button>
-                        <button
-                          type="button"
-                          className={cn(
-                            "rounded-md border px-2 py-1 text-xs",
-                            outputView === "table"
-                              ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
-                              : "border-[var(--border-subtle)] bg-white",
-                          )}
-                          onClick={() => setOutputView("table")}
-                        >
-                          Table view
-                        </button>
-                      </div>
-                    </div>
-
-                    {!outputCollapsed && (
-                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-0">
-                        {outputView === "json" ? (
-                          <pre
-                            className={`dl-output-content ${annotations.length > 0 ? "has-content" : ""}`}
-                          >
-                            {outputSummary}
-                          </pre>
-                        ) : outputTableData.rows.length === 0 ? (
-                          <div className="p-3 text-xs text-muted-foreground">
-                            No row-based annotations yet. Add row fields to view
-                            structured table output.
+                        {documents.length === 0 ? (
+                          <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
+                            No documents in this project.
                           </div>
                         ) : (
-                          <div className="max-h-[360px] overflow-auto p-3">
-                            <table className="w-full border-collapse text-xs">
-                              <thead>
-                                <tr className="border-b border-[var(--border-subtle)]">
-                                  <th className="px-2 py-1 text-left font-medium text-muted-foreground">
-                                    Row
-                                  </th>
-                                  {outputTableData.columns.map((column) => (
-                                    <th
-                                      key={column}
-                                      className="px-2 py-1 text-left font-medium text-muted-foreground"
-                                    >
-                                      {column}
-                                    </th>
-                                  ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {outputTableData.rows.map((row) => (
-                                  <tr
-                                    key={row.row}
-                                    className="border-b border-[var(--border-subtle)]"
-                                  >
-                                    <td className="px-2 py-1 font-medium">
-                                      {row.row}
-                                    </td>
-                                    {outputTableData.columns.map((column) => (
-                                      <td key={column} className="px-2 py-1">
-                                        {row.values[column] || "—"}
-                                      </td>
-                                    ))}
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                          <div className="dl-documents-list">
+                            {documents.map((doc) => (
+                              <button
+                                key={doc.id}
+                                type="button"
+                                className={cn(
+                                  "dl-document-item",
+                                  selectedDocId === doc.id && "active",
+                                )}
+                                onClick={() => setSelectedDocId(doc.id)}
+                              >
+                                {doc.file_type === "pdf" ? (
+                                  <FileText size={14} />
+                                ) : (
+                                  <Image size={14} />
+                                )}
+                                <span className="dl-document-item-name">
+                                  {doc.filename}
+                                </span>
+                                <span className="dl-document-item-meta">
+                                  {documentAnnotationCounts[doc.id] || 0} ann.
+                                </span>
+                              </button>
+                            ))}
                           </div>
                         )}
                       </div>
-                    )}
-                  </div>
-                </TabsContent>
+
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-sm font-medium">Row Selector</p>
+                          <span className="dl-kbd">R + #</span>
+                        </div>
+                        <div className="dl-row-grid">
+                          {Array.from({ length: 12 }, (_, idx) => idx + 1).map(
+                            (num) => (
+                              <button
+                                key={num}
+                                type="button"
+                                onClick={() => setActiveInstanceNum(num)}
+                                className={cn(
+                                  "dl-row-chip",
+                                  activeInstanceNum === num && "active",
+                                )}
+                              >
+                                {num}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                        <div className="dl-row-current">
+                          Current row: <strong>{activeInstanceNum}</strong>
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                        <p className="mb-2 text-sm font-medium">
+                          Workflow Mode
+                        </p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(Object.keys(WORKFLOW_LABELS) as WorkflowMode[]).map(
+                            (mode) => (
+                              <button
+                                key={mode}
+                                type="button"
+                                className={cn(
+                                  "rounded-md border px-2 py-1.5 text-xs font-medium transition-colors",
+                                  workflowMode === mode
+                                    ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)] text-[var(--interactive-accent)]"
+                                    : "border-[var(--border-subtle)] bg-white text-[var(--text-secondary)] hover:bg-[var(--surface-page)]",
+                                )}
+                                onClick={() => setWorkflowMode(mode)}
+                              >
+                                {WORKFLOW_LABELS[mode]}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          <div className="flex items-center justify-between gap-3 text-xs">
+                            <span>Auto-advance row when complete</span>
+                            <Switch
+                              checked={autoAdvanceRow}
+                              onCheckedChange={setAutoAdvanceRow}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between gap-3 text-xs">
+                            <span>Inline field switcher on highlight</span>
+                            <Switch
+                              checked={inlineFieldSwitcher}
+                              onCheckedChange={setInlineFieldSwitcher}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between gap-3 text-xs">
+                            <span>Table detection grid overlay</span>
+                            <Switch
+                              checked={tableDetectionMode}
+                              onCheckedChange={setTableDetectionMode}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent
+                    value="schema"
+                    className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1"
+                  >
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                        <div className="relative">
+                          <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            value={fieldFilter}
+                            onChange={(event) =>
+                              setFieldFilter(event.target.value)
+                            }
+                            placeholder="Filter fields..."
+                            className="pl-8"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-sm font-medium">Entity Types</p>
+                          <Badge variant="outline">{entityTypes.length}</Badge>
+                        </div>
+                        {entityTypes.length === 0 ? (
+                          <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
+                            Select a classified document to load schema fields.
+                          </div>
+                        ) : (
+                          <div className="dl-entity-types-list pr-1">
+                            {Object.entries(filteredGroupedEntityTypes).map(
+                              ([groupName, groupTypes]) => {
+                                const isRoot = groupName === "_root";
+                                const isExpanded =
+                                  isRoot || expandedGroups.has(groupName);
+
+                                return (
+                                  <div
+                                    key={groupName}
+                                    className="dl-entity-group"
+                                  >
+                                    {!isRoot && (
+                                      <button
+                                        type="button"
+                                        className="dl-entity-group-header w-full text-left"
+                                        onClick={() => {
+                                          const next = new Set(expandedGroups);
+                                          if (next.has(groupName)) {
+                                            next.delete(groupName);
+                                          } else {
+                                            next.add(groupName);
+                                          }
+                                          setExpandedGroups(next);
+                                        }}
+                                      >
+                                        <ChevronDown
+                                          size={14}
+                                          className={cn(
+                                            "transition-transform",
+                                            !isExpanded && "-rotate-90",
+                                          )}
+                                        />
+                                        <span>{groupName}</span>
+                                        <span className="dl-entity-group-count">
+                                          {groupTypes.length}
+                                        </span>
+                                      </button>
+                                    )}
+                                    {isExpanded &&
+                                      groupTypes.map((type) => {
+                                        const fieldName = type.name;
+                                        const displayName =
+                                          getFieldLeafName(fieldName);
+                                        const globalIndex =
+                                          entityTypes.findIndex(
+                                            (entityType) =>
+                                              entityType.id === type.id,
+                                          );
+                                        return (
+                                          <button
+                                            key={type.id}
+                                            type="button"
+                                            className={cn(
+                                              "dl-entity-type-item",
+                                              activeEntityTypeId === type.id &&
+                                                "active",
+                                            )}
+                                            style={{
+                                              ...(activeEntityTypeId === type.id
+                                                ? { color: type.color }
+                                                : undefined),
+                                              paddingLeft: isRoot
+                                                ? "8px"
+                                                : "24px",
+                                            }}
+                                            onClick={() =>
+                                              setActiveEntityTypeId(
+                                                activeEntityTypeId === type.id
+                                                  ? null
+                                                  : type.id,
+                                              )
+                                            }
+                                          >
+                                            <div
+                                              className="dl-entity-color-dot"
+                                              style={{ background: type.color }}
+                                            />
+                                            <span className="dl-entity-type-name">
+                                              {displayName}
+                                            </span>
+                                            {globalIndex < 9 && (
+                                              <span className="dl-kbd">
+                                                {globalIndex + 1}
+                                              </span>
+                                            )}
+                                            <span className="dl-entity-type-count">
+                                              {entityCounts[fieldName] || 0}
+                                            </span>
+                                          </button>
+                                        );
+                                      })}
+                                  </div>
+                                );
+                              },
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-sm font-medium">
+                            Row Template Fields
+                          </p>
+                          <Badge variant="outline">
+                            {effectiveTemplateFields.length}
+                          </Badge>
+                        </div>
+                        {rowAwareFieldNames.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            No row-based fields found in the active schema.
+                          </p>
+                        ) : (
+                          <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
+                            {activeGroupFieldNames.map((field) => {
+                              const selected =
+                                selectedTemplateFields.includes(field);
+                              return (
+                                <button
+                                  key={field}
+                                  type="button"
+                                  onClick={() =>
+                                    setSelectedTemplateFields((prev) =>
+                                      prev.includes(field)
+                                        ? prev.filter(
+                                            (entry) => entry !== field,
+                                          )
+                                        : [...prev, field],
+                                    )
+                                  }
+                                  className={cn(
+                                    "flex w-full items-center justify-between rounded-md border px-2 py-1 text-xs",
+                                    selected
+                                      ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
+                                      : "border-[var(--border-subtle)] bg-white",
+                                  )}
+                                >
+                                  <span>{getFieldLeafName(field)}</span>
+                                  {selected ? (
+                                    <Check size={13} />
+                                  ) : (
+                                    <X size={13} />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                        <p className="mb-2 text-sm font-medium">
+                          Field Completion
+                        </p>
+                        {effectiveTemplateFields.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            Select at least one row-template field to track
+                            progress.
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            {rowCompletionRows.map((row) => {
+                              const done = effectiveTemplateFields.filter(
+                                (field) => rowFieldStatus[row]?.has(field),
+                              ).length;
+                              const progress = Math.round(
+                                (done / effectiveTemplateFields.length) * 100,
+                              );
+                              return (
+                                <div
+                                  key={row}
+                                  className={cn(
+                                    "rounded-md border px-2 py-2",
+                                    row === activeInstanceNum
+                                      ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
+                                      : "border-[var(--border-subtle)] bg-white",
+                                  )}
+                                >
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="font-medium">
+                                      Row {row}
+                                    </span>
+                                    <span>
+                                      {done}/{effectiveTemplateFields.length}
+                                    </span>
+                                  </div>
+                                  <div className="mt-1.5 h-1.5 rounded-full bg-[var(--surface-page)]">
+                                    <div
+                                      className="h-full rounded-full bg-[var(--interactive-accent)] transition-all"
+                                      style={{ width: `${progress}%` }}
+                                    />
+                                  </div>
+                                  <div className="mt-2 flex flex-wrap gap-1">
+                                    {effectiveTemplateFields
+                                      .slice(0, 4)
+                                      .map((field) => {
+                                        const isComplete =
+                                          !!rowFieldStatus[row]?.has(field);
+                                        return (
+                                          <span
+                                            key={`${row}-${field}`}
+                                            className={cn(
+                                              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]",
+                                              isComplete
+                                                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                                                : "border-rose-200 bg-rose-50 text-rose-700",
+                                            )}
+                                          >
+                                            {isComplete ? (
+                                              <Check size={10} />
+                                            ) : (
+                                              <X size={10} />
+                                            )}
+                                            {getFieldLeafName(field)}
+                                          </span>
+                                        );
+                                      })}
+                                    {effectiveTemplateFields.length > 4 && (
+                                      <span className="inline-flex items-center rounded-full border border-[var(--border-subtle)] px-2 py-0.5 text-[10px] text-muted-foreground">
+                                        +{effectiveTemplateFields.length - 4}{" "}
+                                        more
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent
+                    value="annotations"
+                    className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1"
+                  >
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-sm font-medium">Annotations</p>
+                          <Badge variant="outline">{annotations.length}</Badge>
+                        </div>
+                        {annotations.length === 0 ? (
+                          <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
+                            No annotations yet.
+                          </div>
+                        ) : (
+                          <div className="dl-annotations-list max-h-[360px] overflow-y-auto pr-1">
+                            {annotations.map((ann) => {
+                              const entityType = entityTypes.find(
+                                (entity) => entity.name === ann.field_name,
+                              );
+                              const color =
+                                entityType?.color || BEAZLEY_PALETTE.light;
+                              const preview = formatAnnotationValue(
+                                ann.value,
+                                40,
+                              );
+                              const instanceNum = Number(
+                                (
+                                  ann.annotation_data as unknown as Record<
+                                    string,
+                                    unknown
+                                  >
+                                )?.instance_num,
+                              );
+
+                              return (
+                                <div
+                                  key={ann.id}
+                                  className="dl-annotation-item"
+                                  onClick={() => focusAnnotationInDocument(ann)}
+                                >
+                                  {Number.isFinite(instanceNum) && (
+                                    <span className="dl-annotation-label-chip dl-annotation-chip-meta">
+                                      {instanceNum}
+                                    </span>
+                                  )}
+                                  <span
+                                    className="dl-annotation-label-chip"
+                                    style={{ background: `${color}30`, color }}
+                                  >
+                                    {getFieldLeafName(ann.field_name)}
+                                  </span>
+                                  <span className="dl-annotation-text-preview">
+                                    "{preview}"
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="dl-annotation-remove"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleAnnotationDelete(ann.id);
+                                    }}
+                                    title="Remove"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-sm font-medium">AI Suggestions</p>
+                          <Badge variant="outline">{suggestions.length}</Badge>
+                        </div>
+                        {suggestions.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            Run Suggest from the workspace header to generate
+                            model proposals.
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            {suggestions.map((suggestion) => (
+                              <div
+                                key={suggestion.id}
+                                className="rounded-md border border-[var(--border-subtle)] bg-white p-2"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-medium">
+                                    {getFieldLeafName(suggestion.field_name)}
+                                  </span>
+                                  <Badge variant="outline">
+                                    {Math.round(
+                                      (suggestion.confidence || 0) * 100,
+                                    )}
+                                    %
+                                  </Badge>
+                                </div>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {formatAnnotationValue(suggestion.value, 120)}
+                                </p>
+                                <div className="mt-2 flex gap-2">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() =>
+                                      handleSuggestionApprove(suggestion)
+                                    }
+                                  >
+                                    Accept
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() =>
+                                      handleSuggestionReject(suggestion.id)
+                                    }
+                                  >
+                                    Reject
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent
+                    value="output"
+                    className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1"
+                  >
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium">Output Controls</p>
+                          <button
+                            type="button"
+                            className="dl-kbd"
+                            onClick={() => setOutputCollapsed((prev) => !prev)}
+                          >
+                            {outputCollapsed ? "Expand" : "Collapse"}
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <div
+                            className="dl-export-dropdown"
+                            ref={exportMenuRef}
+                          >
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setExportMenuVisible(!exportMenuVisible)
+                              }
+                            >
+                              Export <ChevronDown className="ml-1 h-3 w-3" />
+                            </Button>
+                            <div
+                              className={`dl-export-menu ${exportMenuVisible ? "visible" : ""}`}
+                            >
+                              <button
+                                type="button"
+                                className="dl-export-menu-item"
+                                onClick={() => exportAs("json")}
+                              >
+                                JSON
+                              </button>
+                              <button
+                                type="button"
+                                className="dl-export-menu-item"
+                                onClick={() => exportAs("jsonl")}
+                              >
+                                JSONL
+                              </button>
+                              <button
+                                type="button"
+                                className="dl-export-menu-item"
+                                onClick={() => exportAs("csv")}
+                              >
+                                CSV
+                              </button>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="gap-1.5"
+                            onClick={copyAnnotations}
+                            disabled={annotations.length === 0}
+                          >
+                            <Copy className="h-3 w-3" />
+                            Copy
+                          </Button>
+                        </div>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            type="button"
+                            className={cn(
+                              "rounded-md border px-2 py-1 text-xs",
+                              outputView === "json"
+                                ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
+                                : "border-[var(--border-subtle)] bg-white",
+                            )}
+                            onClick={() => setOutputView("json")}
+                          >
+                            JSON view
+                          </button>
+                          <button
+                            type="button"
+                            className={cn(
+                              "rounded-md border px-2 py-1 text-xs",
+                              outputView === "table"
+                                ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
+                                : "border-[var(--border-subtle)] bg-white",
+                            )}
+                            onClick={() => setOutputView("table")}
+                          >
+                            Table view
+                          </button>
+                        </div>
+                      </div>
+
+                      {!outputCollapsed && (
+                        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-0">
+                          {outputView === "json" ? (
+                            <pre
+                              className={`dl-output-content ${annotations.length > 0 ? "has-content" : ""}`}
+                            >
+                              {outputSummary}
+                            </pre>
+                          ) : outputTableData.rows.length === 0 ? (
+                            <div className="p-3 text-xs text-muted-foreground">
+                              No row-based annotations yet. Add row fields to
+                              view structured table output.
+                            </div>
+                          ) : (
+                            <div className="max-h-[360px] overflow-auto p-3">
+                              <table className="w-full border-collapse text-xs">
+                                <thead>
+                                  <tr className="border-b border-[var(--border-subtle)]">
+                                    <th className="px-2 py-1 text-left font-medium text-muted-foreground">
+                                      Row
+                                    </th>
+                                    {outputTableData.columns.map((column) => (
+                                      <th
+                                        key={column}
+                                        className="px-2 py-1 text-left font-medium text-muted-foreground"
+                                      >
+                                        {column}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {outputTableData.rows.map((row) => (
+                                    <tr
+                                      key={row.row}
+                                      className="border-b border-[var(--border-subtle)]"
+                                    >
+                                      <td className="px-2 py-1 font-medium">
+                                        {row.row}
+                                      </td>
+                                      {outputTableData.columns.map((column) => (
+                                        <td key={column} className="px-2 py-1">
+                                          {row.values[column] || "—"}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </TabsContent>
                 </Tabs>
               </CardContent>
             </Card>
@@ -1854,7 +1937,8 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
         <div
           className={cn(
             "flex flex-col min-h-0",
-            sidebarVisible && "border-l border-[var(--border-subtle)] pl-0 xl:pl-4",
+            sidebarVisible &&
+              "border-l border-[var(--border-subtle)] pl-0 xl:pl-4",
           )}
         >
           <Card className="flex flex-1 flex-col overflow-hidden min-h-0">
@@ -1867,9 +1951,13 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                         className="w-2 h-2 rounded-full"
                         style={{ background: activeEntityType.color }}
                       />
-                      <span className="font-medium">{activeEntityType.name}</span>
+                      <span className="font-medium">
+                        {activeEntityType.name}
+                      </span>
                       {activeEntityType.name.includes(".") && (
-                        <span className="text-xs text-muted-foreground">Row {activeInstanceNum}</span>
+                        <span className="text-xs text-muted-foreground">
+                          Row {activeInstanceNum}
+                        </span>
                       )}
                     </div>
                   )}
@@ -1934,9 +2022,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
               </div>
             </CardHeader>
             <CardContent className="flex-1 min-h-0 overflow-auto p-0">
-              <div className="h-full min-h-0">
-                {renderDocumentViewer()}
-              </div>
+              <div className="h-full min-h-0">{renderDocumentViewer()}</div>
             </CardContent>
           </Card>
         </div>

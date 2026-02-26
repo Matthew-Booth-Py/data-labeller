@@ -96,7 +96,8 @@ function getMatchTypeBadge(matchType: string) {
       variant="outline"
       className={cn(
         "text-xs font-medium capitalize border",
-        MATCH_TYPE_STYLES[matchType] || "border-[var(--border-strong)] bg-muted/30",
+        MATCH_TYPE_STYLES[matchType] ||
+          "border-[var(--border-strong)] bg-muted/30",
       )}
     >
       {matchType.replace(/_/g, " ")}
@@ -290,7 +291,8 @@ export function EvaluateView() {
 
     const rows = evaluation.result.field_comparisons
       .filter((comparison) => {
-        const leaf = comparison.field_name.split(".").pop() || comparison.field_name;
+        const leaf =
+          comparison.field_name.split(".").pop() || comparison.field_name;
         return !leaf.includes("_header");
       })
       .map((comparison) => [
@@ -335,7 +337,8 @@ export function EvaluateView() {
 
   const flattenedComparisons = useMemo(() => {
     return (evaluation?.result.field_comparisons || []).filter((comparison) => {
-      const leaf = comparison.field_name.split(".").pop() || comparison.field_name;
+      const leaf =
+        comparison.field_name.split(".").pop() || comparison.field_name;
       return !leaf.includes("_header");
     });
   }, [evaluation]);
@@ -370,7 +373,10 @@ export function EvaluateView() {
   }, [summary]);
 
   const hasTopErrors =
-    !!documentsError || !!evaluationsError || !!summaryError || !!selectedEvaluationError;
+    !!documentsError ||
+    !!evaluationsError ||
+    !!summaryError ||
+    !!selectedEvaluationError;
 
   return (
     <div className="space-y-6">
@@ -385,8 +391,8 @@ export function EvaluateView() {
                 Evaluate extraction performance
               </h3>
               <p className="max-w-2xl text-sm text-primary-foreground/80">
-                Compare extraction output against labeled ground truth, inspect mismatch
-                patterns, and prioritize schema or prompt improvements.
+                Compare extraction output against labeled ground truth, inspect
+                mismatch patterns, and prioritize schema or prompt improvements.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:min-w-[280px]">
@@ -414,19 +420,26 @@ export function EvaluateView() {
           {hasTopErrors && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
               {documentsError && (
-                <p>Failed to load documents: {getErrorMessage(documentsError)}</p>
+                <p>
+                  Failed to load documents: {getErrorMessage(documentsError)}
+                </p>
               )}
               {evaluationsError && (
                 <p>
-                  Failed to load evaluation history: {getErrorMessage(evaluationsError)}
+                  Failed to load evaluation history:{" "}
+                  {getErrorMessage(evaluationsError)}
                 </p>
               )}
               {summaryError && (
-                <p>Failed to load evaluation summary: {getErrorMessage(summaryError)}</p>
+                <p>
+                  Failed to load evaluation summary:{" "}
+                  {getErrorMessage(summaryError)}
+                </p>
               )}
               {selectedEvaluationError && (
                 <p>
-                  Failed to load selected run details: {getErrorMessage(selectedEvaluationError)}
+                  Failed to load selected run details:{" "}
+                  {getErrorMessage(selectedEvaluationError)}
                 </p>
               )}
             </div>
@@ -437,7 +450,10 @@ export function EvaluateView() {
               <p className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                 Document
               </p>
-              <Select value={selectedDocument} onValueChange={setSelectedDocument}>
+              <Select
+                value={selectedDocument}
+                onValueChange={setSelectedDocument}
+              >
                 <SelectTrigger className="w-full h-10">
                   <SelectValue
                     placeholder={
@@ -473,7 +489,9 @@ export function EvaluateView() {
               ) : (
                 <Play className="h-4 w-4" />
               )}
-              {runEvaluationMutation.isPending ? "Running..." : "Run Evaluation"}
+              {runEvaluationMutation.isPending
+                ? "Running..."
+                : "Run Evaluation"}
             </Button>
 
             <Button
@@ -494,13 +512,16 @@ export function EvaluateView() {
                 <p className="text-sm font-medium">Recent evaluations</p>
               </div>
               <Badge variant="outline" className="w-fit">
-                {evaluationsLoading ? "Loading..." : `${evaluationRuns.length} loaded`}
+                {evaluationsLoading
+                  ? "Loading..."
+                  : `${evaluationRuns.length} loaded`}
               </Badge>
             </div>
 
             {evaluationRuns.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No evaluations yet. Run your first evaluation to populate analytics.
+                No evaluations yet. Run your first evaluation to populate
+                analytics.
               </p>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-3">
@@ -534,10 +555,12 @@ export function EvaluateView() {
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Evaluation Run?</AlertDialogTitle>
+                        <AlertDialogTitle>
+                          Delete Evaluation Run?
+                        </AlertDialogTitle>
                         <AlertDialogDescription>
-                          This action permanently removes the selected evaluation run
-                          and its metrics.
+                          This action permanently removes the selected
+                          evaluation run and its metrics.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
@@ -545,12 +568,16 @@ export function EvaluateView() {
                         <AlertDialogAction
                           onClick={() => {
                             if (selectedEvaluation) {
-                              deleteEvaluationMutation.mutate(selectedEvaluation);
+                              deleteEvaluationMutation.mutate(
+                                selectedEvaluation,
+                              );
                             }
                           }}
                           disabled={deleteEvaluationMutation.isPending}
                         >
-                          {deleteEvaluationMutation.isPending ? "Deleting..." : "Delete Run"}
+                          {deleteEvaluationMutation.isPending
+                            ? "Deleting..."
+                            : "Delete Run"}
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
@@ -562,11 +589,15 @@ export function EvaluateView() {
             {selectedRun && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-[var(--text-secondary)]">
                 <p>
-                  <span className="font-medium text-[var(--text-primary)]">Document:</span>{" "}
+                  <span className="font-medium text-[var(--text-primary)]">
+                    Document:
+                  </span>{" "}
                   {resolveDocumentName(selectedRun.document_id)}
                 </p>
                 <p>
-                  <span className="font-medium text-[var(--text-primary)]">Evaluated:</span>{" "}
+                  <span className="font-medium text-[var(--text-primary)]">
+                    Evaluated:
+                  </span>{" "}
                   {new Date(selectedRun.evaluated_at).toLocaleString()}
                 </p>
               </div>
@@ -590,14 +621,22 @@ export function EvaluateView() {
                   <Target className="h-4 w-4" />
                   Accuracy
                 </CardDescription>
-                <CardTitle className={cn("text-3xl", getScoreTextClass(summary.avg_accuracy))}>
+                <CardTitle
+                  className={cn(
+                    "text-3xl",
+                    getScoreTextClass(summary.avg_accuracy),
+                  )}
+                >
                   {formatPercentage(summary.avg_accuracy)}
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
                 <Badge
                   variant="outline"
-                  className={cn("border", getScorePillClass(summary.avg_accuracy))}
+                  className={cn(
+                    "border",
+                    getScorePillClass(summary.avg_accuracy),
+                  )}
                 >
                   {getScoreLabel(summary.avg_accuracy)}
                 </Badge>
@@ -611,7 +650,10 @@ export function EvaluateView() {
                   Precision
                 </CardDescription>
                 <CardTitle
-                  className={cn("text-3xl", getScoreTextClass(summary.avg_precision))}
+                  className={cn(
+                    "text-3xl",
+                    getScoreTextClass(summary.avg_precision),
+                  )}
                 >
                   {formatPercentage(summary.avg_precision)}
                 </CardTitle>
@@ -627,7 +669,12 @@ export function EvaluateView() {
                   <ListChecks className="h-4 w-4" />
                   Recall
                 </CardDescription>
-                <CardTitle className={cn("text-3xl", getScoreTextClass(summary.avg_recall))}>
+                <CardTitle
+                  className={cn(
+                    "text-3xl",
+                    getScoreTextClass(summary.avg_recall),
+                  )}
+                >
                   {formatPercentage(summary.avg_recall)}
                 </CardTitle>
               </CardHeader>
@@ -643,7 +690,10 @@ export function EvaluateView() {
                   F1 Score
                 </CardDescription>
                 <CardTitle
-                  className={cn("text-3xl", getScoreTextClass(summary.avg_f1_score))}
+                  className={cn(
+                    "text-3xl",
+                    getScoreTextClass(summary.avg_f1_score),
+                  )}
                 >
                   {formatPercentage(summary.avg_f1_score)}
                 </CardTitle>
@@ -657,7 +707,9 @@ export function EvaluateView() {
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Match Type Distribution</CardTitle>
+                <CardTitle className="text-base">
+                  Match Type Distribution
+                </CardTitle>
                 <CardDescription>
                   Breakdown of how extracted values align with ground truth.
                 </CardDescription>
@@ -669,10 +721,13 @@ export function EvaluateView() {
                     Loading distribution...
                   </div>
                 ) : matchTypeDistribution.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No match data yet.</p>
+                  <p className="text-sm text-muted-foreground">
+                    No match data yet.
+                  </p>
                 ) : (
                   matchTypeDistribution.map(([matchType, count]) => {
-                    const percent = totalMatchTypes > 0 ? (count / totalMatchTypes) * 100 : 0;
+                    const percent =
+                      totalMatchTypes > 0 ? (count / totalMatchTypes) * 100 : 0;
 
                     return (
                       <div key={matchType} className="space-y-2">
@@ -682,7 +737,10 @@ export function EvaluateView() {
                             {count} ({percent.toFixed(1)}%)
                           </span>
                         </div>
-                        <Progress value={percent} className="h-1.5 bg-muted/80" />
+                        <Progress
+                          value={percent}
+                          className="h-1.5 bg-muted/80"
+                        />
                       </div>
                     );
                   })
@@ -694,7 +752,8 @@ export function EvaluateView() {
               <CardHeader>
                 <CardTitle className="text-base">Fields to Improve</CardTitle>
                 <CardDescription>
-                  Lowest-performing fields based on aggregate project evaluations.
+                  Lowest-performing fields based on aggregate project
+                  evaluations.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -704,18 +763,30 @@ export function EvaluateView() {
                   </p>
                 ) : (
                   weakestFields.map((metric) => (
-                    <div key={metric.field_name} className="rounded-lg border border-[var(--border-subtle)] p-3 space-y-2">
+                    <div
+                      key={metric.field_name}
+                      className="rounded-lg border border-[var(--border-subtle)] p-3 space-y-2"
+                    >
                       <div className="flex items-center justify-between gap-3">
                         <p className="font-mono text-xs text-[var(--text-primary)] break-all">
                           {metric.field_name}
                         </p>
-                        <span className={cn("text-sm font-semibold", getScoreTextClass(metric.accuracy))}>
+                        <span
+                          className={cn(
+                            "text-sm font-semibold",
+                            getScoreTextClass(metric.accuracy),
+                          )}
+                        >
                           {formatPercentage(metric.accuracy)}
                         </span>
                       </div>
-                      <Progress value={metric.accuracy * 100} className="h-1.5 bg-muted/70" />
+                      <Progress
+                        value={metric.accuracy * 100}
+                        className="h-1.5 bg-muted/70"
+                      />
                       <p className="text-[11px] text-[var(--text-secondary)]">
-                        {metric.total_occurrences} occurrences • {metric.correct_predictions} correct
+                        {metric.total_occurrences} occurrences •{" "}
+                        {metric.correct_predictions} correct
                       </p>
                     </div>
                   ))
@@ -825,7 +896,10 @@ export function EvaluateView() {
                     <TableBody>
                       {flattenedComparisons.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                          <TableCell
+                            colSpan={6}
+                            className="py-10 text-center text-muted-foreground"
+                          >
                             No flattened field comparisons for this run.
                           </TableCell>
                         </TableRow>
@@ -835,10 +909,16 @@ export function EvaluateView() {
                             <TableCell className="font-mono text-xs text-[var(--text-primary)] break-all">
                               {comparison.field_name}
                             </TableCell>
-                            <TableCell className="max-w-[260px] truncate" title={formatValue(comparison.ground_truth_value)}>
+                            <TableCell
+                              className="max-w-[260px] truncate"
+                              title={formatValue(comparison.ground_truth_value)}
+                            >
                               {formatValue(comparison.ground_truth_value)}
                             </TableCell>
-                            <TableCell className="max-w-[260px] truncate" title={formatValue(comparison.predicted_value)}>
+                            <TableCell
+                              className="max-w-[260px] truncate"
+                              title={formatValue(comparison.predicted_value)}
+                            >
                               {formatValue(comparison.predicted_value)}
                             </TableCell>
                             <TableCell>
@@ -849,15 +929,21 @@ export function EvaluateView() {
                               )}
                             </TableCell>
                             <TableCell>
-                              {getMatchTypeBadge(comparison.match_result.match_type)}
+                              {getMatchTypeBadge(
+                                comparison.match_result.match_type,
+                              )}
                             </TableCell>
                             <TableCell
                               className={cn(
                                 "font-medium",
-                                getScoreTextClass(comparison.match_result.confidence),
+                                getScoreTextClass(
+                                  comparison.match_result.confidence,
+                                ),
                               )}
                             >
-                              {formatPercentage(comparison.match_result.confidence)}
+                              {formatPercentage(
+                                comparison.match_result.confidence,
+                              )}
                             </TableCell>
                           </TableRow>
                         ))
@@ -868,7 +954,8 @@ export function EvaluateView() {
               </TabsContent>
 
               <TabsContent value="instance" className="space-y-4">
-                {Object.entries(evaluation.result.instance_comparisons).length === 0 ? (
+                {Object.entries(evaluation.result.instance_comparisons)
+                  .length === 0 ? (
                   <div className="rounded-xl border border-dashed border-[var(--border-strong)] px-6 py-10 text-center text-sm text-muted-foreground">
                     No instance-level comparisons were generated for this run.
                   </div>
@@ -882,7 +969,10 @@ export function EvaluateView() {
                         new Set(
                           instances.flatMap((instance) =>
                             instance.field_comparisons
-                              .filter((comparison) => !comparison.field_name.includes("_header"))
+                              .filter(
+                                (comparison) =>
+                                  !comparison.field_name.includes("_header"),
+                              )
                               .map(
                                 (comparison) =>
                                   comparison.field_name.split(".").pop() ||
@@ -898,19 +988,33 @@ export function EvaluateView() {
                           className="rounded-xl border border-[var(--border-subtle)] overflow-hidden"
                         >
                           <div className="border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]/70 px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                            <h4 className="font-semibold text-[var(--text-primary)]">{parentField}</h4>
+                            <h4 className="font-semibold text-[var(--text-primary)]">
+                              {parentField}
+                            </h4>
                             {metrics && (
                               <div className="flex items-center gap-4 text-xs text-[var(--text-secondary)]">
                                 <span>
                                   Match Rate{" "}
-                                  <strong className={getScoreTextClass(metrics.instance_match_rate)}>
-                                    {formatPercentage(metrics.instance_match_rate)}
+                                  <strong
+                                    className={getScoreTextClass(
+                                      metrics.instance_match_rate,
+                                    )}
+                                  >
+                                    {formatPercentage(
+                                      metrics.instance_match_rate,
+                                    )}
                                   </strong>
                                 </span>
                                 <span>
                                   F1{" "}
-                                  <strong className={getScoreTextClass(metrics.instance_f1_score)}>
-                                    {formatPercentage(metrics.instance_f1_score)}
+                                  <strong
+                                    className={getScoreTextClass(
+                                      metrics.instance_f1_score,
+                                    )}
+                                  >
+                                    {formatPercentage(
+                                      metrics.instance_f1_score,
+                                    )}
                                   </strong>
                                 </span>
                               </div>
@@ -933,24 +1037,37 @@ export function EvaluateView() {
                                 const predValues: Record<string, unknown> = {};
                                 const matchStatus: Record<string, boolean> = {};
 
-                                instance.field_comparisons.forEach((comparison) => {
-                                  const fieldKey =
-                                    comparison.field_name.split(".").pop() ||
-                                    comparison.field_name;
+                                instance.field_comparisons.forEach(
+                                  (comparison) => {
+                                    const fieldKey =
+                                      comparison.field_name.split(".").pop() ||
+                                      comparison.field_name;
 
-                                  gtValues[fieldKey] = comparison.ground_truth_value;
-                                  predValues[fieldKey] = comparison.predicted_value;
-                                  matchStatus[fieldKey] = comparison.match_result.is_match;
-                                });
+                                    gtValues[fieldKey] =
+                                      comparison.ground_truth_value;
+                                    predValues[fieldKey] =
+                                      comparison.predicted_value;
+                                    matchStatus[fieldKey] =
+                                      comparison.match_result.is_match;
+                                  },
+                                );
 
                                 return (
-                                  <Fragment key={`${parentField}-${instance.instance_num}`}>
+                                  <Fragment
+                                    key={`${parentField}-${instance.instance_num}`}
+                                  >
                                     <TableRow className="bg-[var(--surface-elevated)]/40 hover:bg-[var(--surface-elevated)]/45">
-                                      <TableCell rowSpan={2} className="font-semibold text-xs text-center">
+                                      <TableCell
+                                        rowSpan={2}
+                                        className="font-semibold text-xs text-center"
+                                      >
                                         {instance.instance_num}
                                       </TableCell>
                                       <TableCell className="text-xs">
-                                        <Badge variant="outline" className="text-[10px]">
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px]"
+                                        >
                                           Ground Truth
                                         </Badge>
                                       </TableCell>
@@ -959,7 +1076,8 @@ export function EvaluateView() {
                                           key={`gt-${instance.instance_num}-${field}`}
                                           className={cn(
                                             "text-xs",
-                                            matchStatus[field] === false && gtValues[field]
+                                            matchStatus[field] === false &&
+                                              gtValues[field]
                                               ? "bg-rose-50"
                                               : "",
                                           )}
@@ -971,7 +1089,10 @@ export function EvaluateView() {
 
                                     <TableRow className="border-b-2 border-b-[var(--border-subtle)] bg-sky-50/50 hover:bg-sky-50/55">
                                       <TableCell className="text-xs">
-                                        <Badge variant="outline" className="text-[10px] border-sky-200 text-sky-700 bg-sky-50">
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px] border-sky-200 text-sky-700 bg-sky-50"
+                                        >
                                           Prediction
                                         </Badge>
                                       </TableCell>
@@ -987,12 +1108,18 @@ export function EvaluateView() {
                                             key={`pred-${instance.instance_num}-${field}`}
                                             className={cn(
                                               "text-xs",
-                                              isMatch && hasPrediction ? "bg-emerald-50" : "",
-                                              !isMatch && hasPrediction ? "bg-rose-50" : "",
+                                              isMatch && hasPrediction
+                                                ? "bg-emerald-50"
+                                                : "",
+                                              !isMatch && hasPrediction
+                                                ? "bg-rose-50"
+                                                : "",
                                             )}
                                           >
                                             <div className="flex items-center gap-1">
-                                              <span>{formatValue(predValues[field])}</span>
+                                              <span>
+                                                {formatValue(predValues[field])}
+                                              </span>
                                               {isMatch && hasPrediction && (
                                                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
                                               )}
@@ -1026,13 +1153,18 @@ export function EvaluateView() {
                         <TableHead className="w-[120px]">Accuracy</TableHead>
                         <TableHead className="w-[120px]">Precision</TableHead>
                         <TableHead className="w-[120px]">Recall</TableHead>
-                        <TableHead className="w-[140px]">Avg Confidence</TableHead>
+                        <TableHead className="w-[140px]">
+                          Avg Confidence
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {fieldMetrics.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                          <TableCell
+                            colSpan={6}
+                            className="py-10 text-center text-muted-foreground"
+                          >
                             No field metrics available for this run.
                           </TableCell>
                         </TableRow>
@@ -1043,16 +1175,36 @@ export function EvaluateView() {
                               {metric.field_name}
                             </TableCell>
                             <TableCell>{metric.total_occurrences}</TableCell>
-                            <TableCell className={cn("font-medium", getScoreTextClass(metric.accuracy))}>
+                            <TableCell
+                              className={cn(
+                                "font-medium",
+                                getScoreTextClass(metric.accuracy),
+                              )}
+                            >
                               {formatPercentage(metric.accuracy)}
                             </TableCell>
-                            <TableCell className={cn("font-medium", getScoreTextClass(metric.precision))}>
+                            <TableCell
+                              className={cn(
+                                "font-medium",
+                                getScoreTextClass(metric.precision),
+                              )}
+                            >
                               {formatPercentage(metric.precision)}
                             </TableCell>
-                            <TableCell className={cn("font-medium", getScoreTextClass(metric.recall))}>
+                            <TableCell
+                              className={cn(
+                                "font-medium",
+                                getScoreTextClass(metric.recall),
+                              )}
+                            >
                               {formatPercentage(metric.recall)}
                             </TableCell>
-                            <TableCell className={cn("font-medium", getScoreTextClass(metric.avg_confidence))}>
+                            <TableCell
+                              className={cn(
+                                "font-medium",
+                                getScoreTextClass(metric.avg_confidence),
+                              )}
+                            >
                               {formatPercentage(metric.avg_confidence)}
                             </TableCell>
                           </TableRow>

@@ -173,7 +173,10 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label>Document</Label>
-            <Select value={selectedDocumentId} onValueChange={setSelectedDocumentId}>
+            <Select
+              value={selectedDocumentId}
+              onValueChange={setSelectedDocumentId}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select a document" />
               </SelectTrigger>
@@ -271,18 +274,25 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
           {fields.length > 0 && (
             <div className="space-y-2">
               {fields.map((field) => (
-                <Collapsible key={field.field_name} defaultOpen={false} className="group">
+                <Collapsible
+                  key={field.field_name}
+                  defaultOpen={false}
+                  className="group"
+                >
                   <div className="rounded-lg border border-[var(--border-subtle)] bg-card overflow-hidden">
                     <CollapsibleTrigger asChild>
                       <button className="w-full flex items-center justify-between p-3 hover:bg-muted/45 transition-colors text-left">
                         <div className="flex items-center gap-2 min-w-0">
                           <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-90 shrink-0" />
-                          <span className="font-medium text-sm truncate">{field.field_name}</span>
-                          {typeof field.value === "object" && Array.isArray(field.value) && (
-                            <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                              {field.value.length} items
-                            </span>
-                          )}
+                          <span className="font-medium text-sm truncate">
+                            {field.field_name}
+                          </span>
+                          {typeof field.value === "object" &&
+                            Array.isArray(field.value) && (
+                              <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                {field.value.length} items
+                              </span>
+                            )}
                         </div>
                         {field.confidence && (
                           <span className="text-xs text-muted-foreground">

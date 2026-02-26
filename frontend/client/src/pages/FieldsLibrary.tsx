@@ -226,7 +226,6 @@ export default function FieldsLibrary() {
       }
     >
       <div className="space-y-8">
-
         <div className="flex items-center gap-2 mb-2 max-w-md">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -249,11 +248,7 @@ export default function FieldsLibrary() {
                 {filteredFields.length} fields defined
               </p>
             </div>
-            <Button
-              size="sm"
-              className="gap-2"
-              onClick={openCreateDialog}
-            >
+            <Button size="sm" className="gap-2" onClick={openCreateDialog}>
               <Plus className="h-4 w-4" /> Add Field
             </Button>
           </div>

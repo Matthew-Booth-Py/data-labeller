@@ -26,8 +26,7 @@ const buttonVariants = cva(
           "bg-primary text-primary-foreground border border-primary/85 hover:bg-[var(--interactive-primary-hover)]",
         destructive:
           "bg-destructive text-destructive-foreground border border-destructive/80 hover:bg-destructive/90",
-        link:
-          "border-0 bg-transparent p-0 h-auto text-accent underline underline-offset-4 hover:text-[var(--interactive-accent-hover)]",
+        link: "border-0 bg-transparent p-0 h-auto text-accent underline underline-offset-4 hover:text-[var(--interactive-accent-hover)]",
       },
       size: {
         default: "min-h-10 px-4 py-2",

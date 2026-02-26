@@ -55,10 +55,12 @@ export default function Settings() {
                 <CardHeader>
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <CardTitle className="text-xl">LLM Configuration</CardTitle>
+                      <CardTitle className="text-xl">
+                        LLM Configuration
+                      </CardTitle>
                       <CardDescription className="mt-1">
-                        Model provider settings are currently managed via backend
-                        environment variables.
+                        Model provider settings are currently managed via
+                        backend environment variables.
                       </CardDescription>
                     </div>
                     <Badge variant="primary">Configured</Badge>
@@ -95,7 +97,9 @@ export default function Settings() {
               <CardHeader>
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <CardTitle className="text-xl">Extraction Engines</CardTitle>
+                    <CardTitle className="text-xl">
+                      Extraction Engines
+                    </CardTitle>
                     <CardDescription className="mt-1">
                       Configure OCR and engine profiles for specialized document
                       pipelines.
@@ -106,9 +110,12 @@ export default function Settings() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="rounded-lg border border-dashed border-[var(--border-strong)] bg-muted/20 p-8 text-center">
-                  <p className="text-base font-medium">No engine profiles configured</p>
+                  <p className="text-base font-medium">
+                    No engine profiles configured
+                  </p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Backend persistence for custom extraction engines is not wired yet.
+                    Backend persistence for custom extraction engines is not
+                    wired yet.
                   </p>
                   <Button variant="outline" className="mt-4 gap-2" disabled>
                     Configure Engine

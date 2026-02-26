@@ -44,7 +44,12 @@ const NAV_ITEMS: NavItem[] = [
     href: "/",
     section: "dashboard",
   },
-  { label: "Projects", icon: FolderOpen, href: "/projects", section: "projects" },
+  {
+    label: "Projects",
+    icon: FolderOpen,
+    href: "/projects",
+    section: "projects",
+  },
   {
     label: "Fields Library",
     icon: BookOpen,
@@ -117,7 +122,9 @@ function RailContent({
         )}
       </div>
 
-      <div className={cn("py-4 flex-1 overflow-y-auto", compact ? "px-2" : "px-3")}>
+      <div
+        className={cn("py-4 flex-1 overflow-y-auto", compact ? "px-2" : "px-3")}
+      >
         <nav className="space-y-1">
           {NAV_ITEMS.map((item) => {
             const isActive =
@@ -168,7 +175,12 @@ function RailContent({
         )}
       </div>
 
-      <div className={cn("border-t border-sidebar-border", compact ? "p-2" : "p-4")}>
+      <div
+        className={cn(
+          "border-t border-sidebar-border",
+          compact ? "p-2" : "p-4",
+        )}
+      >
         {compact ? (
           <div className="flex flex-col items-center gap-2">
             <div className="h-8 w-8 rounded-full bg-sidebar-accent/80 flex items-center justify-center text-xs font-semibold">
@@ -239,14 +251,17 @@ export function Shell({
 }: ShellProps) {
   const [location] = useLocation();
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
-  const [desktopRailMode, setDesktopRailMode] = useState<DesktopRailMode>(() => {
-    if (typeof window === "undefined") return "expanded";
-    const storedValue = window.localStorage.getItem(DESKTOP_RAIL_MODE_STORAGE_KEY);
-    return isDesktopRailMode(storedValue) ? storedValue : "expanded";
-  });
-  const lastVisibleRailModeRef = useRef<Exclude<DesktopRailMode, "hidden">>(
-    "expanded",
+  const [desktopRailMode, setDesktopRailMode] = useState<DesktopRailMode>(
+    () => {
+      if (typeof window === "undefined") return "expanded";
+      const storedValue = window.localStorage.getItem(
+        DESKTOP_RAIL_MODE_STORAGE_KEY,
+      );
+      return isDesktopRailMode(storedValue) ? storedValue : "expanded";
+    },
   );
+  const lastVisibleRailModeRef =
+    useRef<Exclude<DesktopRailMode, "hidden">>("expanded");
   const isDesktopRailCompact = desktopRailMode === "compact";
 
   useEffect(() => {
@@ -313,10 +328,14 @@ export function Shell({
                   className="h-9 w-9"
                   onClick={toggleDesktopRailCompact}
                   aria-label={
-                    isDesktopRailCompact ? "Expand navigation rail" : "Shrink navigation rail"
+                    isDesktopRailCompact
+                      ? "Expand navigation rail"
+                      : "Shrink navigation rail"
                   }
                   title={
-                    isDesktopRailCompact ? "Expand navigation rail" : "Shrink navigation rail"
+                    isDesktopRailCompact
+                      ? "Expand navigation rail"
+                      : "Shrink navigation rail"
                   }
                 >
                   {isDesktopRailCompact ? (
@@ -332,10 +351,14 @@ export function Shell({
                 className="h-9 w-9"
                 onClick={toggleDesktopRailVisibility}
                 aria-label={
-                  desktopRailMode === "hidden" ? "Show navigation rail" : "Hide navigation rail"
+                  desktopRailMode === "hidden"
+                    ? "Show navigation rail"
+                    : "Hide navigation rail"
                 }
                 title={
-                  desktopRailMode === "hidden" ? "Show navigation rail" : "Hide navigation rail"
+                  desktopRailMode === "hidden"
+                    ? "Show navigation rail"
+                    : "Hide navigation rail"
                 }
               >
                 {desktopRailMode === "hidden" ? (

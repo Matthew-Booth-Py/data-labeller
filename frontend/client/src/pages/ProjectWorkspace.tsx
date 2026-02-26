@@ -125,7 +125,7 @@ export default function ProjectWorkspace() {
   }, []);
 
   const project = useMemo<Project>(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === "undefined") {
       return {
         id: id || "unknown",
         name: id

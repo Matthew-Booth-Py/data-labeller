@@ -15,7 +15,8 @@ const badgeVariants = cva(
         danger: "border-transparent bg-destructive text-destructive-foreground",
         outline: "text-foreground border [border-color:var(--badge-outline)]",
         default: "border-transparent bg-primary text-primary-foreground",
-        destructive: "border-transparent bg-destructive text-destructive-foreground",
+        destructive:
+          "border-transparent bg-destructive text-destructive-foreground",
       },
     },
     defaultVariants: {

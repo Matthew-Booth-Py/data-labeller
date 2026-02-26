@@ -30,12 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Search,
-  Download,
-  Filter,
-  FileText,
-} from "lucide-react";
+import { Search, Download, Filter, FileText } from "lucide-react";
 
 export function LabelsView() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -267,7 +262,10 @@ export function LabelsView() {
                 className="pl-9"
               />
             </div>
-            <Select value={selectedDocument} onValueChange={setSelectedDocument}>
+            <Select
+              value={selectedDocument}
+              onValueChange={setSelectedDocument}
+            >
               <SelectTrigger className="w-full lg:w-[250px]">
                 <FileText className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="All documents" />

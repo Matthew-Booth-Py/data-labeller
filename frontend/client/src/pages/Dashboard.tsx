@@ -44,7 +44,7 @@ export default function Dashboard() {
   });
 
   const projects = useMemo(() => {
-    if (typeof window === 'undefined') return [];
+    if (typeof window === "undefined") return [];
     try {
       const stored = localStorage.getItem("uu-projects");
       if (!stored) return [];
@@ -103,7 +103,9 @@ export default function Dashboard() {
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Documents in System</CardDescription>
-              <CardTitle className="text-3xl">{totalDocs.toLocaleString()}</CardTitle>
+              <CardTitle className="text-3xl">
+                {totalDocs.toLocaleString()}
+              </CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
               <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
@@ -129,7 +131,9 @@ export default function Dashboard() {
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Document Types</CardDescription>
-              <CardTitle className="text-3xl">{documentTypes?.types?.length || 0}</CardTitle>
+              <CardTitle className="text-3xl">
+                {documentTypes?.types?.length || 0}
+              </CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
               <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
@@ -160,7 +164,9 @@ export default function Dashboard() {
           <Card className="xl:col-span-2">
             <CardHeader>
               <CardTitle>System Activity</CardTitle>
-              <CardDescription>Current ingestion and extraction posture.</CardDescription>
+              <CardDescription>
+                Current ingestion and extraction posture.
+              </CardDescription>
             </CardHeader>
             <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-4">
@@ -231,7 +237,8 @@ export default function Dashboard() {
           <CardContent className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {projects.length === 0 ? (
               <div className="col-span-full rounded-lg border border-dashed border-[var(--border-strong)] p-8 text-center text-muted-foreground">
-                No projects yet. Create your first project to start ingestion and schema work.
+                No projects yet. Create your first project to start ingestion
+                and schema work.
               </div>
             ) : (
               projects.map((project) => (
@@ -242,7 +249,9 @@ export default function Dashboard() {
                   onClick={() => setLocation(`/project/${project.id}`)}
                 >
                   <p className="font-medium">{project.name}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{project.id}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {project.id}
+                  </p>
                 </button>
               ))
             )}

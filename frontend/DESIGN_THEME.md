@@ -8,15 +8,15 @@ Design and theme reference for the Intelligent Ingestion app under Beazley’s d
 
 Official Beazley palette (hex). Use these as the single source of truth for brand colors. Usage below follows the Beazley website: deep purple backgrounds, bright pink accent for links and highlights, white text on dark.
 
-| Name | Hex | Use (Beazley site) |
-|------|-----|--------------------|
-| **Beazley Pink** | `#D91AA6` | **Primary accent:** full-width alert/news banners, highlighted words in headlines, links (“Find out more”), link underlines, focus rings |
-| **Beazley Purple** | `#4F0259` | **Primary background:** main page background, top header bar, main navigation bar (dominant brand surface) |
-| **Beazley Dark** | `#380140` | **Deep contrast:** darkest surfaces, footers, areas needing strongest contrast with white text |
-| **Beazley Plum** | `#B31186` | **Secondary accent:** hover on links/buttons, secondary CTAs, charts, supporting emphasis |
-| **Beazley Light** | `#F2F2F2` | **Light neutrals:** light-mode section backgrounds, cards, borders; search/input backgrounds (e.g. large rounded search bar) |
-| **White** | `#FFFFFF` | **Text on dark:** logo, navigation links, body and headline text on purple/dark backgrounds; input fields |
-| **Light grey** | `#CCCCCC` | **Subtle text:** placeholders (e.g. “Search our site”), secondary copy on dark |
+| Name               | Hex       | Use (Beazley site)                                                                                                                       |
+| ------------------ | --------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Beazley Pink**   | `#D91AA6` | **Primary accent:** full-width alert/news banners, highlighted words in headlines, links (“Find out more”), link underlines, focus rings |
+| **Beazley Purple** | `#4F0259` | **Primary background:** main page background, top header bar, main navigation bar (dominant brand surface)                               |
+| **Beazley Dark**   | `#380140` | **Deep contrast:** darkest surfaces, footers, areas needing strongest contrast with white text                                           |
+| **Beazley Plum**   | `#B31186` | **Secondary accent:** hover on links/buttons, secondary CTAs, charts, supporting emphasis                                                |
+| **Beazley Light**  | `#F2F2F2` | **Light neutrals:** light-mode section backgrounds, cards, borders; search/input backgrounds (e.g. large rounded search bar)             |
+| **White**          | `#FFFFFF` | **Text on dark:** logo, navigation links, body and headline text on purple/dark backgrounds; input fields                                |
+| **Light grey**     | `#CCCCCC` | **Subtle text:** placeholders (e.g. “Search our site”), secondary copy on dark                                                           |
 
 ### Quick reference (copy-paste)
 
@@ -102,13 +102,13 @@ Use Tailwind spacing scale for consistency.
 
 ## Summary
 
-| Role | Use (from Beazley site) |
-|------|-------------------------|
-| **Page / header / nav background** | Beazley Purple (dominant), Beazley Dark (deep) |
-| **Text on dark** | White (primary), Light grey (placeholders only) |
-| **Accent (banners, links, highlights)** | Beazley Pink; underline on links |
-| **Secondary accent (hover, charts)** | Beazley Plum |
-| **Light surfaces & inputs** | Beazley Light, White |
-| **Layout** | Utility bar → Main nav → Optional pink banner → Hero/content → Prominent rounded search/inputs |
+| Role                                    | Use (from Beazley site)                                                                        |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| **Page / header / nav background**      | Beazley Purple (dominant), Beazley Dark (deep)                                                 |
+| **Text on dark**                        | White (primary), Light grey (placeholders only)                                                |
+| **Accent (banners, links, highlights)** | Beazley Pink; underline on links                                                               |
+| **Secondary accent (hover, charts)**    | Beazley Plum                                                                                   |
+| **Light surfaces & inputs**             | Beazley Light, White                                                                           |
+| **Layout**                              | Utility bar → Main nav → Optional pink banner → Hero/content → Prominent rounded search/inputs |
 
 Keep this file updated when the Beazley palette or site patterns change.

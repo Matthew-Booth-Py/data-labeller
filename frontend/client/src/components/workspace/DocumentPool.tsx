@@ -771,7 +771,10 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
               <Button
                 variant="ghost"
                 size="icon"
-                className={cn("h-8 w-8 rounded-sm", viewMode === "grid" && "bg-muted")}
+                className={cn(
+                  "h-8 w-8 rounded-sm",
+                  viewMode === "grid" && "bg-muted",
+                )}
                 onClick={() => setViewMode("grid")}
               >
                 <Grid className="h-4 w-4" />
@@ -779,7 +782,10 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
               <Button
                 variant="ghost"
                 size="icon"
-                className={cn("h-8 w-8 rounded-sm", viewMode === "list" && "bg-muted")}
+                className={cn(
+                  "h-8 w-8 rounded-sm",
+                  viewMode === "list" && "bg-muted",
+                )}
                 onClick={() => setViewMode("list")}
               >
                 <List className="h-4 w-4" />
