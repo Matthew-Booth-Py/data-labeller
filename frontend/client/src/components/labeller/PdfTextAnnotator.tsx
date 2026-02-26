@@ -75,6 +75,7 @@ export function PdfTextAnnotator({
   } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
+  const hasAutoScrolledToAnnotationRef = useRef(false);
 
   // Get active entity type
   const activeEntityType = entityTypes.find(
@@ -106,6 +107,82 @@ export function PdfTextAnnotator({
     },
     [entityTypes],
   );
+
+  const getAnnotationPage = useCallback((annotation: GroundTruthAnnotation) => {
+    const rawPage = (annotation.annotation_data as { page?: unknown })?.page;
+    const parsedPage = typeof rawPage === "number" ? rawPage : Number(rawPage);
+
+    if (!Number.isFinite(parsedPage) || parsedPage < 1) {
+      return null;
+    }
+
+    return parsedPage;
+  }, []);
+
+  const normalizeBBox = useCallback(
+    (rawData: BoundingBoxData | Record<string, unknown>) => {
+      const x = Number((rawData as { x?: unknown }).x);
+      const y = Number((rawData as { y?: unknown }).y);
+      const width = Number((rawData as { width?: unknown }).width);
+      const height = Number((rawData as { height?: unknown }).height);
+
+      if (
+        !Number.isFinite(x) ||
+        !Number.isFinite(y) ||
+        !Number.isFinite(width) ||
+        !Number.isFinite(height)
+      ) {
+        return null;
+      }
+
+      return { x, y, width, height };
+    },
+    [],
+  );
+
+  useEffect(() => {
+    hasAutoScrolledToAnnotationRef.current = false;
+  }, [documentId]);
+
+  useEffect(() => {
+    if (
+      isLoading ||
+      numPages === 0 ||
+      hasAutoScrolledToAnnotationRef.current ||
+      annotations.length === 0
+    ) {
+      return;
+    }
+
+    const pageCounts = new Map<number, number>();
+    for (const page of annotations
+      .filter((annotation) => annotation.annotation_type === "bbox")
+      .map((annotation) => getAnnotationPage(annotation))
+      .filter((page): page is number => page !== null)) {
+      pageCounts.set(page, (pageCounts.get(page) || 0) + 1);
+    }
+
+    const targetPage = Array.from(pageCounts.entries()).sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0] - b[0];
+    })[0]?.[0];
+
+    if (!targetPage || targetPage <= 1) {
+      hasAutoScrolledToAnnotationRef.current = true;
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      const pageEl = containerRef.current?.querySelector(
+        `.react-pdf__Page[data-page-number="${targetPage}"]`,
+      ) as HTMLElement | null;
+      if (pageEl) {
+        pageEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    });
+
+    hasAutoScrolledToAnnotationRef.current = true;
+  }, [annotations, getAnnotationPage, isLoading, numPages]);
 
   // Handle text selection
   const handleMouseUp = useCallback(
@@ -326,19 +403,22 @@ export function PdfTextAnnotator({
   const renderAnnotationHighlights = (pageNum: number) => {
     const pageAnnotations = annotations.filter(
       (a) =>
-        a.annotation_type === "bbox" &&
-        (a.annotation_data as BoundingBoxData).page === pageNum,
+        a.annotation_type === "bbox" && getAnnotationPage(a) === pageNum,
     );
 
     return pageAnnotations.map((ann) => {
-      const bbox = ann.annotation_data as BoundingBoxData;
+      const bboxData = ann.annotation_data as BoundingBoxData;
+      const bbox = normalizeBBox(bboxData);
+      if (!bbox) return null;
       const color = getEntityColor(ann.field_name);
+      const label = ann.field_name.split(".").pop() || ann.field_name;
 
       // Build tooltip with row number if available
-      const instanceNum = bbox.instance_num;
+      const instanceNum =
+        (bboxData as { instance_num?: number | string }).instance_num ?? null;
       const tooltipText = instanceNum
-        ? `Row ${instanceNum} | ${ann.field_name}: "${bbox.text || ann.value}"\nClick to delete`
-        : `${ann.field_name}: "${bbox.text || ann.value}"\nClick to delete`;
+        ? `Row ${instanceNum} | ${ann.field_name}: "${bboxData.text || ann.value}"\nClick to delete`
+        : `${ann.field_name}: "${bboxData.text || ann.value}"\nClick to delete`;
 
       return (
         <div
@@ -356,7 +436,15 @@ export function PdfTextAnnotator({
           }}
           onClick={() => onAnnotationDelete(ann.id)}
           title={tooltipText}
-        />
+        >
+          <div
+            className="dl-overlay-label"
+            style={{ background: color, color: BEAZLEY_PALETTE.dark }}
+          >
+            {label}
+            {instanceNum ? ` #${instanceNum}` : ""}
+          </div>
+        </div>
       );
     });
   };
@@ -364,13 +452,17 @@ export function PdfTextAnnotator({
   // Render suggestion overlays on a page
   const renderSuggestionOverlays = (pageNum: number) => {
     const pageSuggestions = suggestions.filter(
-      (s) =>
-        s.annotation_type === "bbox" &&
-        (s.annotation_data as BoundingBoxData).page === pageNum,
+      (s) => {
+        if (s.annotation_type !== "bbox") return false;
+        const rawPage = (s.annotation_data as { page?: unknown })?.page;
+        const parsedPage = typeof rawPage === "number" ? rawPage : Number(rawPage);
+        return Number.isFinite(parsedPage) && parsedPage === pageNum;
+      },
     );
 
     return pageSuggestions.map((suggestion) => {
-      const bbox = suggestion.annotation_data as BoundingBoxData;
+      const bbox = normalizeBBox(suggestion.annotation_data as BoundingBoxData);
+      if (!bbox) return null;
       const label =
         suggestion.field_name.split(".").pop() || suggestion.field_name;
 
@@ -483,7 +575,7 @@ export function PdfTextAnnotator({
                 />
 
                 {/* Annotation overlay */}
-                <div className="absolute inset-0 z-10 pointer-events-none overflow-hidden">
+                <div className="absolute inset-0 z-10 pointer-events-none overflow-visible">
                   {renderAnnotationHighlights(index + 1)}
                 </div>
 

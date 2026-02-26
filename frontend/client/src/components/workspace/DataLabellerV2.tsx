@@ -768,8 +768,8 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   }, [annotations, selectedDocument]);
 
   return (
-    <div className="data-labeller-v2 flex h-full min-h-0 flex-col gap-6 overflow-auto xl:overflow-hidden">
-      <Card className="overflow-hidden border-primary/20 bg-[var(--surface-panel)]">
+    <div className="data-labeller-v2 flex h-full min-h-0 flex-col gap-4 overflow-auto">
+      <Card className="shrink-0 overflow-hidden border-primary/20 bg-[var(--surface-panel)]">
         <div className="bg-gradient-to-r from-primary to-[var(--interactive-primary-hover)] px-6 py-6 text-primary-foreground">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-2">
@@ -839,8 +839,8 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[340px_minmax(0,1fr)]">
-        <div className="space-y-4 xl:min-h-0 xl:overflow-auto xl:pr-1">
+      <div className="grid grid-cols-1 gap-4 xl:min-h-0 xl:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="space-y-4 xl:pr-1">
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-2">
@@ -930,7 +930,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                   Select a classified document to load schema fields.
                 </div>
               ) : (
-                <div className="dl-entity-types-list max-h-[320px] overflow-y-auto pr-1">
+                <div className="dl-entity-types-list pr-1">
                   {Object.entries(groupedEntityTypes).map(
                     ([groupName, groupTypes]) => {
                       const isExpanded = expandedGroups.has(groupName);
@@ -1089,10 +1089,78 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
               )}
             </CardContent>
           </Card>
+
+          <Card className="overflow-hidden">
+            <CardHeader className="border-b border-[var(--border-subtle)] py-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="space-y-1">
+                  <CardTitle className="text-sm">Output</CardTitle>
+                  <CardDescription>
+                    Structured annotation payload for downstream evaluation and
+                    export.
+                  </CardDescription>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <div className="dl-export-dropdown" ref={exportMenuRef}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setExportMenuVisible(!exportMenuVisible)}
+                    >
+                      Export <ChevronDown className="ml-1 h-3 w-3" />
+                    </Button>
+                    <div
+                      className={`dl-export-menu ${exportMenuVisible ? "visible" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        className="dl-export-menu-item"
+                        onClick={() => exportAs("json")}
+                      >
+                        JSON
+                      </button>
+                      <button
+                        type="button"
+                        className="dl-export-menu-item"
+                        onClick={() => exportAs("jsonl")}
+                      >
+                        JSONL
+                      </button>
+                      <button
+                        type="button"
+                        className="dl-export-menu-item"
+                        onClick={() => exportAs("csv")}
+                      >
+                        CSV
+                      </button>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={copyAnnotations}
+                    disabled={annotations.length === 0}
+                  >
+                    <Copy className="h-3 w-3" />
+                    Copy
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <pre
+                className={`dl-output-content ${annotations.length > 0 ? "has-content" : ""}`}
+              >
+                {outputSummary}
+              </pre>
+            </CardContent>
+          </Card>
         </div>
 
-        <div className="min-h-0 space-y-4 xl:flex xl:flex-col xl:overflow-hidden">
-          <Card className="flex min-h-[620px] flex-col overflow-hidden xl:min-h-0 xl:flex-1">
+        <div className="min-h-0">
+          <Card className="flex min-h-[760px] flex-col overflow-hidden xl:min-h-[980px]">
             <CardHeader className="space-y-3 border-b border-[var(--border-subtle)]">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 space-y-1">
@@ -1203,81 +1271,14 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
               </div>
             </CardHeader>
             <CardContent className="flex-1 min-h-0 overflow-hidden p-0">
-              <div className="h-full min-h-[420px] xl:min-h-0">
+              <div className="h-full min-h-[580px] xl:min-h-[780px]">
                 {renderDocumentViewer()}
               </div>
             </CardContent>
           </Card>
-
-          <Card className="overflow-hidden xl:shrink-0">
-            <CardHeader className="border-b border-[var(--border-subtle)] py-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="space-y-1">
-                  <CardTitle className="text-sm">Output</CardTitle>
-                  <CardDescription>
-                    Structured annotation payload for downstream evaluation and
-                    export.
-                  </CardDescription>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <div className="dl-export-dropdown" ref={exportMenuRef}>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setExportMenuVisible(!exportMenuVisible)}
-                    >
-                      Export <ChevronDown className="ml-1 h-3 w-3" />
-                    </Button>
-                    <div
-                      className={`dl-export-menu ${exportMenuVisible ? "visible" : ""}`}
-                    >
-                      <button
-                        type="button"
-                        className="dl-export-menu-item"
-                        onClick={() => exportAs("json")}
-                      >
-                        JSON
-                      </button>
-                      <button
-                        type="button"
-                        className="dl-export-menu-item"
-                        onClick={() => exportAs("jsonl")}
-                      >
-                        JSONL
-                      </button>
-                      <button
-                        type="button"
-                        className="dl-export-menu-item"
-                        onClick={() => exportAs("csv")}
-                      >
-                        CSV
-                      </button>
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={copyAnnotations}
-                    disabled={annotations.length === 0}
-                  >
-                    <Copy className="h-3 w-3" />
-                    Copy
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <pre
-                className={`dl-output-content ${annotations.length > 0 ? "has-content" : ""}`}
-              >
-                {outputSummary}
-              </pre>
-            </CardContent>
-          </Card>
         </div>
       </div>
+
     </div>
   );
 }
