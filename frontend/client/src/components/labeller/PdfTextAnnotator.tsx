@@ -4,6 +4,7 @@
  */
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { Document, Page, pdfjs } from "react-pdf";
 import { ZoomIn, ZoomOut, Loader2 } from "lucide-react";
 import type {
@@ -407,11 +408,15 @@ export function PdfTextAnnotator({
             x: rects[0].leftPct,
             y: rects[0].topPct,
             width:
-              rects.reduce((max, r) => Math.max(max, r.leftPct + r.widthPct), 0) -
-              rects[0].leftPct,
+              rects.reduce(
+                (max, r) => Math.max(max, r.leftPct + r.widthPct),
+                0,
+              ) - rects[0].leftPct,
             height:
-              rects.reduce((max, r) => Math.max(max, r.topPct + r.heightPct), 0) -
-              rects[0].topPct,
+              rects.reduce(
+                (max, r) => Math.max(max, r.topPct + r.heightPct),
+                0,
+              ) - rects[0].topPct,
             text: text,
           };
           onAnnotationCreate(activeEntityType.name, text, bbox);
@@ -472,13 +477,15 @@ export function PdfTextAnnotator({
     [pendingSelection, entityTypes, onAnnotationCreate],
   );
 
-  // Close popup on outside click
+  // Close popup when clicking outside both the popup and the PDF viewer (e.g. sidebar).
+  // Clicks inside the PDF area do not close the popup so labels stay visible while working in the doc.
   const handleMouseDown = useCallback((e: MouseEvent) => {
-    if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
-      setPopupPosition(null);
-      setPendingSelection(null);
-      latestSelectionRef.current = null;
-    }
+    const target = e.target as Node;
+    if (popupRef.current?.contains(target)) return;
+    if (containerRef.current?.contains(target)) return;
+    setPopupPosition(null);
+    setPendingSelection(null);
+    latestSelectionRef.current = null;
   }, []);
 
   // Keyboard shortcuts
@@ -573,8 +580,7 @@ export function PdfTextAnnotator({
   // Render annotation highlights on a page
   const renderAnnotationHighlights = (pageNum: number) => {
     const pageAnnotations = annotations.filter(
-      (a) =>
-        a.annotation_type === "bbox" && getAnnotationPage(a) === pageNum,
+      (a) => a.annotation_type === "bbox" && getAnnotationPage(a) === pageNum,
     );
 
     return pageAnnotations.map((ann) => {
@@ -638,14 +644,13 @@ export function PdfTextAnnotator({
 
   // Render suggestion overlays on a page
   const renderSuggestionOverlays = (pageNum: number) => {
-    const pageSuggestions = suggestions.filter(
-      (s) => {
-        if (s.annotation_type !== "bbox") return false;
-        const rawPage = (s.annotation_data as { page?: unknown })?.page;
-        const parsedPage = typeof rawPage === "number" ? rawPage : Number(rawPage);
-        return Number.isFinite(parsedPage) && parsedPage === pageNum;
-      },
-    );
+    const pageSuggestions = suggestions.filter((s) => {
+      if (s.annotation_type !== "bbox") return false;
+      const rawPage = (s.annotation_data as { page?: unknown })?.page;
+      const parsedPage =
+        typeof rawPage === "number" ? rawPage : Number(rawPage);
+      return Number.isFinite(parsedPage) && parsedPage === pageNum;
+    });
 
     return pageSuggestions.map((suggestion) => {
       const bbox = normalizeBBox(suggestion.annotation_data as BoundingBoxData);
@@ -705,8 +710,8 @@ export function PdfTextAnnotator({
                 style={{ background: activeEntityType.color }}
               />
               <span>
-                Labelling as <strong>{activeEntityType.name}</strong>{" "}
-                — highlight text to annotate
+                Labelling as <strong>{activeEntityType.name}</strong> —
+                highlight text to annotate
               </span>
             </>
           ) : entityTypes.length === 0 ? (
@@ -764,7 +769,9 @@ export function PdfTextAnnotator({
                 const pageNum = index + 1;
                 const count = annotationCountsByPage[pageNum] || 0;
                 const intensity =
-                  maxPageAnnotationCount > 0 ? count / maxPageAnnotationCount : 0;
+                  maxPageAnnotationCount > 0
+                    ? count / maxPageAnnotationCount
+                    : 0;
                 return (
                   <button
                     key={`nav-page-${pageNum}`}
@@ -833,7 +840,10 @@ export function PdfTextAnnotator({
           <div ref={containerRef} className="dl-viewer flex-1 overflow-auto">
             <div className="flex flex-col items-center gap-4 p-6">
               {Array.from(new Array(numPages), (_, index) => (
-                <div key={`page_${index + 1}`} className="relative dl-viewer-surface">
+                <div
+                  key={`page_${index + 1}`}
+                  className="relative dl-viewer-surface"
+                >
                   <Page
                     pageNumber={index + 1}
                     scale={scale}
@@ -868,56 +878,58 @@ export function PdfTextAnnotator({
         </div>
       </Document>
 
-      {/* Entity type popup */}
-      {popupPosition && popupEntityTypes.length > 0 && (
-        <div
-          ref={popupRef}
-          className="dl-annotation-popup visible"
-          style={{
-            left: `${popupPosition.x}px`,
-            top: `${popupPosition.y}px`,
-          }}
-        >
-          {(() => {
-            // Group entity types by parent
-            const grouped: Record<string, typeof popupEntityTypes> = {};
-            popupEntityTypes.forEach((et) => {
-              const parts = et.name.split(".");
-              const parent = parts.length > 1 ? parts[0] : "_root";
-              if (!grouped[parent]) grouped[parent] = [];
-              grouped[parent].push(et);
-            });
-
-            return Object.entries(grouped).map(([parent, types]) => (
-              <div key={parent} className="dl-popup-group">
-                {parent !== "_root" && (
-                  <div className="dl-popup-group-title">{parent}</div>
-                )}
-                <div className="dl-popup-group-buttons">
-                  {types.map((et) => {
-                    const displayName = et.name.split(".").pop() || et.name;
-                    return (
-                      <button
-                        key={et.id}
-                        type="button"
-                        className="dl-popup-entity-btn"
-                        style={{
-                          background: `${et.color}30`,
-                          color: et.color,
-                          borderColor: `${et.color}66`,
-                        }}
-                        onClick={() => applyFromPopup(et.id)}
-                      >
-                        {displayName}
-                      </button>
-                    );
-                  })}
+      {/* Entity type popup — portaled to body so position:fixed is viewport-stable regardless of hover area */}
+      {popupPosition &&
+        popupEntityTypes.length > 0 &&
+        createPortal(
+          <div
+            ref={popupRef}
+            className="dl-annotation-popup visible"
+            style={{
+              left: `${popupPosition.x}px`,
+              top: `${popupPosition.y}px`,
+            }}
+          >
+            {(() => {
+              const grouped: Record<string, typeof popupEntityTypes> = {};
+              popupEntityTypes.forEach((et) => {
+                const parts = et.name.split(".");
+                const parent = parts.length > 1 ? parts[0] : "_root";
+                if (!grouped[parent]) grouped[parent] = [];
+                grouped[parent].push(et);
+              });
+              return Object.entries(grouped).map(([parent, types]) => (
+                <div key={parent} className="dl-popup-group">
+                  {parent !== "_root" && (
+                    <div className="dl-popup-group-title">{parent}</div>
+                  )}
+                  <div className="dl-popup-group-buttons">
+                    {types.map((et) => {
+                      const displayName = et.name.split(".").pop() || et.name;
+                      return (
+                        <button
+                          key={et.id}
+                          type="button"
+                          className="dl-popup-entity-btn"
+                          style={{
+                            /* Opaque tint so button text is readable over document */
+                            background: `${et.color}E6`,
+                            color: et.color,
+                            border: `1px solid ${et.color}99`,
+                          }}
+                          onClick={() => applyFromPopup(et.id)}
+                        >
+                          {displayName}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ));
-          })()}
-        </div>
-      )}
+              ));
+            })()}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
