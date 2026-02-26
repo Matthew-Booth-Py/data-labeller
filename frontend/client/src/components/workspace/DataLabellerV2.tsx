@@ -70,7 +70,7 @@ interface DataLabellerV2Props {}
 type SidebarTab = "context" | "schema" | "annotations" | "output";
 type OutputViewMode = "json" | "table";
 type WorkflowMode = "freeform" | "table" | "field-first";
-type LabellerSidebarMode = "expanded" | "compact" | "hidden";
+type LabellerSidebarMode = "expanded" | "hidden";
 
 const WORKFLOW_LABELS: Record<WorkflowMode, string> = {
   freeform: "Freeform",
@@ -100,7 +100,7 @@ const setsEqual = (a: Set<string>, b: Set<string>) => {
 const isLabellerSidebarMode = (
   value: string | null,
 ): value is LabellerSidebarMode =>
-  value === "expanded" || value === "compact" || value === "hidden";
+  value === "expanded" || value === "hidden";
 
 export function DataLabellerV2({}: DataLabellerV2Props) {
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
@@ -166,42 +166,24 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   const [sidebarMode, setSidebarMode] = useState<LabellerSidebarMode>(() => {
     if (typeof window === "undefined") return "expanded";
     const stored = window.localStorage.getItem(LABELLER_SIDEBAR_MODE_STORAGE_KEY);
-    return isLabellerSidebarMode(stored) ? stored : "expanded";
+    return stored === "hidden"
+      ? "hidden"
+      : isLabellerSidebarMode(stored)
+        ? stored
+        : "expanded";
   });
-  const lastVisibleSidebarModeRef = useRef<Exclude<LabellerSidebarMode, "hidden">>(
-    "expanded",
-  );
   const rowShortcutAwaitRef = useRef(false);
   const rowShortcutDigitsRef = useRef("");
   const rowShortcutTimerRef = useRef<number | null>(null);
   const sidebarVisible = sidebarMode !== "hidden";
-  const sidebarCompact = sidebarMode === "compact";
-
-  useEffect(() => {
-    if (sidebarMode === "hidden") return;
-    lastVisibleSidebarModeRef.current = sidebarMode;
-  }, [sidebarMode]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(LABELLER_SIDEBAR_MODE_STORAGE_KEY, sidebarMode);
   }, [sidebarMode]);
 
-  const toggleSidebarSize = () => {
-    setSidebarMode((current) => {
-      if (current === "hidden") return "compact";
-      return current === "expanded" ? "compact" : "expanded";
-    });
-  };
-
   const toggleSidebarVisibility = () => {
-    setSidebarMode((current) => {
-      if (current === "hidden") {
-        return lastVisibleSidebarModeRef.current;
-      }
-      lastVisibleSidebarModeRef.current = current;
-      return "hidden";
-    });
+    setSidebarMode((current) => (current === "hidden" ? "expanded" : "hidden"));
   };
 
   // Fetch documents
@@ -1231,11 +1213,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       <div
         className={cn(
           "grid flex-1 grid-cols-1 gap-4 min-h-0",
-          sidebarVisible
-            ? sidebarCompact
-              ? "xl:grid-cols-[260px_minmax(0,1fr)]"
-              : "xl:grid-cols-[380px_minmax(0,1fr)]"
-            : "xl:grid-cols-1",
+          sidebarVisible ? "xl:grid-cols-[380px_minmax(0,1fr)]" : "xl:grid-cols-1",
         )}
       >
         {sidebarVisible && (
@@ -1902,17 +1880,6 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5 justify-end">
-                  {sidebarMode !== "hidden" && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      onClick={toggleSidebarSize}
-                    >
-                      {sidebarMode === "expanded" ? "Shrink Panel" : "Expand Panel"}
-                    </Button>
-                  )}
                   <Button
                     type="button"
                     variant="outline"

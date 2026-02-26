@@ -398,7 +398,7 @@ export function Shell({
         <div className="flex-1 min-w-0">
           {(pageTitle || primaryAction || secondaryActions) && (
             <div className="px-4 md:px-8 py-6 border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]">
-              <div className="max-w-[1300px] mx-auto">
+              <div className="w-full lg:max-w-[80vw] mx-auto">
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div>
                     {pageTitle && (
@@ -425,7 +425,7 @@ export function Shell({
             {contentFullWidth ? (
               children
             ) : (
-              <div className="max-w-[1300px] mx-auto">{children}</div>
+              <div className="w-full lg:max-w-[80vw] mx-auto">{children}</div>
             )}
           </main>
         </div>

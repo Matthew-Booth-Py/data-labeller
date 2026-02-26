@@ -54,6 +54,18 @@ interface PendingSelection {
   rects: AnnotationRect[];
 }
 
+interface SelectionExtraction {
+  pending: PendingSelection;
+  popup: {
+    x: number;
+    y: number;
+  };
+}
+
+interface SelectionSnapshot extends SelectionExtraction {
+  capturedAt: number;
+}
+
 export function PdfTextAnnotator({
   documentId,
   pdfUrl,
@@ -85,6 +97,7 @@ export function PdfTextAnnotator({
   const containerRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const hasAutoScrolledToAnnotationRef = useRef(false);
+  const latestSelectionRef = useRef<SelectionSnapshot | null>(null);
 
   // Get active entity type
   const activeEntityType = entityTypes.find(
@@ -263,54 +276,52 @@ export function PdfTextAnnotator({
     };
   }, [currentPage, numPages]);
 
-  // Handle text selection
-  const handleMouseUp = useCallback(
-    (e: MouseEvent) => {
-      const selection = window.getSelection();
+  const extractSelection = useCallback(
+    (selection: Selection | null): SelectionExtraction | null => {
       if (!selection || selection.isCollapsed || !selection.rangeCount) {
-        setPopupPosition(null);
-        setPendingSelection(null);
-        return;
+        return null;
       }
 
       const range = selection.getRangeAt(0);
+      const startElement =
+        range.startContainer instanceof Element
+          ? range.startContainer
+          : range.startContainer.parentElement;
+      const endElement =
+        range.endContainer instanceof Element
+          ? range.endContainer
+          : range.endContainer.parentElement;
 
-      // Find the page containing the selection
-      const startPage = (
-        range.startContainer.parentElement as HTMLElement
-      )?.closest(".react-pdf__Page");
-      const endPage = (
-        range.endContainer.parentElement as HTMLElement
-      )?.closest(".react-pdf__Page");
+      if (!startElement || !endElement) {
+        return null;
+      }
 
+      const startPage = startElement.closest(".react-pdf__Page");
+      const endPage = endElement.closest(".react-pdf__Page");
       if (!startPage || !endPage || startPage !== endPage) {
-        setPopupPosition(null);
-        setPendingSelection(null);
-        return;
+        return null;
       }
 
-      // Check if selection is in text layer
-      const textLayer = (
-        range.startContainer.parentElement as HTMLElement
-      )?.closest(".react-pdf__Page__textContent");
-      if (!textLayer) {
-        setPopupPosition(null);
-        setPendingSelection(null);
-        return;
+      if (
+        !startElement.closest(".react-pdf__Page__textContent") ||
+        !endElement.closest(".react-pdf__Page__textContent")
+      ) {
+        return null;
       }
 
-      const pageNum = parseInt(
+      const selectedText = selection.toString().trim();
+      if (!selectedText) {
+        return null;
+      }
+
+      const pageNum = Number.parseInt(
         startPage.getAttribute("data-page-number") || "1",
+        10,
       );
-      const selectedText = selection.toString();
-
-      if (!selectedText.trim()) {
-        setPopupPosition(null);
-        setPendingSelection(null);
-        return;
+      if (!Number.isFinite(pageNum) || pageNum < 1) {
+        return null;
       }
 
-      // Get rects relative to page as percentages
       const pageRect = startPage.getBoundingClientRect();
       const clientRects = range.getClientRects();
       const rects: AnnotationRect[] = [];
@@ -327,10 +338,63 @@ export function PdfTextAnnotator({
       }
 
       if (rects.length === 0) {
-        setPopupPosition(null);
-        setPendingSelection(null);
+        return null;
+      }
+
+      const rect = range.getBoundingClientRect();
+      return {
+        pending: { pageNum, text: selectedText, rects },
+        popup: {
+          x: Math.min(rect.left, window.innerWidth - 420),
+          y: rect.bottom + 8,
+        },
+      };
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const extracted = extractSelection(window.getSelection());
+      if (!extracted) return;
+      latestSelectionRef.current = {
+        ...extracted,
+        capturedAt: Date.now(),
+      };
+    };
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => {
+      document.removeEventListener("selectionchange", handleSelectionChange);
+    };
+  }, [extractSelection]);
+
+  // Handle text selection
+  const handleMouseUp = useCallback(
+    (e: MouseEvent) => {
+      if (popupRef.current?.contains(e.target as Node)) {
         return;
       }
+
+      const liveSelection = extractSelection(window.getSelection());
+      const cachedSelection =
+        latestSelectionRef.current &&
+        Date.now() - latestSelectionRef.current.capturedAt <= 250
+          ? latestSelectionRef.current
+          : null;
+      const extracted = liveSelection || cachedSelection;
+
+      if (!extracted) {
+        setPopupPosition(null);
+        setPendingSelection(null);
+        latestSelectionRef.current = null;
+        return;
+      }
+
+      const {
+        pending: { pageNum, text, rects },
+        popup,
+      } = extracted;
 
       // If active entity type and inline chooser is off, apply directly.
       if (activeEntityTypeId && activeEntityType && !forceFieldChooser) {
@@ -344,26 +408,26 @@ export function PdfTextAnnotator({
           height:
             rects.reduce((max, r) => Math.max(max, r.topPct + r.heightPct), 0) -
             rects[0].topPct,
-          text: selectedText.trim(),
+          text: text,
         };
-        onAnnotationCreate(activeEntityType.name, selectedText.trim(), bbox);
-        selection.removeAllRanges();
+        onAnnotationCreate(activeEntityType.name, text, bbox);
+        window.getSelection()?.removeAllRanges();
         setPopupPosition(null);
         setPendingSelection(null);
+        latestSelectionRef.current = null;
         return;
       }
 
       // Show popup to pick entity type
-      if (popupEntityTypes.length === 0) return;
+      if (popupEntityTypes.length === 0) {
+        return;
+      }
 
-      setPendingSelection({ pageNum, text: selectedText, rects });
-      const rect = range.getBoundingClientRect();
-      setPopupPosition({
-        x: Math.min(rect.left, window.innerWidth - 420),
-        y: rect.bottom + 8,
-      });
+      setPendingSelection({ pageNum, text, rects });
+      setPopupPosition(popup);
     },
     [
+      extractSelection,
       activeEntityTypeId,
       activeEntityType,
       forceFieldChooser,
@@ -398,6 +462,7 @@ export function PdfTextAnnotator({
       window.getSelection()?.removeAllRanges();
       setPopupPosition(null);
       setPendingSelection(null);
+      latestSelectionRef.current = null;
     },
     [pendingSelection, entityTypes, onAnnotationCreate],
   );
@@ -407,6 +472,7 @@ export function PdfTextAnnotator({
     if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
       setPopupPosition(null);
       setPendingSelection(null);
+      latestSelectionRef.current = null;
     }
   }, []);
 
@@ -440,6 +506,7 @@ export function PdfTextAnnotator({
         setPopupPosition(null);
         setPendingSelection(null);
         window.getSelection()?.removeAllRanges();
+        latestSelectionRef.current = null;
       }
 
       // Enter confirms pending popup selection.

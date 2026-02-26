@@ -246,7 +246,7 @@ export default function ProjectWorkspace() {
           className="flex-1 flex flex-col overflow-hidden"
         >
           <div className="border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]/90 backdrop-blur supports-[backdrop-filter]:bg-[var(--surface-elevated)]/75">
-            <div className="max-w-[1420px] mx-auto px-4 md:px-8">
+            <div className="w-full lg:max-w-[80vw] mx-auto px-4 md:px-8">
               <TabsList className="w-full justify-start bg-transparent border-0 p-0 py-3 gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap">
                 {WORKSPACE_TABS.map((tabId) => {
                   const tabMeta = WORKSPACE_TAB_META[tabId];
@@ -270,7 +270,7 @@ export default function ProjectWorkspace() {
             </div>
           </div>
 
-          <div className="max-w-[1420px] mx-auto flex-1 flex flex-col min-h-0 w-full">
+          <div className="w-full lg:max-w-[80vw] mx-auto flex-1 flex flex-col min-h-0">
             <div className="flex-1 overflow-hidden bg-gradient-to-b from-[var(--surface-elevated)]/50 via-transparent to-transparent">
               <TabsContent
                 value="schema"
