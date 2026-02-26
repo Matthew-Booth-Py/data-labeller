@@ -4,7 +4,7 @@
 
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type GroundTruthAnnotation } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   Card,
   CardContent,
@@ -35,16 +35,13 @@ import {
   Download,
   Filter,
   FileText,
-  Calendar,
-  User,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 export function LabelsView() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDocument, setSelectedDocument] = useState<string>("all");
   const [selectedField, setSelectedField] = useState<string>("all");
-  const [localStorageVersion, setLocalStorageVersion] = useState(0);
+  const localStorageVersion = 0;
 
   const projectId = localStorage.getItem("selected-project") || "all";
 
@@ -213,7 +210,7 @@ export function LabelsView() {
   return (
     <div className="space-y-6">
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total Annotations</CardDescription>
@@ -243,7 +240,7 @@ export function LabelsView() {
       </div>
 
       {/* Filters and Actions */}
-      <Card>
+      <Card className="bg-[var(--surface-panel)]">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
@@ -260,7 +257,7 @@ export function LabelsView() {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Filters */}
-          <div className="flex gap-4">
+          <div className="flex flex-col lg:flex-row gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -270,11 +267,8 @@ export function LabelsView() {
                 className="pl-9"
               />
             </div>
-            <Select
-              value={selectedDocument}
-              onValueChange={setSelectedDocument}
-            >
-              <SelectTrigger className="w-[250px]">
+            <Select value={selectedDocument} onValueChange={setSelectedDocument}>
+              <SelectTrigger className="w-full lg:w-[250px]">
                 <FileText className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="All documents" />
               </SelectTrigger>
@@ -288,7 +282,7 @@ export function LabelsView() {
               </SelectContent>
             </Select>
             <Select value={selectedField} onValueChange={setSelectedField}>
-              <SelectTrigger className="w-[250px]">
+              <SelectTrigger className="w-full lg:w-[250px]">
                 <Filter className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="All fields" />
               </SelectTrigger>

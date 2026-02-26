@@ -8,7 +8,6 @@ import {
   Search,
   Trash2,
   Edit3,
-  BookOpen,
   Sparkles,
   Loader2,
   GripVertical,
@@ -215,31 +214,18 @@ export default function FieldsLibrary() {
   };
 
   return (
-    <Shell>
-      <div className="p-8 max-w-7xl mx-auto space-y-8">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
-              <BookOpen className="h-6 w-6 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-primary">
-                Fields Library
-              </h1>
-              <p className="text-muted-foreground mt-1">
-                Create reusable global fields. Projects can use these alongside
-                project-specific fields.
-              </p>
-            </div>
-          </div>
-          <Button
-            className="gap-2 bg-primary hover:bg-primary/90"
-            onClick={openCreateDialog}
-          >
-            <Plus className="h-4 w-4" />
-            Add Field
-          </Button>
-        </div>
+    <Shell
+      section="library"
+      pageTitle="Fields Library"
+      pageDescription="Create reusable global fields. Projects can use these alongside project-specific fields."
+      primaryAction={
+        <Button className="gap-2" onClick={openCreateDialog}>
+          <Plus className="h-4 w-4" />
+          Add Field
+        </Button>
+      }
+    >
+      <div className="space-y-8">
 
         <div className="flex items-center gap-2 mb-2 max-w-md">
           <div className="relative flex-1">
@@ -265,7 +251,7 @@ export default function FieldsLibrary() {
             </div>
             <Button
               size="sm"
-              className="gap-2 bg-primary hover:bg-primary/90"
+              className="gap-2"
               onClick={openCreateDialog}
             >
               <Plus className="h-4 w-4" /> Add Field

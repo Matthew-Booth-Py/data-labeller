@@ -290,9 +290,9 @@ export function EvaluateView() {
   return (
     <div className="space-y-6">
       {/* Controls */}
-      <Card>
+      <Card className="bg-[var(--surface-panel)]">
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <CardTitle>Run Evaluation</CardTitle>
               <CardDescription>
@@ -308,12 +308,12 @@ export function EvaluateView() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-4">
+          <div className="flex flex-col md:flex-row gap-4">
             <Select
               value={selectedDocument}
               onValueChange={setSelectedDocument}
             >
-              <SelectTrigger className="w-[300px]">
+              <SelectTrigger className="w-full md:w-[300px]">
                 <SelectValue placeholder="Select document to evaluate" />
               </SelectTrigger>
               <SelectContent>
@@ -349,7 +349,7 @@ export function EvaluateView() {
 
           {/* Recent evaluations selector */}
           {evaluationsData && evaluationsData.runs.length > 0 && (
-            <div className="flex gap-4 items-center">
+            <div className="flex flex-col md:flex-row md:items-center gap-4">
               <span className="text-sm text-muted-foreground">
                 Or view recent:
               </span>
@@ -357,7 +357,7 @@ export function EvaluateView() {
                 value={selectedEvaluation || ""}
                 onValueChange={setSelectedEvaluation}
               >
-                <SelectTrigger className="w-[300px]">
+                <SelectTrigger className="w-full md:w-[300px]">
                   <SelectValue placeholder="Select evaluation" />
                 </SelectTrigger>
                 <SelectContent>
@@ -388,7 +388,7 @@ export function EvaluateView() {
 
       {/* Summary Metrics */}
       {summary && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Accuracy</CardDescription>

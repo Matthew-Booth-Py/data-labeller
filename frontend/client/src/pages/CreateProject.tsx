@@ -55,10 +55,15 @@ export default function CreateProject() {
   };
 
   return (
-    <Shell>
-      <div className="p-8 max-w-2xl mx-auto space-y-6">
+    <Shell
+      section="projects"
+      pageTitle="Create New Project"
+      pageDescription="Set up a project workspace for ingestion, schema definition, and extraction."
+      showProjectRail
+    >
+      <div className="max-w-2xl mx-auto space-y-6">
         <Button
-          variant="ghost"
+          variant="quiet"
           className="gap-2 -ml-2"
           onClick={() => setLocation("/projects")}
         >
@@ -66,7 +71,7 @@ export default function CreateProject() {
           Back to Projects
         </Button>
 
-        <Card className="bg-white shadow-sm">
+        <Card className="bg-[var(--surface-panel)]">
           <CardHeader>
             <CardTitle className="flex items-center gap-3 text-2xl">
               <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -126,12 +131,12 @@ export default function CreateProject() {
             </div>
           </CardContent>
 
-          <CardFooter className="border-t bg-muted/5 flex justify-end gap-3 pt-4">
+          <CardFooter className="border-t border-[var(--border-subtle)] bg-muted/5 flex justify-end gap-3 pt-4">
             <Button variant="outline" onClick={() => setLocation("/projects")}>
               Cancel
             </Button>
             <Button
-              className="bg-accent hover:bg-accent/90 gap-2"
+              className="gap-2"
               onClick={handleCreate}
               disabled={!name.trim() || isCreating}
             >

@@ -5,8 +5,13 @@ import { ExtractionRunner } from "@/components/workspace/ExtractionRunner";
 export default function Extraction() {
   const { id } = useParams();
   return (
-    <Shell>
-      <div className="p-8">
+    <Shell
+      section="workspace"
+      pageTitle="Extraction Runner"
+      pageDescription="Run live extraction for the current project and inspect structured output."
+      projectId={id}
+    >
+      <div>
         <ExtractionRunner projectId={id} />
       </div>
     </Shell>

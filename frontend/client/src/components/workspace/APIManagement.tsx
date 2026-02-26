@@ -31,7 +31,7 @@ export function APIManagement() {
             Manage keys specifically for this project's extraction pipeline.
           </p>
         </div>
-        <Button className="gap-2 bg-accent hover:bg-accent/90">
+        <Button className="gap-2">
           <Plus className="h-4 w-4" />
           Create New Key
         </Button>
@@ -39,10 +39,7 @@ export function APIManagement() {
 
       <div className="grid gap-4">
         {keys.map((key) => (
-          <Card
-            key={key.id}
-            className="border-muted hover:border-accent/30 transition-all bg-white"
-          >
+          <Card key={key.id} className="border-muted hover:border-primary/25 transition-all bg-[var(--surface-panel)]">
             <CardContent className="p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-1 flex-1">
@@ -108,7 +105,7 @@ export function APIManagement() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="border-accent text-accent"
+                      className="border-primary/30 text-primary"
                     >
                       Test
                     </Button>
@@ -123,7 +120,7 @@ export function APIManagement() {
           </Card>
         ))}
         {keys.length === 0 && (
-          <Card className="border-muted bg-white">
+          <Card className="border-muted bg-[var(--surface-panel)]">
             <CardContent className="p-4 text-sm text-muted-foreground">
               API key storage is not yet wired to backend persistence. No
               synthetic keys are shown.

@@ -81,64 +81,74 @@
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 }
 
-/* Intelligent Ingestion Theme - Beazley Inspired Light Mode */
+/* Intelligent Ingestion Theme - Beazley Brand Light */
 :root {
-  --background: 0 0% 100%;
-  --foreground: 296 100% 10%;
+  --background: 304 28% 97%;
+  --foreground: 292 72% 14%;
 
   --card: 0 0% 100%;
-  --card-foreground: 296 100% 10%;
+  --card-foreground: 292 72% 14%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 296 100% 10%;
+  --popover-foreground: 292 72% 14%;
 
-  /* Beazley Purple Primary */
+  /* Interactive role tokens */
   --primary: 296 100% 16%;
   --primary-foreground: 0 0% 100%;
-
-  /* Beazley Light Pink Accent */
-  --accent: 320 80% 48%;
+  --accent: 320 78% 48%;
   --accent-foreground: 0 0% 100%;
-
-  --secondary: 300 5% 96%;
-  --secondary-foreground: 296 100% 10%;
-
-  --muted: 300 5% 96%;
-  --muted-foreground: 300 5% 45%;
-
-  --destructive: 0 84% 60%;
+  --destructive: 350 64% 51%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 300 5% 90%;
-  --input: 300 5% 90%;
-  --ring: 320 80% 48%;
+  /* Surface and text role tokens */
+  --secondary: 304 20% 95%;
+  --secondary-foreground: 292 72% 14%;
+  --muted: 304 16% 93%;
+  --muted-foreground: 293 24% 38%;
+  --border: 300 19% 86%;
+  --input: 300 19% 86%;
+  --ring: 320 78% 48%;
 
-  --sidebar: 300 5% 98%;
-  --sidebar-foreground: 296 100% 10%;
+  /* Semantic CSS custom properties used directly in UI components */
+  --surface-page: #f8f4f8;
+  --surface-panel: #ffffff;
+  --surface-elevated: #fbf9fb;
+  --text-primary: #2d0833;
+  --text-secondary: #5f4464;
+  --interactive-primary: #4f0259;
+  --interactive-primary-hover: #380140;
+  --interactive-accent: #d91aa6;
+  --interactive-accent-hover: #b31186;
+  --focus-ring: #d91aa6;
+  --border-strong: #d7cdd9;
+  --border-subtle: #e9e1eb;
+  --status-success: #0e9f6e;
+  --status-warn: #c27803;
+  --status-error: #d1344b;
+  --button-outline: #c8b8cb;
+  --badge-outline: #d7cdd9;
+
+  --sidebar: 293 52% 18%;
+  --sidebar-foreground: 0 0% 100%;
   --sidebar-primary: 296 100% 16%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 320 80% 48%;
+  --sidebar-accent: 320 78% 48%;
   --sidebar-accent-foreground: 0 0% 100%;
-  --sidebar-border: 300 5% 90%;
-  --sidebar-ring: 320 80% 48%;
+  --sidebar-border: 294 47% 24%;
+  --sidebar-ring: 320 78% 48%;
 
   /* Distinct Chart Colors for Light Mode */
-  --chart-1: 320 80% 48%;
-  /* Pink */
+  --chart-1: 320 78% 48%;
   --chart-2: 296 100% 16%;
-  /* Purple */
   --chart-3: 197 90% 45%;
-  /* Blue */
   --chart-4: 173 80% 40%;
-  /* Teal */
   --chart-5: 43 90% 55%;
-  /* Orange */
 
   --radius: 0.5rem;
 }
 
 .dark {
-  --background: 296 28% 8%;
+  --background: 296 27% 8%;
   --foreground: 0 0% 96%;
 
   --card: 296 24% 11%;
@@ -150,7 +160,7 @@
   --primary: 320 82% 56%;
   --primary-foreground: 0 0% 100%;
 
-  --accent: 296 70% 30%;
+  --accent: 296 65% 30%;
   --accent-foreground: 0 0% 100%;
 
   --secondary: 296 18% 16%;
@@ -165,6 +175,24 @@
   --border: 296 14% 22%;
   --input: 296 14% 22%;
   --ring: 320 82% 56%;
+
+  --surface-page: #140f18;
+  --surface-panel: #1a1420;
+  --surface-elevated: #201828;
+  --text-primary: #f5eff7;
+  --text-secondary: #c8b4cf;
+  --interactive-primary: #d91aa6;
+  --interactive-primary-hover: #bf138f;
+  --interactive-accent: #d91aa6;
+  --interactive-accent-hover: #b31186;
+  --focus-ring: #d91aa6;
+  --border-strong: #46324c;
+  --border-subtle: #34253a;
+  --status-success: #22c55e;
+  --status-warn: #f59e0b;
+  --status-error: #f43f5e;
+  --button-outline: #58405f;
+  --badge-outline: #58405f;
 
   --sidebar: 296 30% 9%;
   --sidebar-foreground: 0 0% 96%;
@@ -189,6 +217,12 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    background-image: radial-gradient(
+      circle at top right,
+      rgba(217, 26, 166, 0.06),
+      transparent 42%
+    );
+    min-height: 100vh;
   }
 
   h1,
@@ -198,6 +232,34 @@
   h5,
   h6 {
     @apply font-serif font-medium tracking-tight;
+  }
+}
+
+@layer utilities {
+  .hover-elevate {
+    transition:
+      transform 180ms ease,
+      box-shadow 180ms ease,
+      border-color 180ms ease,
+      background-color 180ms ease,
+      color 180ms ease;
+  }
+
+  .hover-elevate:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow:
+      0 1px 1px rgba(56, 1, 64, 0.08),
+      0 8px 16px rgba(56, 1, 64, 0.12);
+  }
+
+  .active-elevate-2:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 1px 4px rgba(56, 1, 64, 0.2) inset;
+  }
+
+  .focus-brand {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(217, 26, 166, 0.35);
   }
 }
 /* PDF Text Layer Styles - Enable text selection */
@@ -267,8 +329,7 @@
 }
 
 .data-labeller-v2 {
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-sans);
   background: var(--dl-bg-primary);
   color: var(--dl-text-primary);
   height: 100%;
@@ -276,8 +337,8 @@
 
 /* Sidebar */
 .dl-sidebar {
-  width: 320px;
-  min-width: 320px;
+  width: 336px;
+  min-width: 336px;
   background: var(--dl-bg-secondary);
   border-right: 1px solid var(--dl-border);
   overflow-y: auto;
@@ -624,7 +685,7 @@
 /* Buttons */
 .dl-btn {
   padding: 6px 12px;
-  border-radius: 6px;
+  border-radius: 7px;
   border: 1px solid var(--dl-border);
   background: var(--dl-bg-tertiary);
   color: var(--dl-text-primary);

@@ -686,9 +686,9 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
         onChange={handleFileSelect}
       />
 
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2 flex-1 max-w-md">
-          <div className="relative flex-1">
+      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-panel)] p-4 space-y-4">
+        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+          <div className="relative flex-1 max-w-xl">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search documents..."
@@ -697,106 +697,94 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <Button
-            variant="default"
-            className="gap-2"
-            onClick={handleUploadClick}
-            disabled={uploadMutation.isPending}
-          >
-            {uploadMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Upload className="h-4 w-4" />
-            )}
-            Upload
-          </Button>
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={handleClassifyAll}
-            disabled={
-              classifying ||
-              filteredDocs.filter((d) => !d.document_type).length === 0
-            }
-          >
-            {classifying ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Wand2 className="h-4 w-4" />
-            )}
-            Classify Documents
-          </Button>
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={handleExtractAll}
-            disabled={
-              extracting ||
-              filteredDocs.filter((d) => d.document_type).length === 0
-            }
-          >
-            {extracting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4" />
-            )}
-            Extract All
-          </Button>
-          {selectedDocs.size > 0 && (
+
+          <div className="flex flex-wrap items-center gap-2">
             <Button
-              variant="destructive"
               className="gap-2"
-              onClick={() => {
-                if (
-                  confirm(`Delete ${selectedDocs.size} selected document(s)?`)
-                ) {
-                  deleteMutation.mutate(Array.from(selectedDocs));
-                }
-              }}
-              disabled={deleteMutation.isPending}
+              onClick={handleUploadClick}
+              disabled={uploadMutation.isPending}
             >
-              {deleteMutation.isPending ? (
+              {uploadMutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Trash2 className="h-4 w-4" />
+                <Upload className="h-4 w-4" />
               )}
-              Delete ({selectedDocs.size})
-            </Button>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => {
-              refetch();
-            }}
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-          <div className="flex items-center gap-0 border rounded-md p-1 bg-background">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "h-8 w-8 rounded-sm",
-                viewMode === "grid" && "bg-muted",
-              )}
-              onClick={() => setViewMode("grid")}
-            >
-              <Grid className="h-4 w-4" />
+              Upload
             </Button>
             <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "h-8 w-8 rounded-sm",
-                viewMode === "list" && "bg-muted",
-              )}
-              onClick={() => setViewMode("list")}
+              variant="outline"
+              className="gap-2"
+              onClick={handleClassifyAll}
+              disabled={
+                classifying ||
+                filteredDocs.filter((d) => !d.document_type).length === 0
+              }
             >
-              <List className="h-4 w-4" />
+              {classifying ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Wand2 className="h-4 w-4" />
+              )}
+              Classify
             </Button>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={handleExtractAll}
+              disabled={
+                extracting ||
+                filteredDocs.filter((d) => d.document_type).length === 0
+              }
+            >
+              {extracting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              Extract
+            </Button>
+            {selectedDocs.size > 0 && (
+              <Button
+                variant="danger"
+                className="gap-2"
+                onClick={() => {
+                  if (
+                    confirm(`Delete ${selectedDocs.size} selected document(s)?`)
+                  ) {
+                    deleteMutation.mutate(Array.from(selectedDocs));
+                  }
+                }}
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+                Delete ({selectedDocs.size})
+              </Button>
+            )}
+            <Button variant="outline" size="icon" onClick={() => refetch()}>
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <div className="flex items-center gap-0 border rounded-md p-1 bg-background">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("h-8 w-8 rounded-sm", viewMode === "grid" && "bg-muted")}
+                onClick={() => setViewMode("grid")}
+              >
+                <Grid className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("h-8 w-8 rounded-sm", viewMode === "list" && "bg-muted")}
+                onClick={() => setViewMode("list")}
+              >
+                <List className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </div>
       </div>

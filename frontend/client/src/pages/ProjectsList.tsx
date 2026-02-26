@@ -11,7 +11,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Plus,
-  MoreVertical,
   FileText,
   Play,
   ArrowUpRight,
@@ -243,31 +242,24 @@ export default function ProjectsList() {
   };
 
   return (
-    <Shell>
-      <div className="p-8 max-w-7xl mx-auto space-y-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-primary">
-              Projects
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Manage and monitor your document extraction pipelines.
-            </p>
-          </div>
-          <Button
-            className="gap-2 bg-accent hover:bg-accent/90"
-            onClick={() => setLocation("/projects/new")}
-          >
-            <Plus className="h-4 w-4" />
-            New Project
-          </Button>
-        </div>
+    <Shell
+      section="projects"
+      pageTitle="Projects"
+      pageDescription="Manage and monitor your document extraction pipelines."
+      primaryAction={
+        <Button className="gap-2" onClick={() => setLocation("/projects/new")}>
+          <Plus className="h-4 w-4" />
+          New Project
+        </Button>
+      }
+    >
+      <div className="space-y-8">
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {projects.map((project) => (
             <Card
               key={project.id}
-              className="group hover:border-primary/20 transition-all bg-white border-muted shadow-sm flex flex-col relative overflow-visible"
+              className="group hover:border-primary/25 transition-all bg-[var(--surface-panel)] border-[var(--border-subtle)] shadow-sm flex flex-col relative overflow-visible"
             >
               {(() => {
                 const display = getProjectDisplayMetrics(
@@ -376,7 +368,7 @@ export default function ProjectsList() {
                           e.stopPropagation();
                           setLocation(`/project/${project.id}`);
                         }}
-                        className="h-8 gap-2 bg-accent hover:bg-accent/90 shadow-sm text-white px-4"
+                        className="h-8 gap-2 px-4"
                       >
                         <Play className="h-3.5 w-3.5 fill-current" />
                         Open

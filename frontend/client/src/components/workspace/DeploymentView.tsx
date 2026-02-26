@@ -147,12 +147,12 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <Card className="border-accent/30 bg-accent/5">
+          <Card className="border-primary/15 bg-[var(--surface-panel)]">
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
                   <CardTitle className="text-lg flex items-center gap-2">
-                    <Rocket className="h-5 w-5 text-accent" />
+                    <Rocket className="h-5 w-5 text-primary" />
                     Active Deployment
                   </CardTitle>
                   <CardDescription>
@@ -161,7 +161,7 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
                   </CardDescription>
                 </div>
                 {activeVersion ? (
-                  <Badge className="bg-emerald-500">
+                  <Badge variant="primary" className="bg-emerald-600">
                     v{activeVersion.version} Live
                   </Badge>
                 ) : (
@@ -192,7 +192,7 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
                   versions.map((version) => (
                     <div
                       key={version.id}
-                      className={`grid grid-cols-6 p-4 items-center border-b last:border-0 text-sm ${version.is_active ? "bg-accent/5" : ""}`}
+                      className={`grid grid-cols-6 p-4 items-center border-b last:border-0 text-sm ${version.is_active ? "bg-primary/5" : ""}`}
                     >
                       <div className="font-mono">v{version.version}</div>
                       <div className="col-span-2">
@@ -222,7 +222,6 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="border-accent/30 text-accent hover:bg-accent/10"
                             onClick={() => activateMutation.mutate(version.id)}
                             disabled={activateMutation.isPending}
                           >
@@ -237,7 +236,7 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-[var(--surface-panel)]">
             <CardHeader>
               <CardTitle>Endpoint</CardTitle>
               <CardDescription>
@@ -246,13 +245,13 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center gap-2 p-3 bg-black rounded-md border border-zinc-800 font-mono text-sm overflow-hidden text-zinc-300">
-                <span className="text-accent font-bold">POST</span>
+              <div className="flex items-center gap-2 p-3 bg-zinc-950 rounded-md border border-zinc-800 font-mono text-sm overflow-hidden text-zinc-300">
+                <span className="text-pink-400 font-bold">POST</span>
                 <span className="truncate">{endpointUrl || "—"}</span>
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="ml-auto h-6 w-6 text-zinc-500 hover:text-accent"
+                  className="ml-auto h-6 w-6 text-zinc-500 hover:text-pink-300"
                   onClick={handleCopyEndpoint}
                 >
                   <Copy className="h-3 w-3" />
