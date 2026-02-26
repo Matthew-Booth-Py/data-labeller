@@ -49,7 +49,7 @@ class EvaluationService:
 
         # Log ground truth details
         logger.warning("[EVAL DEBUG] Ground truth annotations:")
-        gt_by_field = {}
+        gt_by_field: dict[str, list[Any]] = {}
         for gt in ground_truth:
             field_name = gt["field_name"]
             if field_name not in gt_by_field:
