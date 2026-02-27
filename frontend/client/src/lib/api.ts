@@ -341,10 +341,27 @@ export interface ExtractedField {
   source_text?: string;
 }
 
+export interface ExtractionRequestMetrics {
+  request_id: string;
+  schema_version_id?: string | null;
+  prompt_version_id?: string | null;
+  model?: string;
+  latency_ms?: number | null;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+  cost_usd?: number | null;
+  cost_note?: string | null;
+  created_at?: string;
+}
+
 export interface ExtractionResult {
   document_id: string;
   document_type_id: string;
   fields: ExtractedField[];
+  requests?: ExtractionRequestMetrics[];
+  schema_version_id?: string | null;
+  prompt_version_id?: string | null;
   extracted_at: string;
 }
 

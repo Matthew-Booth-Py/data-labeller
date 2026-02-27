@@ -8,7 +8,6 @@ import {
   Search,
   Trash2,
   Edit3,
-  BookOpen,
   Sparkles,
   Loader2,
   GripVertical,
@@ -215,30 +214,23 @@ export default function FieldsLibrary() {
   };
 
   return (
-    <Shell>
-      <div className="p-8 max-w-7xl mx-auto space-y-8">
+    <Shell
+      section="library"
+      pageTitle="Fields Library"
+      pageDescription="Create reusable global fields. Projects can use these alongside project-specific fields."
+      primaryAction={
+        <Button className="gap-2" onClick={openCreateDialog}>
+          <Plus className="h-4 w-4" />
+          Add Field
+        </Button>
+      }
+    >
+      <div className="space-y-8">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
-              <BookOpen className="h-6 w-6 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-primary">
-                Fields Library
-              </h1>
-              <p className="text-muted-foreground mt-1">
-                Create reusable global fields. Projects can use these alongside
-                project-specific fields.
-              </p>
-            </div>
-          </div>
-          <Button
-            className="gap-2 bg-primary hover:bg-primary/90"
-            onClick={openCreateDialog}
-          >
-            <Plus className="h-4 w-4" />
-            Add Field
-          </Button>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
+            Field Catalog
+          </h2>
+          <Badge variant="outline">{filteredFields.length} visible</Badge>
         </div>
 
         <div className="flex items-center gap-2 mb-2 max-w-md">
@@ -265,7 +257,8 @@ export default function FieldsLibrary() {
             </div>
             <Button
               size="sm"
-              className="gap-2 bg-primary hover:bg-primary/90"
+              variant="secondary"
+              className="gap-2"
               onClick={openCreateDialog}
             >
               <Plus className="h-4 w-4" /> Add Field
@@ -286,7 +279,7 @@ export default function FieldsLibrary() {
               filteredFields.map((field) => (
                 <div
                   key={field.id}
-                  className="flex flex-col rounded-lg border bg-card shadow-sm hover:shadow-md hover:border-accent/40 transition-all overflow-hidden group"
+                  className="flex flex-col rounded-lg border bg-card shadow-sm hover:shadow-md hover:border-accent/40 transition-all overflow-hidden group hover-elevate"
                 >
                   <div className="flex items-center gap-3 p-3 bg-card border-b">
                     <div className="cursor-grab text-muted-foreground/30 hover:text-muted-foreground">
@@ -371,8 +364,8 @@ export default function FieldsLibrary() {
             )}
 
             <Button
-              variant="outline"
-              className="w-full border-dashed border-muted-foreground/20 text-muted-foreground hover:border-accent hover:text-accent h-12"
+              variant="quiet"
+              className="w-full border border-dashed border-[var(--border-strong)] text-[var(--text-secondary)] hover:border-accent h-12"
               onClick={openCreateDialog}
             >
               <Plus className="h-4 w-4 mr-2" /> Add Another Field
@@ -410,7 +403,7 @@ export default function FieldsLibrary() {
                 />
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="secondary"
                   onClick={suggestField}
                   disabled={!aiFieldInput.trim() || isSuggesting}
                 >

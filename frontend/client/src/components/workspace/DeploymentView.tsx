@@ -134,6 +134,12 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
 
   return (
     <div className="space-y-6">
+      <div>
+        <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
+          Deployment Control
+        </h2>
+      </div>
+
       <input
         ref={fileInputRef}
         type="file"
@@ -147,12 +153,12 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <Card className="border-accent/30 bg-accent/5">
+          <Card className="border-primary/15 bg-[var(--surface-panel)]">
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
                   <CardTitle className="text-lg flex items-center gap-2">
-                    <Rocket className="h-5 w-5 text-accent" />
+                    <Rocket className="h-5 w-5 text-primary" />
                     Active Deployment
                   </CardTitle>
                   <CardDescription>
@@ -161,7 +167,10 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
                   </CardDescription>
                 </div>
                 {activeVersion ? (
-                  <Badge className="bg-emerald-500">
+                  <Badge
+                    variant="outline"
+                    className="border-[var(--status-success)]/35 bg-[var(--status-success)]/15 text-[var(--status-success)]"
+                  >
                     v{activeVersion.version} Live
                   </Badge>
                 ) : (
@@ -192,7 +201,7 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
                   versions.map((version) => (
                     <div
                       key={version.id}
-                      className={`grid grid-cols-6 p-4 items-center border-b last:border-0 text-sm ${version.is_active ? "bg-accent/5" : ""}`}
+                      className={`grid grid-cols-6 p-4 items-center border-b last:border-0 text-sm ${version.is_active ? "bg-primary/5" : ""}`}
                     >
                       <div className="font-mono">v{version.version}</div>
                       <div className="col-span-2">
@@ -214,7 +223,7 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="text-emerald-500 gap-2 pointer-events-none"
+                            className="text-[var(--status-success)] gap-2 pointer-events-none"
                           >
                             <CheckCircle2 className="h-3.5 w-3.5" /> Deployed
                           </Button>
@@ -222,7 +231,6 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="border-accent/30 text-accent hover:bg-accent/10"
                             onClick={() => activateMutation.mutate(version.id)}
                             disabled={activateMutation.isPending}
                           >
@@ -237,7 +245,7 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-[var(--surface-panel)]">
             <CardHeader>
               <CardTitle>Endpoint</CardTitle>
               <CardDescription>
@@ -246,20 +254,22 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center gap-2 p-3 bg-black rounded-md border border-zinc-800 font-mono text-sm overflow-hidden text-zinc-300">
-                <span className="text-accent font-bold">POST</span>
+              <div className="flex items-center gap-2 p-3 rounded-md border border-[var(--border-strong)] bg-[var(--surface-elevated)] font-mono text-sm overflow-hidden text-[var(--text-primary)]">
+                <span className="text-[var(--interactive-accent)] font-bold">
+                  POST
+                </span>
                 <span className="truncate">{endpointUrl || "—"}</span>
                 <Button
                   size="icon"
-                  variant="ghost"
-                  className="ml-auto h-6 w-6 text-zinc-500 hover:text-accent"
+                  variant="quiet"
+                  className="ml-auto h-6 w-6"
                   onClick={handleCopyEndpoint}
                 >
                   <Copy className="h-3 w-3" />
                 </Button>
               </div>
 
-              <pre className="p-4 bg-black text-zinc-400 rounded-md font-mono text-xs overflow-x-auto border border-zinc-800">{`curl -X POST ${endpointUrl} \\
+              <pre className="p-4 bg-[var(--surface-elevated)] text-[var(--text-secondary)] rounded-md font-mono text-xs overflow-x-auto border border-[var(--border-subtle)]">{`curl -X POST ${endpointUrl} \\
   -F "file=@invoice.pdf"`}</pre>
 
               <div className="flex items-center gap-2">
@@ -276,7 +286,7 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
                   Test Endpoint
                 </Button>
                 <Button
-                  variant="outline"
+                  variant="secondary"
                   onClick={() =>
                     setSelectedVersionId(activeVersion?.id || null)
                   }
@@ -314,7 +324,7 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
                     key={version.id}
                     className={`w-full text-left flex items-center justify-between rounded-md border px-3 py-2 ${
                       selectedVersionId === version.id
-                        ? "border-accent bg-accent/10"
+                        ? "border-primary/35 bg-primary/10"
                         : "border-muted"
                     }`}
                     onClick={() => setSelectedVersionId(version.id)}
@@ -326,8 +336,7 @@ export function DeploymentView({ projectId }: DeploymentViewProps) {
                       </p>
                     </div>
                     <Badge
-                      variant={version.is_active ? "default" : "outline"}
-                      className={version.is_active ? "bg-accent" : ""}
+                      variant={version.is_active ? "secondary" : "outline"}
                     >
                       {version.is_active ? "Live" : "Saved"}
                     </Badge>

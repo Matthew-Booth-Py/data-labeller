@@ -43,7 +43,7 @@ class ChunkContextualizer:
         model: str | None = None,
         max_completion_tokens: int = 500,
         max_context_chars: int = 25_000,
-        max_concurrency: int = 40,  # Optimized for 500K TPM with 4K chunks (~34% utilization)
+        max_concurrency: int = 10,  # Optimized for 500K TPM with 4K chunks (~34% utilization)
         api_key: str | None = None,
     ):
         settings = get_settings()

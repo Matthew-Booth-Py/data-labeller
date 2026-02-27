@@ -737,32 +737,46 @@ class ExtractDocumentView(APIView):
         )
         service = get_extraction_service()
 
+        logger.warning(
+            f"[EXTRACTION API] POST /extract for document {document_id}\n"
+            f"[EXTRACTION API]   use_llm={use_llm}\n"
+            f"[EXTRACTION API]   use_structured_output={use_structured_output}\n"
+            f"[EXTRACTION API]   use_retrieval={use_retrieval}\n"
+            f"[EXTRACTION API]   use_retrieval_vision={use_retrieval_vision}"
+        )
+
         try:
             if use_retrieval_vision or use_retrieval:
+                logger.warning(
+                    f"[EXTRACTION API] Calling extract_structured_with_retrieval_vision "
+                    f"for {document_id}"
+                )
                 result = service.extract_structured_with_retrieval_vision(document_id)
             elif use_structured_output:
+                logger.warning(f"[EXTRACTION API] Calling extract_structured for {document_id}")
                 result = service.extract_structured(document_id)
             else:
+                logger.warning(
+                    f"[EXTRACTION API] Calling extract_from_annotations for {document_id}"
+                )
                 result = service.extract_from_annotations(  # type: ignore
                     document_id, use_llm_refinement=use_llm
                 )
 
-            return Response(
-                {
-                    "document_id": result.document_id,
-                    "document_type_id": result.document_type_id,
-                    "fields": [
-                        {
-                            "field_name": field.field_name,
-                            "value": field.value,
-                            "confidence": field.confidence,
-                            "source_text": field.source_text,
-                        }
-                        for field in result.fields
-                    ],
-                    "extracted_at": result.extracted_at.isoformat(),
-                }
+            logger.warning(
+                f"[EXTRACTION API] Extraction completed for {document_id}\n"
+                f"[EXTRACTION API]   Fields returned: "
+                f"{[f.field_name for f in result.fields]}\n"
+                f"[EXTRACTION API]   Full result:\n"
+                f"{json.dumps([{'field_name': f.field_name, 'value': f.value, 'confidence': f.confidence} for f in result.fields], indent=2)}"
             )
+
+            repository = get_repository()
+            persisted = repository.get_extraction(document_id)
+            if persisted:
+                return Response(_jsonable(persisted))
+
+            return Response(_jsonable(result))
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=400)
         except Exception as exc:

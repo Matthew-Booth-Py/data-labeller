@@ -42,7 +42,7 @@ class PageSummarizer:
         self,
         model: str | None = None,
         max_completion_tokens: int = 2000,
-        max_concurrency: int = 40,
+        max_concurrency: int = 10,
         api_key: str | None = None,
     ):
         settings = get_settings()

@@ -1212,14 +1212,19 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     : [];
 
   return (
-    <div className="h-full p-4">
+    <div className="h-full">
       <Tabs defaultValue="document-types" className="h-full">
+        <div className="mb-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
+            Schema Workspace
+          </p>
+        </div>
         <TabsList className="mb-4">
-          <TabsTrigger value="document-types" className="gap-2">
+          <TabsTrigger value="document-types" className="gap-2 h-9 px-4">
             <Code className="h-4 w-4" />
             Document Types
           </TabsTrigger>
-          <TabsTrigger value="labels" className="gap-2">
+          <TabsTrigger value="labels" className="gap-2 h-9 px-4">
             <Tag className="h-4 w-4" />
             Labels ({labelsForSelectedType.length})
           </TabsTrigger>
@@ -1229,8 +1234,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
             {/* Visual Schema Builder - Left Side */}
             <div className="space-y-6">
-              <Card className="h-full border-none shadow-none bg-background">
-                <CardHeader className="px-0 pt-0">
+              <Card className="h-full bg-[var(--surface-panel)]">
+                <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
                       <CardTitle className="text-lg text-primary">
@@ -1243,7 +1248,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                     <div className="flex gap-2">
                       {selectedType && (
                         <Button
-                          variant="outline"
+                          variant="secondary"
                           size="sm"
                           className="gap-2"
                           onClick={saveSchema}
@@ -1260,7 +1265,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="px-0 space-y-4">
+                <CardContent className="space-y-4">
                   {/* Document Type Selector */}
                   <div className="space-y-3 p-4 rounded-lg bg-muted/20 border">
                     <label className="text-xs font-bold uppercase tracking-wider text-primary">
@@ -1408,7 +1413,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
             </div>
 
             {/* Field List - Right Side */}
-            <div className="space-y-4 border-l pl-6 border-dashed">
+            <div className="space-y-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-panel)] p-4">
               <div className="flex items-center justify-between mb-4 mt-1">
                 <div className="space-y-1">
                   <h3 className="text-sm font-bold uppercase tracking-widest text-primary">
@@ -1424,7 +1429,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 {selectedType && (
                   <Button
                     size="sm"
-                    className="gap-2 bg-primary hover:bg-primary/90"
+                    variant="secondary"
+                    className="gap-2"
                     onClick={openNewFieldDialog}
                   >
                     <Plus className="h-4 w-4" /> Add Field
@@ -1436,7 +1442,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 {selectedType?.schema_fields?.map((field) => (
                   <div
                     key={field.name}
-                    className="flex flex-col rounded-lg border bg-card shadow-sm hover:shadow-md hover:border-accent/40 transition-all overflow-hidden group"
+                    className="flex flex-col rounded-lg border bg-card shadow-sm hover:shadow-md hover:border-accent/40 transition-all overflow-hidden group hover-elevate"
                   >
                     <div className="flex items-center gap-3 p-3 bg-card border-b">
                       <div className="cursor-grab text-muted-foreground/30 hover:text-muted-foreground">

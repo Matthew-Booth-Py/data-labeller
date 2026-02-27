@@ -4,15 +4,20 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  RotateCcw,
-  AlertTriangle,
-  CheckCircle2,
+  BarChart3,
+  BookOpenText,
+  Boxes,
+  Braces,
+  FileText,
+  Rocket,
   Save,
-  Key,
+  Tags,
+  Waypoints,
 } from "lucide-react";
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, type ComponentType } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,45 +48,74 @@ interface Project {
   model?: string;
 }
 
+type WorkspaceTabId =
+  | "schema"
+  | "documents"
+  | "extraction"
+  | "labeller"
+  | "labels"
+  | "evaluate"
+  | "api"
+  | "deployment";
+
+const WORKSPACE_TABS: WorkspaceTabId[] = [
+  "schema",
+  "documents",
+  "extraction",
+  "labeller",
+  "labels",
+  "evaluate",
+  "api",
+  "deployment",
+];
+
+const WORKSPACE_TAB_META: Record<
+  WorkspaceTabId,
+  {
+    label: string;
+    icon: ComponentType<{ className?: string }>;
+    className?: string;
+  }
+> = {
+  schema: { label: "Schema", icon: Braces },
+  documents: { label: "Documents", icon: FileText },
+  extraction: { label: "Extraction", icon: Waypoints },
+  labeller: { label: "Data Labeller", icon: BookOpenText },
+  labels: { label: "Labels", icon: Tags },
+  evaluate: { label: "Evaluate", icon: BarChart3 },
+  api: { label: "API Management", icon: Boxes },
+  deployment: { label: "Deployment", icon: Rocket, className: "ml-auto" },
+};
+
+function isWorkspaceTabId(value: string): value is WorkspaceTabId {
+  return WORKSPACE_TABS.includes(value as WorkspaceTabId);
+}
+
 export default function ProjectWorkspace() {
   const { id } = useParams();
   const { toast } = useToast();
-  const validTabs = new Set([
-    "schema",
-    "documents",
-    "extraction",
-    "labeller",
-    "labels",
-    "evaluate",
-    "api",
-    "deployment",
-  ]);
 
-  // Set the selected project in localStorage for other components to use
   useEffect(() => {
     if (id) {
       localStorage.setItem("selected-project", id);
-      console.log("[ProjectWorkspace] Set selected-project to:", id);
     }
   }, [id]);
 
-  // Get tab from URL hash or default to "documents"
-  const getTabFromUrl = () => {
-    const hash = window.location.hash.slice(1); // Remove the '#'
+  const getTabFromUrl = (): WorkspaceTabId => {
+    const hash = window.location.hash.slice(1);
     if (!hash) return "documents";
-    return validTabs.has(hash) ? hash : "documents";
+    return isWorkspaceTabId(hash) ? hash : "documents";
   };
 
-  const [activeTab, setActiveTab] = useState(getTabFromUrl());
+  const [activeTab, setActiveTab] = useState<WorkspaceTabId>(getTabFromUrl());
   const [savingDeploymentVersion, setSavingDeploymentVersion] = useState(false);
 
-  // Update URL hash when tab changes
   const handleTabChange = (tab: string) => {
+    if (!isWorkspaceTabId(tab)) return;
     setActiveTab(tab);
     window.location.hash = tab;
   };
 
-  // Listen for hash changes (e.g., browser back/forward)
   useEffect(() => {
     const handleHashChange = () => {
       setActiveTab(getTabFromUrl());
@@ -90,8 +124,18 @@ export default function ProjectWorkspace() {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
-  // Load project from localStorage
   const project = useMemo<Project>(() => {
+    if (typeof window === "undefined") {
+      return {
+        id: id || "unknown",
+        name: id
+          ? id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+          : "Project",
+        description: "",
+        docCount: 0,
+      };
+    }
+
     try {
       const stored = localStorage.getItem("uu-projects");
       if (stored) {
@@ -100,10 +144,9 @@ export default function ProjectWorkspace() {
         if (found) return found;
       }
     } catch {
-      // Ignore parse errors
+      // Ignore storage errors
     }
 
-    // Return a default project with the URL id
     return {
       id: id || "unknown",
       name: id
@@ -119,12 +162,8 @@ export default function ProjectWorkspace() {
     setSavingDeploymentVersion(true);
     try {
       const selectedTypeStorageKey = `uu-schema-selected-type:${id}`;
-      let documentTypeId = "";
-      try {
-        documentTypeId = localStorage.getItem(selectedTypeStorageKey) || "";
-      } catch {
-        documentTypeId = "";
-      }
+      let documentTypeId = localStorage.getItem(selectedTypeStorageKey) || "";
+
       if (!documentTypeId) {
         const types = await api.listDocumentTypes();
         documentTypeId = types.types?.[0]?.id || "";
@@ -156,170 +195,136 @@ export default function ProjectWorkspace() {
   };
 
   return (
-    <Shell>
-      <div className="flex flex-col h-[calc(100vh-3.5rem)]">
-        {/* Project Header / Cockpit Status */}
-        <div className="bg-background border-b px-6 py-4 flex items-center justify-between shrink-0">
-          <div className="space-y-1">
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-semibold tracking-tight text-primary">
-                {project.name}
-              </h1>
-              <Badge
-                variant="outline"
-                className="font-mono text-xs border-accent/20 text-accent"
+    <Shell
+      section="workspace"
+      projectId={id}
+      pageTitle={project.name}
+      pageDescription={
+        project.description ||
+        "Configure schemas and extract structured data from documents."
+      }
+      primaryAction={
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-2">
+              <Save className="h-4 w-4" />
+              Save as New Version
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Create Project Version?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This captures the current schema, prompts, and model settings as
+                a versioned deployment artifact.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleCreateDeploymentVersion}
+                disabled={savingDeploymentVersion}
               >
-                {project.id}
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {project.description ||
-                "Configure schemas and extract structured data from documents"}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2 border-accent text-accent hover:bg-accent/5"
-                >
-                  <Save className="h-4 w-4" />
-                  Save as New Version
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Create Project Version?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will capture the current schema, prompt configuration,
-                    and model settings as a permanent version (v2.5). This
-                    allows you to run evaluations against this specific
-                    configuration and promote it to production later.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    className="bg-accent"
-                    onClick={handleCreateDeploymentVersion}
-                    disabled={savingDeploymentVersion}
-                  >
-                    {savingDeploymentVersion ? "Creating..." : "Create Version"}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-        </div>
-
-        {/* Workspace Tabs */}
+                {savingDeploymentVersion ? "Creating..." : "Create Version"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      }
+      secondaryActions={
+        <Badge variant="outline" className="font-mono text-xs">
+          {project.id}
+        </Badge>
+      }
+      contentClassName="py-0 px-0 md:px-0"
+      contentFullWidth
+    >
+      <div className="flex flex-col h-[calc(100vh-8rem)] min-h-[800px]">
         <Tabs
           value={activeTab}
           onValueChange={handleTabChange}
           className="flex-1 flex flex-col overflow-hidden"
         >
-          <div className="px-6 border-b bg-background/50 backdrop-blur-sm">
-            <TabsList className="h-12 w-full justify-start bg-transparent p-0 gap-6">
-              <TabsTrigger
-                value="schema"
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
-              >
-                Schema
-              </TabsTrigger>
-              <TabsTrigger
-                value="documents"
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
-              >
-                Documents
-              </TabsTrigger>
-              <TabsTrigger
-                value="extraction"
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
-              >
-                Extraction
-              </TabsTrigger>
-              <TabsTrigger
-                value="labeller"
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
-              >
-                Data Labeller
-              </TabsTrigger>
-              <TabsTrigger
-                value="labels"
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
-              >
-                Labels
-              </TabsTrigger>
-              <TabsTrigger
-                value="evaluate"
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
-              >
-                Evaluate
-              </TabsTrigger>
-              <TabsTrigger
-                value="api"
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none"
-              >
-                API Management
-              </TabsTrigger>
-              <TabsTrigger
-                value="deployment"
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none h-full px-0 font-medium text-muted-foreground data-[state=active]:text-foreground transition-none ml-auto"
-              >
-                Deployment
-              </TabsTrigger>
-            </TabsList>
+          <div className="sticky top-0 z-20 border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]/95 shadow-[0_1px_0_rgba(56,1,64,0.08)] backdrop-blur supports-[backdrop-filter]:bg-[var(--surface-elevated)]/80">
+            <div className="w-full lg:max-w-[80vw] mx-auto px-4 md:px-8">
+              <div className="pt-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
+                  Project Modules
+                </p>
+              </div>
+              <TabsList className="w-full justify-start bg-transparent border-0 p-0 py-2.5 gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap">
+                {WORKSPACE_TABS.map((tabId) => {
+                  const tabMeta = WORKSPACE_TAB_META[tabId];
+                  const Icon = tabMeta.icon;
+
+                  return (
+                    <TabsTrigger
+                      key={tabId}
+                      value={tabId}
+                      className={cn(
+                        "h-10 px-3.5 gap-2 text-xs md:text-sm",
+                        tabMeta.className,
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {tabMeta.label}
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+            </div>
           </div>
 
-          <div className="flex-1 overflow-hidden bg-muted/10">
-            <TabsContent
-              value="schema"
-              className="h-full m-0 overflow-auto p-4"
-            >
-              <SchemaViewer projectId={id} />
-            </TabsContent>
-            <TabsContent
-              value="documents"
-              className="h-full m-0 p-6 overflow-auto"
-            >
-              <DocumentPool projectId={id} />
-            </TabsContent>
-            <TabsContent
-              value="extraction"
-              className="h-full m-0 p-6 overflow-auto"
-            >
-              <ExtractionRunner projectId={id} />
-            </TabsContent>
-            <TabsContent
-              value="labeller"
-              className="h-full m-0 p-0 overflow-hidden"
-            >
-              <DataLabeller />
-            </TabsContent>
-            <TabsContent
-              value="labels"
-              className="h-full m-0 p-6 overflow-auto"
-            >
-              <LabelsView />
-            </TabsContent>
-            <TabsContent
-              value="evaluate"
-              className="h-full m-0 p-6 overflow-auto"
-            >
-              <EvaluateView />
-            </TabsContent>
-            <TabsContent value="api" className="h-full m-0 p-6 overflow-auto">
-              <APIManagement />
-            </TabsContent>
-            <TabsContent
-              value="deployment"
-              className="h-full m-0 p-6 overflow-auto"
-            >
-              <DeploymentView projectId={id} />
-            </TabsContent>
+          <div className="w-full lg:max-w-[80vw] mx-auto flex-1 flex flex-col min-h-0">
+            <div className="flex-1 overflow-hidden bg-gradient-to-b from-[var(--surface-elevated)]/50 via-transparent to-transparent">
+              <TabsContent
+                value="schema"
+                className="h-full m-0 overflow-auto p-4"
+              >
+                <SchemaViewer projectId={id} />
+              </TabsContent>
+              <TabsContent
+                value="documents"
+                className="h-full m-0 p-6 overflow-auto"
+              >
+                <DocumentPool projectId={id} />
+              </TabsContent>
+              <TabsContent
+                value="extraction"
+                className="h-full m-0 p-6 overflow-auto"
+              >
+                <ExtractionRunner projectId={id} />
+              </TabsContent>
+              <TabsContent
+                value="labeller"
+                className="h-full m-0 p-0 overflow-hidden"
+              >
+                <div className="h-full p-4 xl:px-5 overflow-hidden">
+                  <DataLabeller />
+                </div>
+              </TabsContent>
+              <TabsContent
+                value="labels"
+                className="h-full m-0 p-6 overflow-auto"
+              >
+                <LabelsView />
+              </TabsContent>
+              <TabsContent
+                value="evaluate"
+                className="h-full m-0 p-6 overflow-auto"
+              >
+                <EvaluateView />
+              </TabsContent>
+              <TabsContent value="api" className="h-full m-0 p-6 overflow-auto">
+                <APIManagement />
+              </TabsContent>
+              <TabsContent
+                value="deployment"
+                className="h-full m-0 p-6 overflow-auto"
+              >
+                <DeploymentView projectId={id} />
+              </TabsContent>
+            </div>
           </div>
         </Tabs>
       </div>

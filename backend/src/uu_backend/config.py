@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Settings(BaseModel):
@@ -25,6 +25,16 @@ class Settings(BaseModel):
     context_model: str = ""
     summary_model: str = ""
     openai_reasoning_effort: str = "low"
+    # Per-model pricing used to estimate request cost in telemetry.
+    # Example:
+    # {
+    #   "gpt-5-mini": {
+    #     "input_per_million": 0.25,
+    #     "output_per_million": 2.0,
+    #     "cached_input_per_million": 0.025
+    #   }
+    # }
+    openai_model_pricing: dict[str, dict[str, float]] = Field(default_factory=dict)
 
     @property
     def effective_tagging_model(self) -> str:
@@ -60,6 +70,7 @@ _ENV_TO_FIELD = {
     "CONTEXT_MODEL": "context_model",
     "SUMMARY_MODEL": "summary_model",
     "OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
+    "OPENAI_MODEL_PRICING": "openai_model_pricing",
 }
 
 
@@ -77,6 +88,12 @@ def _coerce_value(field_name: str, raw: str) -> Any:
             if isinstance(parsed, list):
                 return [str(item) for item in parsed]
         return [part.strip() for part in value.split(",") if part.strip()]
+    if field_name == "openai_model_pricing":
+        value = raw.strip()
+        parsed = json.loads(value)
+        if not isinstance(parsed, dict):
+            raise ValueError("OPENAI_MODEL_PRICING must be a JSON object")
+        return parsed
     return raw
 
 

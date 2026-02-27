@@ -2,14 +2,9 @@
  * EvaluateView - Compare ground truth vs predicted values
  */
 
-import { useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  api,
-  type EvaluationRun,
-  type EvaluationSummary,
-  type FieldComparison,
-} from "@/lib/api";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import {
   Card,
   CardContent,
@@ -35,17 +30,100 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Progress } from "@/components/ui/progress";
 import {
-  Play,
-  Download,
-  CheckCircle2,
-  XCircle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   AlertCircle,
-  TrendingUp,
+  BarChart3,
+  CheckCircle2,
+  Clock3,
+  Download,
+  FileSpreadsheet,
+  ListChecks,
+  Loader2,
+  Play,
+  Sparkles,
+  Target,
   Trash2,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+const MATCH_TYPE_STYLES: Record<string, string> = {
+  exact:
+    "border-[var(--status-success)]/30 bg-[var(--status-success)]/10 text-[var(--status-success)]",
+  normalized:
+    "border-[var(--interactive-primary)]/25 bg-[var(--interactive-primary)]/10 text-[var(--interactive-primary)]",
+  fuzzy:
+    "border-[var(--status-warn)]/30 bg-[var(--status-warn)]/10 text-[var(--status-warn)]",
+  semantic:
+    "border-[var(--interactive-accent)]/30 bg-[var(--interactive-accent)]/10 text-[var(--interactive-accent)]",
+  no_match:
+    "border-[var(--status-error)]/30 bg-[var(--status-error)]/10 text-[var(--status-error)]",
+};
+
+function formatPercentage(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function getScoreTextClass(score: number): string {
+  if (score >= 0.9) return "text-[var(--status-success)]";
+  if (score >= 0.75) return "text-[var(--status-warn)]";
+  return "text-[var(--status-error)]";
+}
+
+function getScorePillClass(score: number): string {
+  if (score >= 0.9) {
+    return "border-[var(--status-success)]/30 bg-[var(--status-success)]/10 text-[var(--status-success)]";
+  }
+  if (score >= 0.75) {
+    return "border-[var(--status-warn)]/30 bg-[var(--status-warn)]/10 text-[var(--status-warn)]";
+  }
+  return "border-[var(--status-error)]/30 bg-[var(--status-error)]/10 text-[var(--status-error)]";
+}
+
+function getScoreLabel(score: number): string {
+  if (score >= 0.9) return "Strong";
+  if (score >= 0.75) return "Stable";
+  return "Needs work";
+}
+
+function getMatchTypeBadge(matchType: string) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "text-xs font-medium capitalize border",
+        MATCH_TYPE_STYLES[matchType] ||
+          "border-[var(--border-strong)] bg-muted/30",
+      )}
+    >
+      {matchType.replace(/_/g, " ")}
+    </Badge>
+  );
+}
+
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "-";
+  if (Array.isArray(value)) return value.join(" > ");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unexpected error";
+}
 
 export function EvaluateView() {
   const queryClient = useQueryClient();
@@ -57,8 +135,25 @@ export function EvaluateView() {
 
   const projectId = localStorage.getItem("selected-project") || "all";
 
-  // Fetch documents
-  const { data: documentsData } = useQuery({
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setLocalStorageVersion((previous) => previous + 1);
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    window.addEventListener("localStorageUpdate", handleStorageChange);
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("localStorageUpdate", handleStorageChange);
+    };
+  }, []);
+
+  const {
+    data: documentsData,
+    isLoading: documentsLoading,
+    error: documentsError,
+  } = useQuery({
     queryKey: ["documents"],
     queryFn: () => api.listDocuments(),
   });
@@ -86,24 +181,41 @@ export function EvaluateView() {
     }
   }, [documentsData, projectId, localStorageVersion]);
 
-  // Fetch evaluation runs
-  const { data: evaluationsData } = useQuery({
+  const documentNameById = useMemo(() => {
+    return new Map(documents.map((doc) => [doc.id, doc.filename]));
+  }, [documents]);
+
+  const resolveDocumentName = (documentId: string) => {
+    return documentNameById.get(documentId) || `${documentId.slice(0, 8)}...`;
+  };
+
+  const {
+    data: evaluationsData,
+    isLoading: evaluationsLoading,
+    error: evaluationsError,
+  } = useQuery({
     queryKey: ["evaluations", projectId],
     queryFn: () =>
       api.listEvaluations(projectId !== "all" ? projectId : undefined),
     enabled: !!projectId,
   });
 
-  // Fetch evaluation summary
-  const { data: summaryData } = useQuery({
+  const {
+    data: summaryData,
+    isLoading: summaryLoading,
+    error: summaryError,
+  } = useQuery({
     queryKey: ["evaluation-summary", projectId],
     queryFn: () =>
       api.getEvaluationSummary(projectId !== "all" ? projectId : undefined),
     enabled: !!projectId,
   });
 
-  // Fetch selected evaluation details
-  const { data: selectedEvaluationData } = useQuery({
+  const {
+    data: selectedEvaluationData,
+    isLoading: selectedEvaluationLoading,
+    error: selectedEvaluationError,
+  } = useQuery({
     queryKey: ["evaluation-details", selectedEvaluation],
     queryFn: () =>
       selectedEvaluation
@@ -112,34 +224,24 @@ export function EvaluateView() {
     enabled: !!selectedEvaluation,
   });
 
-  // Run evaluation mutation
   const runEvaluationMutation = useMutation({
     mutationFn: async (documentId: string) => {
-      console.log(
-        "Running evaluation for document:",
-        documentId,
-        "project:",
-        projectId,
-      );
       return api.runEvaluation(
         documentId,
         projectId !== "all" ? projectId : undefined,
       );
     },
     onSuccess: (data) => {
-      console.log("Evaluation completed:", data);
       queryClient.invalidateQueries({ queryKey: ["evaluations"] });
       queryClient.invalidateQueries({ queryKey: ["evaluation-summary"] });
       setSelectedEvaluation(data.run.id);
       toast.success("Evaluation completed successfully");
     },
     onError: (error: Error) => {
-      console.error("Evaluation error:", error);
       toast.error(`Evaluation failed: ${error.message}`);
     },
   });
 
-  // Delete evaluation mutation
   const deleteEvaluationMutation = useMutation({
     mutationFn: async (evaluationId: string) => {
       return api.deleteEvaluation(evaluationId);
@@ -147,9 +249,13 @@ export function EvaluateView() {
     onSuccess: (_, deletedId) => {
       queryClient.invalidateQueries({ queryKey: ["evaluations"] });
       queryClient.invalidateQueries({ queryKey: ["evaluation-summary"] });
+
       if (selectedEvaluation === deletedId) {
-        setSelectedEvaluation(null);
+        const fallbackRun =
+          evaluationsData?.runs.find((run) => run.id !== deletedId) || null;
+        setSelectedEvaluation(fallbackRun?.id || null);
       }
+
       toast.success("Evaluation run deleted");
     },
     onError: (error: Error) => {
@@ -157,27 +263,12 @@ export function EvaluateView() {
     },
   });
 
-  const handleDeleteEvaluation = (
-    evaluationId: string,
-    e: React.MouseEvent,
-  ) => {
-    e.stopPropagation();
-    if (confirm("Delete this evaluation run?")) {
-      deleteEvaluationMutation.mutate(evaluationId);
-    }
-  };
-
   const handleRunEvaluation = async () => {
-    console.log(
-      "handleRunEvaluation called, selectedDocument:",
-      selectedDocument,
-    );
     if (!selectedDocument) {
       toast.error("Please select a document");
       return;
     }
 
-    // Check if document has ground truth annotations
     try {
       const gtData = await api.getGroundTruthAnnotations(selectedDocument);
       if (!gtData.annotations || gtData.annotations.length === 0) {
@@ -186,16 +277,11 @@ export function EvaluateView() {
         );
         return;
       }
-      console.log(
-        `Document has ${gtData.annotations.length} ground truth annotations`,
-      );
-    } catch (error) {
-      console.error("Error checking ground truth:", error);
+    } catch {
       toast.error("Failed to check ground truth annotations");
       return;
     }
 
-    console.log("Starting evaluation mutation...");
     runEvaluationMutation.mutate(selectedDocument);
   };
 
@@ -211,18 +297,20 @@ export function EvaluateView() {
       "Match Type",
       "Confidence",
     ];
+
     const rows = evaluation.result.field_comparisons
-      .filter((fc) => {
-        const leaf = fc.field_name.split(".").pop() || fc.field_name;
+      .filter((comparison) => {
+        const leaf =
+          comparison.field_name.split(".").pop() || comparison.field_name;
         return !leaf.includes("_header");
       })
-      .map((fc) => [
-        fc.field_name,
-        String(fc.ground_truth_value || ""),
-        String(fc.predicted_value || ""),
-        fc.match_result.is_match ? "✓" : "✗",
-        fc.match_result.match_type,
-        fc.match_result.confidence.toFixed(2),
+      .map((comparison) => [
+        comparison.field_name,
+        String(comparison.ground_truth_value || ""),
+        String(comparison.predicted_value || ""),
+        comparison.match_result.is_match ? "✓" : "✗",
+        comparison.match_result.match_type,
+        comparison.match_result.confidence.toFixed(2),
       ]);
 
     const csv = [
@@ -234,536 +322,918 @@ export function EvaluateView() {
 
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `evaluation-${evaluation.id}-${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `evaluation-${evaluation.id}-${new Date().toISOString().split("T")[0]}.csv`;
+    anchor.click();
     URL.revokeObjectURL(url);
   };
 
-  const formatPercentage = (value: number) => `${(value * 100).toFixed(1)}%`;
-
-  const getScoreColor = (score: number) => {
-    if (score >= 0.9) return "text-green-600";
-    if (score >= 0.7) return "text-yellow-600";
-    return "text-red-600";
-  };
-
-  const getMatchIcon = (isMatch: boolean) => {
-    return isMatch ? (
-      <CheckCircle2 className="h-4 w-4 text-green-600" />
-    ) : (
-      <XCircle className="h-4 w-4 text-red-600" />
-    );
-  };
-
-  const getMatchTypeBadge = (matchType: string) => {
-    const colors = {
-      exact: "bg-green-100 text-green-800",
-      normalized: "bg-blue-100 text-blue-800",
-      fuzzy: "bg-yellow-100 text-yellow-800",
-      semantic: "bg-purple-100 text-purple-800",
-      no_match: "bg-red-100 text-red-800",
-    };
-    return (
-      <Badge
-        variant="secondary"
-        className={cn(
-          "text-xs",
-          colors[matchType as keyof typeof colors] || "",
-        )}
-      >
-        {matchType}
-      </Badge>
-    );
-  };
-
-  const evaluation = selectedEvaluationData?.run;
+  const evaluationRuns = evaluationsData?.runs || [];
   const summary = summaryData;
-  const flattenedComparisons = (
-    evaluation?.result.field_comparisons || []
-  ).filter((fc) => {
-    const leaf = fc.field_name.split(".").pop() || fc.field_name;
-    return !leaf.includes("_header");
-  });
+  const evaluation = selectedEvaluationData?.run;
+
+  const selectedRun = useMemo(() => {
+    if (!selectedEvaluation) return null;
+    return evaluationRuns.find((run) => run.id === selectedEvaluation) || null;
+  }, [evaluationRuns, selectedEvaluation]);
+
+  useEffect(() => {
+    if (!selectedEvaluation && evaluationRuns.length > 0) {
+      setSelectedEvaluation(evaluationRuns[0].id);
+    }
+  }, [evaluationRuns, selectedEvaluation]);
+
+  const flattenedComparisons = useMemo(() => {
+    return (evaluation?.result.field_comparisons || []).filter((comparison) => {
+      const leaf =
+        comparison.field_name.split(".").pop() || comparison.field_name;
+      return !leaf.includes("_header");
+    });
+  }, [evaluation]);
+
+  const fieldMetrics = useMemo(() => {
+    if (!evaluation) return [];
+
+    return Object.values(evaluation.result.metrics.field_metrics).sort(
+      (a, b) => a.accuracy - b.accuracy,
+    );
+  }, [evaluation]);
+
+  const matchTypeDistribution = useMemo(() => {
+    if (!summary) return [] as Array<[string, number]>;
+
+    return Object.entries(summary.match_type_distribution).sort(
+      (a, b) => b[1] - a[1],
+    );
+  }, [summary]);
+
+  const totalMatchTypes = useMemo(() => {
+    return matchTypeDistribution.reduce((sum, [, count]) => sum + count, 0);
+  }, [matchTypeDistribution]);
+
+  const weakestFields = useMemo(() => {
+    if (!summary) return [];
+
+    return Object.values(summary.field_performance)
+      .filter((metric) => metric.total_occurrences > 0)
+      .sort((a, b) => a.accuracy - b.accuracy)
+      .slice(0, 5);
+  }, [summary]);
+
+  const hasTopErrors =
+    !!documentsError ||
+    !!evaluationsError ||
+    !!summaryError ||
+    !!selectedEvaluationError;
 
   return (
     <div className="space-y-6">
-      {/* Controls */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Run Evaluation</CardTitle>
-              <CardDescription>
-                Compare ground truth annotations with extraction results
-              </CardDescription>
+      <Card className="overflow-hidden border-primary/20 bg-[var(--surface-panel)]">
+        <div className="bg-gradient-to-r from-primary to-[var(--interactive-primary-hover)] px-6 py-6 text-primary-foreground">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="space-y-2">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-primary-foreground/80">
+                model quality assurance
+              </p>
+              <h3 className="text-2xl font-semibold leading-tight text-primary-foreground">
+                Evaluate extraction performance
+              </h3>
+              <p className="max-w-2xl text-sm text-primary-foreground/80">
+                Compare extraction output against labeled ground truth, inspect
+                mismatch patterns, and prioritize schema or prompt improvements.
+              </p>
             </div>
-            {evaluation && (
-              <Button onClick={handleExportCSV} variant="outline" size="sm">
-                <Download className="h-4 w-4 mr-2" />
-                Export CSV
-              </Button>
-            )}
+            <div className="grid grid-cols-2 gap-2 sm:min-w-[280px]">
+              <div className="rounded-lg border border-white/30 bg-white/10 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wider text-primary-foreground/80">
+                  Total Runs
+                </p>
+                <p className="text-lg font-semibold">
+                  {summary?.total_evaluations ?? evaluationRuns.length}
+                </p>
+              </div>
+              <div className="rounded-lg border border-white/30 bg-white/10 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wider text-primary-foreground/80">
+                  Avg F1
+                </p>
+                <p className="text-lg font-semibold">
+                  {summary ? formatPercentage(summary.avg_f1_score) : "-"}
+                </p>
+              </div>
+            </div>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex gap-4">
-            <Select
-              value={selectedDocument}
-              onValueChange={setSelectedDocument}
-            >
-              <SelectTrigger className="w-[300px]">
-                <SelectValue placeholder="Select document to evaluate" />
-              </SelectTrigger>
-              <SelectContent>
-                {documents.length === 0 ? (
-                  <div className="p-2 text-sm text-muted-foreground">
-                    No documents in this project
-                  </div>
-                ) : (
-                  documents.map((doc) => (
-                    <SelectItem key={doc.id} value={doc.id}>
-                      {doc.filename}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
+        </div>
+
+        <CardContent className="space-y-4 pt-5">
+          {hasTopErrors && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {documentsError && (
+                <p>
+                  Failed to load documents: {getErrorMessage(documentsError)}
+                </p>
+              )}
+              {evaluationsError && (
+                <p>
+                  Failed to load evaluation history:{" "}
+                  {getErrorMessage(evaluationsError)}
+                </p>
+              )}
+              {summaryError && (
+                <p>
+                  Failed to load evaluation summary:{" "}
+                  {getErrorMessage(summaryError)}
+                </p>
+              )}
+              {selectedEvaluationError && (
+                <p>
+                  Failed to load selected run details:{" "}
+                  {getErrorMessage(selectedEvaluationError)}
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_auto] gap-3 items-end">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                Document
+              </p>
+              <Select
+                value={selectedDocument}
+                onValueChange={setSelectedDocument}
+              >
+                <SelectTrigger className="w-full h-10">
+                  <SelectValue
+                    placeholder={
+                      documentsLoading
+                        ? "Loading project documents..."
+                        : "Select document to evaluate"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {documents.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">
+                      No documents found in this project
+                    </div>
+                  ) : (
+                    documents.map((doc) => (
+                      <SelectItem key={doc.id} value={doc.id}>
+                        {doc.filename}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
             <Button
               onClick={handleRunEvaluation}
               disabled={!selectedDocument || runEvaluationMutation.isPending}
+              className="min-w-[170px]"
             >
-              <Play className="h-4 w-4 mr-2" />
+              {runEvaluationMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
               {runEvaluationMutation.isPending
                 ? "Running..."
                 : "Run Evaluation"}
             </Button>
+
+            <Button
+              onClick={handleExportCSV}
+              variant="secondary"
+              disabled={!evaluation}
+              className="min-w-[130px]"
+            >
+              <Download className="h-4 w-4" />
+              Export CSV
+            </Button>
           </div>
 
-          {documents.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              Add documents to your project first to run evaluations
-            </p>
-          )}
-
-          {/* Recent evaluations selector */}
-          {evaluationsData && evaluationsData.runs.length > 0 && (
-            <div className="flex gap-4 items-center">
-              <span className="text-sm text-muted-foreground">
-                Or view recent:
-              </span>
-              <Select
-                value={selectedEvaluation || ""}
-                onValueChange={setSelectedEvaluation}
-              >
-                <SelectTrigger className="w-[300px]">
-                  <SelectValue placeholder="Select evaluation" />
-                </SelectTrigger>
-                <SelectContent>
-                  {evaluationsData.runs.map((run) => (
-                    <SelectItem key={run.id} value={run.id}>
-                      {run.document_id.slice(0, 8)}... -{" "}
-                      {new Date(run.evaluated_at).toLocaleString()}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedEvaluation && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
-                  onClick={(e) => handleDeleteEvaluation(selectedEvaluation, e)}
-                  disabled={deleteEvaluationMutation.isPending}
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Delete
-                </Button>
-              )}
+          <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)]/65 p-4 space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <Clock3 className="h-4 w-4 text-[var(--text-secondary)]" />
+                <p className="text-sm font-medium">Recent evaluations</p>
+              </div>
+              <Badge variant="outline" className="w-fit">
+                {evaluationsLoading
+                  ? "Loading..."
+                  : `${evaluationRuns.length} loaded`}
+              </Badge>
             </div>
+
+            {evaluationRuns.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No evaluations yet. Run your first evaluation to populate
+                analytics.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-3">
+                <Select
+                  value={selectedEvaluation || ""}
+                  onValueChange={setSelectedEvaluation}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select an evaluation run" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {evaluationRuns.map((run) => (
+                      <SelectItem key={run.id} value={run.id}>
+                        {resolveDocumentName(run.document_id)} -{" "}
+                        {new Date(run.evaluated_at).toLocaleString()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {selectedEvaluation && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          Delete Evaluation Run?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This action permanently removes the selected
+                          evaluation run and its metrics.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => {
+                            if (selectedEvaluation) {
+                              deleteEvaluationMutation.mutate(
+                                selectedEvaluation,
+                              );
+                            }
+                          }}
+                          disabled={deleteEvaluationMutation.isPending}
+                        >
+                          {deleteEvaluationMutation.isPending
+                            ? "Deleting..."
+                            : "Delete Run"}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+              </div>
+            )}
+
+            {selectedRun && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-[var(--text-secondary)]">
+                <p>
+                  <span className="font-medium text-[var(--text-primary)]">
+                    Document:
+                  </span>{" "}
+                  {resolveDocumentName(selectedRun.document_id)}
+                </p>
+                <p>
+                  <span className="font-medium text-[var(--text-primary)]">
+                    Evaluated:
+                  </span>{" "}
+                  {new Date(selectedRun.evaluated_at).toLocaleString()}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {documents.length === 0 && !documentsLoading && (
+            <p className="text-sm text-muted-foreground">
+              Add documents to this project first, then run evaluations.
+            </p>
           )}
         </CardContent>
       </Card>
 
-      {/* Summary Metrics */}
       {summary && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Accuracy</CardDescription>
-              <CardTitle
-                className={cn("text-3xl", getScoreColor(summary.avg_accuracy))}
-              >
-                {formatPercentage(summary.avg_accuracy)}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground">
-                {summary.total_evaluations} evaluations
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Precision</CardDescription>
-              <CardTitle
-                className={cn("text-3xl", getScoreColor(summary.avg_precision))}
-              >
-                {formatPercentage(summary.avg_precision)}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground">
-                Correct / Extracted
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Recall</CardDescription>
-              <CardTitle
-                className={cn("text-3xl", getScoreColor(summary.avg_recall))}
-              >
-                {formatPercentage(summary.avg_recall)}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground">Correct / Present</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>F1 Score</CardDescription>
-              <CardTitle
-                className={cn("text-3xl", getScoreColor(summary.avg_f1_score))}
-              >
-                {formatPercentage(summary.avg_f1_score)}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground">Harmonic mean</p>
-            </CardContent>
-          </Card>
-        </div>
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <Card className="border-[var(--border-subtle)]">
+              <CardHeader className="pb-2">
+                <CardDescription className="flex items-center gap-2">
+                  <Target className="h-4 w-4" />
+                  Accuracy
+                </CardDescription>
+                <CardTitle
+                  className={cn(
+                    "text-3xl",
+                    getScoreTextClass(summary.avg_accuracy),
+                  )}
+                >
+                  {formatPercentage(summary.avg_accuracy)}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "border",
+                    getScorePillClass(summary.avg_accuracy),
+                  )}
+                >
+                  {getScoreLabel(summary.avg_accuracy)}
+                </Badge>
+              </CardContent>
+            </Card>
+
+            <Card className="border-[var(--border-subtle)]">
+              <CardHeader className="pb-2">
+                <CardDescription className="flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  Precision
+                </CardDescription>
+                <CardTitle
+                  className={cn(
+                    "text-3xl",
+                    getScoreTextClass(summary.avg_precision),
+                  )}
+                >
+                  {formatPercentage(summary.avg_precision)}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 text-xs text-muted-foreground">
+                Correct predictions / total extracted
+              </CardContent>
+            </Card>
+
+            <Card className="border-[var(--border-subtle)]">
+              <CardHeader className="pb-2">
+                <CardDescription className="flex items-center gap-2">
+                  <ListChecks className="h-4 w-4" />
+                  Recall
+                </CardDescription>
+                <CardTitle
+                  className={cn(
+                    "text-3xl",
+                    getScoreTextClass(summary.avg_recall),
+                  )}
+                >
+                  {formatPercentage(summary.avg_recall)}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 text-xs text-muted-foreground">
+                Correct predictions / fields present in truth
+              </CardContent>
+            </Card>
+
+            <Card className="border-[var(--border-subtle)]">
+              <CardHeader className="pb-2">
+                <CardDescription className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  F1 Score
+                </CardDescription>
+                <CardTitle
+                  className={cn(
+                    "text-3xl",
+                    getScoreTextClass(summary.avg_f1_score),
+                  )}
+                >
+                  {formatPercentage(summary.avg_f1_score)}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 text-xs text-muted-foreground">
+                Balanced precision-recall harmonic mean
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Match Type Distribution
+                </CardTitle>
+                <CardDescription>
+                  Breakdown of how extracted values align with ground truth.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {summaryLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading distribution...
+                  </div>
+                ) : matchTypeDistribution.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No match data yet.
+                  </p>
+                ) : (
+                  matchTypeDistribution.map(([matchType, count]) => {
+                    const percent =
+                      totalMatchTypes > 0 ? (count / totalMatchTypes) * 100 : 0;
+
+                    return (
+                      <div key={matchType} className="space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          {getMatchTypeBadge(matchType)}
+                          <span className="text-xs text-[var(--text-secondary)]">
+                            {count} ({percent.toFixed(1)}%)
+                          </span>
+                        </div>
+                        <Progress
+                          value={percent}
+                          className="h-1.5 bg-muted/80"
+                        />
+                      </div>
+                    );
+                  })
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Fields to Improve</CardTitle>
+                <CardDescription>
+                  Lowest-performing fields based on aggregate project
+                  evaluations.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {weakestFields.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No field-level performance data available yet.
+                  </p>
+                ) : (
+                  weakestFields.map((metric) => (
+                    <div
+                      key={metric.field_name}
+                      className="rounded-lg border border-[var(--border-subtle)] p-3 space-y-2"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-mono text-xs text-[var(--text-primary)] break-all">
+                          {metric.field_name}
+                        </p>
+                        <span
+                          className={cn(
+                            "text-sm font-semibold",
+                            getScoreTextClass(metric.accuracy),
+                          )}
+                        >
+                          {formatPercentage(metric.accuracy)}
+                        </span>
+                      </div>
+                      <Progress
+                        value={metric.accuracy * 100}
+                        className="h-1.5 bg-muted/70"
+                      />
+                      <p className="text-[11px] text-[var(--text-secondary)]">
+                        {metric.total_occurrences} occurrences •{" "}
+                        {metric.correct_predictions} correct
+                      </p>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </>
       )}
 
-      {/* Evaluation Results */}
+      {selectedEvaluationLoading && (
+        <Card>
+          <CardContent className="py-8">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading selected evaluation details...
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {evaluation && (
         <Card>
-          <CardHeader>
-            <CardTitle>Evaluation Results</CardTitle>
-            <CardDescription>
-              Document: {evaluation.document_id.slice(0, 8)}... | Evaluated:{" "}
-              {new Date(evaluation.evaluated_at).toLocaleString()}
-            </CardDescription>
+          <CardHeader className="border-b border-[var(--border-subtle)]">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <FileSpreadsheet className="h-4 w-4" />
+                  Evaluation Results
+                </CardTitle>
+                <CardDescription>
+                  {resolveDocumentName(evaluation.document_id)} - evaluated on{" "}
+                  {new Date(evaluation.evaluated_at).toLocaleString()}
+                </CardDescription>
+              </div>
+              <Badge variant="outline" className="w-fit font-mono text-[11px]">
+                {evaluation.id}
+              </Badge>
+            </div>
           </CardHeader>
-          <CardContent>
+
+          <CardContent className="pt-6">
             <Tabs defaultValue="flattened" className="w-full">
-              <TabsList>
-                <TabsTrigger value="flattened">Flattened View</TabsTrigger>
-                <TabsTrigger value="instance">Instance View</TabsTrigger>
-                <TabsTrigger value="field">Field Summary</TabsTrigger>
+              <TabsList className="w-full justify-start overflow-x-auto">
+                <TabsTrigger value="flattened" className="gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  Flattened
+                </TabsTrigger>
+                <TabsTrigger value="instance" className="gap-2">
+                  <ListChecks className="h-4 w-4" />
+                  Instance
+                </TabsTrigger>
+                <TabsTrigger value="field" className="gap-2">
+                  <Target className="h-4 w-4" />
+                  Field Summary
+                </TabsTrigger>
               </TabsList>
 
-              {/* Flattened View */}
               <TabsContent value="flattened" className="space-y-4">
-                <div className="grid grid-cols-4 gap-4">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="rounded-lg border border-[var(--status-success)]/30 bg-[var(--status-success)]/10 px-4 py-3 text-center">
+                    <p className="text-2xl font-semibold text-[var(--status-success)]">
                       {evaluation.result.metrics.flattened.correct_fields}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Correct</div>
+                    </p>
+                    <p className="text-xs uppercase tracking-wide text-[var(--status-success)]">
+                      Correct
+                    </p>
                   </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-red-600">
+                  <div className="rounded-lg border border-[var(--status-error)]/30 bg-[var(--status-error)]/10 px-4 py-3 text-center">
+                    <p className="text-2xl font-semibold text-[var(--status-error)]">
                       {evaluation.result.metrics.flattened.incorrect_fields}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
+                    </p>
+                    <p className="text-xs uppercase tracking-wide text-[var(--status-error)]">
                       Incorrect
-                    </div>
+                    </p>
                   </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-yellow-600">
+                  <div className="rounded-lg border border-[var(--status-warn)]/30 bg-[var(--status-warn)]/10 px-4 py-3 text-center">
+                    <p className="text-2xl font-semibold text-[var(--status-warn)]">
                       {evaluation.result.metrics.flattened.missing_fields}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Missing</div>
+                    </p>
+                    <p className="text-xs uppercase tracking-wide text-[var(--status-warn)]">
+                      Missing
+                    </p>
                   </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-blue-600">
+                  <div className="rounded-lg border border-[var(--interactive-primary)]/30 bg-[var(--interactive-primary)]/10 px-4 py-3 text-center">
+                    <p className="text-2xl font-semibold text-[var(--interactive-primary)]">
                       {evaluation.result.metrics.flattened.extra_fields}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Extra</div>
+                    </p>
+                    <p className="text-xs uppercase tracking-wide text-[var(--interactive-primary)]">
+                      Extra
+                    </p>
                   </div>
                 </div>
 
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Field</TableHead>
-                      <TableHead>Ground Truth</TableHead>
-                      <TableHead>Predicted</TableHead>
-                      <TableHead>Match</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Confidence</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {flattenedComparisons.map((fc, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell className="font-mono text-sm">
-                          {fc.field_name}
-                        </TableCell>
-                        <TableCell className="max-w-[200px] truncate">
-                          {String(fc.ground_truth_value || "-")}
-                        </TableCell>
-                        <TableCell className="max-w-[200px] truncate">
-                          {String(fc.predicted_value || "-")}
-                        </TableCell>
-                        <TableCell>
-                          {getMatchIcon(fc.match_result.is_match)}
-                        </TableCell>
-                        <TableCell>
-                          {getMatchTypeBadge(fc.match_result.match_type)}
-                        </TableCell>
-                        <TableCell>
-                          {formatPercentage(fc.match_result.confidence)}
-                        </TableCell>
+                <div className="rounded-xl border border-[var(--border-subtle)] overflow-hidden">
+                  <Table>
+                    <TableHeader sticky>
+                      <TableRow className="bg-[var(--surface-elevated)]/70 hover:bg-[var(--surface-elevated)]/70">
+                        <TableHead className="w-[220px]">Field</TableHead>
+                        <TableHead>Ground Truth</TableHead>
+                        <TableHead>Predicted</TableHead>
+                        <TableHead className="w-[90px]">Match</TableHead>
+                        <TableHead className="w-[130px]">Type</TableHead>
+                        <TableHead className="w-[110px]">Confidence</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {flattenedComparisons.length === 0 ? (
+                        <TableRow>
+                          <TableCell
+                            colSpan={6}
+                            className="py-10 text-center text-muted-foreground"
+                          >
+                            No flattened field comparisons for this run.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        flattenedComparisons.map((comparison, index) => (
+                          <TableRow key={`${comparison.field_name}-${index}`}>
+                            <TableCell className="font-mono text-xs text-[var(--text-primary)] break-all">
+                              {comparison.field_name}
+                            </TableCell>
+                            <TableCell
+                              className="max-w-[260px] truncate"
+                              title={formatValue(comparison.ground_truth_value)}
+                            >
+                              {formatValue(comparison.ground_truth_value)}
+                            </TableCell>
+                            <TableCell
+                              className="max-w-[260px] truncate"
+                              title={formatValue(comparison.predicted_value)}
+                            >
+                              {formatValue(comparison.predicted_value)}
+                            </TableCell>
+                            <TableCell>
+                              {comparison.match_result.is_match ? (
+                                <CheckCircle2 className="h-4 w-4 text-[var(--status-success)]" />
+                              ) : (
+                                <XCircle className="h-4 w-4 text-[var(--status-error)]" />
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {getMatchTypeBadge(
+                                comparison.match_result.match_type,
+                              )}
+                            </TableCell>
+                            <TableCell
+                              className={cn(
+                                "font-medium",
+                                getScoreTextClass(
+                                  comparison.match_result.confidence,
+                                ),
+                              )}
+                            >
+                              {formatPercentage(
+                                comparison.match_result.confidence,
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               </TabsContent>
 
-              {/* Instance View */}
               <TabsContent value="instance" className="space-y-4">
-                {Object.entries(evaluation.result.instance_comparisons).map(
-                  ([parentField, instances]) => {
-                    const metrics =
-                      evaluation.result.metrics.instance_metrics[parentField];
+                {Object.entries(evaluation.result.instance_comparisons)
+                  .length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-[var(--border-strong)] px-6 py-10 text-center text-sm text-muted-foreground">
+                    No instance-level comparisons were generated for this run.
+                  </div>
+                ) : (
+                  Object.entries(evaluation.result.instance_comparisons).map(
+                    ([parentField, instances]) => {
+                      const metrics =
+                        evaluation.result.metrics.instance_metrics[parentField];
 
-                    // Get all unique field names (columns), excluding headers
-                    const allFields = Array.from(
-                      new Set(
-                        instances.flatMap((inst) =>
-                          inst.field_comparisons
-                            .filter((fc) => !fc.field_name.includes("_header"))
-                            .map(
-                              (fc) =>
-                                fc.field_name.split(".").pop() || fc.field_name,
-                            ),
+                      const allFields = Array.from(
+                        new Set(
+                          instances.flatMap((instance) =>
+                            instance.field_comparisons
+                              .filter(
+                                (comparison) =>
+                                  !comparison.field_name.includes("_header"),
+                              )
+                              .map(
+                                (comparison) =>
+                                  comparison.field_name.split(".").pop() ||
+                                  comparison.field_name,
+                              ),
+                          ),
                         ),
-                      ),
-                    );
+                      );
 
-                    // Helper to format field values (especially hierarchy_path arrays)
-                    const formatFieldValue = (value: any): string => {
-                      if (value === null || value === undefined) return "-";
-                      if (Array.isArray(value)) {
-                        // For hierarchy_path arrays, show as breadcrumb
-                        return value.join(" > ");
-                      }
-                      return String(value);
-                    };
+                      return (
+                        <div
+                          key={parentField}
+                          className="rounded-xl border border-[var(--border-subtle)] overflow-hidden"
+                        >
+                          <div className="border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]/70 px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                            <h4 className="font-semibold text-[var(--text-primary)]">
+                              {parentField}
+                            </h4>
+                            {metrics && (
+                              <div className="flex items-center gap-4 text-xs text-[var(--text-secondary)]">
+                                <span>
+                                  Match Rate{" "}
+                                  <strong
+                                    className={getScoreTextClass(
+                                      metrics.instance_match_rate,
+                                    )}
+                                  >
+                                    {formatPercentage(
+                                      metrics.instance_match_rate,
+                                    )}
+                                  </strong>
+                                </span>
+                                <span>
+                                  F1{" "}
+                                  <strong
+                                    className={getScoreTextClass(
+                                      metrics.instance_f1_score,
+                                    )}
+                                  >
+                                    {formatPercentage(
+                                      metrics.instance_f1_score,
+                                    )}
+                                  </strong>
+                                </span>
+                              </div>
+                            )}
+                          </div>
 
-                    return (
-                      <div key={parentField} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-lg font-semibold">
-                            {parentField}
-                          </h3>
-                          {metrics && (
-                            <div className="flex gap-4 text-sm">
-                              <span>
-                                Match Rate:{" "}
-                                {formatPercentage(metrics.instance_match_rate)}
-                              </span>
-                              <span>
-                                F1:{" "}
-                                {formatPercentage(metrics.instance_f1_score)}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Table format like extraction output */}
-                        <div className="border rounded-lg overflow-hidden">
                           <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead className="w-12">Row</TableHead>
+                            <TableHeader sticky>
+                              <TableRow className="bg-background hover:bg-background">
+                                <TableHead className="w-16">Row</TableHead>
                                 <TableHead className="w-32">Source</TableHead>
                                 {allFields.map((field) => (
-                                  <TableHead key={field} className="text-xs">
-                                    {field}
-                                  </TableHead>
+                                  <TableHead key={field}>{field}</TableHead>
                                 ))}
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {instances.map((inst) => {
-                                // Build a map of field values for this instance
-                                const gtValues: Record<string, any> = {};
-                                const predValues: Record<string, any> = {};
+                              {instances.map((instance) => {
+                                const gtValues: Record<string, unknown> = {};
+                                const predValues: Record<string, unknown> = {};
                                 const matchStatus: Record<string, boolean> = {};
 
-                                inst.field_comparisons.forEach((fc) => {
-                                  const fieldKey =
-                                    fc.field_name.split(".").pop() ||
-                                    fc.field_name;
-                                  gtValues[fieldKey] = fc.ground_truth_value;
-                                  predValues[fieldKey] = fc.predicted_value;
-                                  matchStatus[fieldKey] =
-                                    fc.match_result.is_match;
-                                });
+                                instance.field_comparisons.forEach(
+                                  (comparison) => {
+                                    const fieldKey =
+                                      comparison.field_name.split(".").pop() ||
+                                      comparison.field_name;
+
+                                    gtValues[fieldKey] =
+                                      comparison.ground_truth_value;
+                                    predValues[fieldKey] =
+                                      comparison.predicted_value;
+                                    matchStatus[fieldKey] =
+                                      comparison.match_result.is_match;
+                                  },
+                                );
 
                                 return (
-                                  <>
-                                    {/* Ground Truth Row */}
-                                    <TableRow
-                                      key={`${inst.instance_num}-gt`}
-                                      className="bg-slate-50/70"
-                                    >
+                                  <Fragment
+                                    key={`${parentField}-${instance.instance_num}`}
+                                  >
+                                    <TableRow className="bg-[var(--surface-elevated)]/40 hover:bg-[var(--surface-elevated)]/45">
                                       <TableCell
-                                        className="font-semibold text-xs"
                                         rowSpan={2}
+                                        className="font-semibold text-xs text-center"
                                       >
-                                        {inst.instance_num}
+                                        {instance.instance_num}
                                       </TableCell>
                                       <TableCell className="text-xs">
                                         <Badge
-                                          variant="secondary"
-                                          className="bg-slate-200 text-slate-800"
+                                          variant="outline"
+                                          className="text-[10px]"
                                         >
                                           Ground Truth
                                         </Badge>
                                       </TableCell>
                                       {allFields.map((field) => (
                                         <TableCell
-                                          key={field}
-                                          className={cn(
-                                            "text-xs",
-                                            matchStatus[field] === false &&
+                                          key={`gt-${instance.instance_num}-${field}`}
+                                            className={cn(
+                                              "text-xs",
+                                              matchStatus[field] === false &&
                                               gtValues[field]
-                                              ? "bg-red-50"
-                                              : "",
-                                          )}
-                                        >
-                                          {formatFieldValue(gtValues[field])}
+                                                ? "bg-[var(--status-error)]/10"
+                                                : "",
+                                            )}
+                                          >
+                                          {formatValue(gtValues[field])}
                                         </TableCell>
                                       ))}
                                     </TableRow>
-                                    {/* Predicted Row */}
-                                    <TableRow
-                                      key={`${inst.instance_num}-pred`}
-                                      className="bg-emerald-50/70 border-b-2"
-                                    >
+
+                                    <TableRow className="border-b-2 border-b-[var(--border-subtle)] bg-[var(--interactive-primary)]/10 hover:bg-[var(--interactive-primary)]/12">
                                       <TableCell className="text-xs">
                                         <Badge
-                                          variant="secondary"
-                                          className="bg-emerald-200 text-emerald-800"
+                                          variant="outline"
+                                          className="text-[10px] border-[var(--interactive-primary)]/35 text-[var(--interactive-primary)] bg-[var(--interactive-primary)]/10"
                                         >
                                           Prediction
                                         </Badge>
                                       </TableCell>
                                       {allFields.map((field) => {
                                         const isMatch = matchStatus[field];
-                                        const hasPred =
+                                        const hasPrediction =
                                           predValues[field] !== null &&
                                           predValues[field] !== undefined &&
                                           predValues[field] !== "";
 
                                         return (
                                           <TableCell
-                                            key={field}
+                                            key={`pred-${instance.instance_num}-${field}`}
                                             className={cn(
                                               "text-xs",
-                                              isMatch && hasPred
-                                                ? "bg-green-50"
+                                              isMatch && hasPrediction
+                                                ? "bg-[var(--status-success)]/12"
                                                 : "",
-                                              !isMatch && hasPred
-                                                ? "bg-red-50"
+                                              !isMatch && hasPrediction
+                                                ? "bg-[var(--status-error)]/10"
                                                 : "",
                                             )}
                                           >
                                             <div className="flex items-center gap-1">
-                                              {formatFieldValue(
-                                                predValues[field],
+                                              <span>
+                                                {formatValue(predValues[field])}
+                                              </span>
+                                              {isMatch && hasPrediction && (
+                                                <CheckCircle2 className="h-3.5 w-3.5 text-[var(--status-success)]" />
                                               )}
-                                              {isMatch && hasPred && (
-                                                <CheckCircle2 className="w-3 h-3 text-green-600" />
-                                              )}
-                                              {!isMatch && hasPred && (
-                                                <XCircle className="w-3 h-3 text-red-600" />
+                                              {!isMatch && hasPrediction && (
+                                                <XCircle className="h-3.5 w-3.5 text-[var(--status-error)]" />
                                               )}
                                             </div>
                                           </TableCell>
                                         );
                                       })}
                                     </TableRow>
-                                  </>
+                                  </Fragment>
                                 );
                               })}
                             </TableBody>
                           </Table>
                         </div>
-                      </div>
-                    );
-                  },
+                      );
+                    },
+                  )
                 )}
               </TabsContent>
 
-              {/* Field Summary */}
               <TabsContent value="field" className="space-y-4">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Field Name</TableHead>
-                      <TableHead>Occurrences</TableHead>
-                      <TableHead>Accuracy</TableHead>
-                      <TableHead>Precision</TableHead>
-                      <TableHead>Recall</TableHead>
-                      <TableHead>Avg Confidence</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {Object.values(evaluation.result.metrics.field_metrics).map(
-                      (fm) => (
-                        <TableRow key={fm.field_name}>
-                          <TableCell className="font-mono text-sm">
-                            {fm.field_name}
-                          </TableCell>
-                          <TableCell>{fm.total_occurrences}</TableCell>
-                          <TableCell className={getScoreColor(fm.accuracy)}>
-                            {formatPercentage(fm.accuracy)}
-                          </TableCell>
-                          <TableCell className={getScoreColor(fm.precision)}>
-                            {formatPercentage(fm.precision)}
-                          </TableCell>
-                          <TableCell className={getScoreColor(fm.recall)}>
-                            {formatPercentage(fm.recall)}
-                          </TableCell>
-                          <TableCell>
-                            {formatPercentage(fm.avg_confidence)}
+                <div className="rounded-xl border border-[var(--border-subtle)] overflow-hidden">
+                  <Table>
+                    <TableHeader sticky>
+                      <TableRow className="bg-[var(--surface-elevated)]/70 hover:bg-[var(--surface-elevated)]/70">
+                        <TableHead>Field Name</TableHead>
+                        <TableHead className="w-[110px]">Occurrences</TableHead>
+                        <TableHead className="w-[120px]">Accuracy</TableHead>
+                        <TableHead className="w-[120px]">Precision</TableHead>
+                        <TableHead className="w-[120px]">Recall</TableHead>
+                        <TableHead className="w-[140px]">
+                          Avg Confidence
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {fieldMetrics.length === 0 ? (
+                        <TableRow>
+                          <TableCell
+                            colSpan={6}
+                            className="py-10 text-center text-muted-foreground"
+                          >
+                            No field metrics available for this run.
                           </TableCell>
                         </TableRow>
-                      ),
-                    )}
-                  </TableBody>
-                </Table>
+                      ) : (
+                        fieldMetrics.map((metric) => (
+                          <TableRow key={metric.field_name}>
+                            <TableCell className="font-mono text-xs text-[var(--text-primary)] break-all">
+                              {metric.field_name}
+                            </TableCell>
+                            <TableCell>{metric.total_occurrences}</TableCell>
+                            <TableCell
+                              className={cn(
+                                "font-medium",
+                                getScoreTextClass(metric.accuracy),
+                              )}
+                            >
+                              {formatPercentage(metric.accuracy)}
+                            </TableCell>
+                            <TableCell
+                              className={cn(
+                                "font-medium",
+                                getScoreTextClass(metric.precision),
+                              )}
+                            >
+                              {formatPercentage(metric.precision)}
+                            </TableCell>
+                            <TableCell
+                              className={cn(
+                                "font-medium",
+                                getScoreTextClass(metric.recall),
+                              )}
+                            >
+                              {formatPercentage(metric.recall)}
+                            </TableCell>
+                            <TableCell
+                              className={cn(
+                                "font-medium",
+                                getScoreTextClass(metric.avg_confidence),
+                              )}
+                            >
+                              {formatPercentage(metric.avg_confidence)}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               </TabsContent>
             </Tabs>
           </CardContent>
         </Card>
       )}
 
-      {/* Empty State */}
-      {!evaluation && !summary && (
+      {!evaluation && !selectedEvaluationLoading && (
         <Card>
           <CardContent className="py-12 text-center">
-            <AlertCircle className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">
-              Select a document and run an evaluation to see results
+            <AlertCircle className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
+            <p className="text-sm text-muted-foreground">
+              Run an evaluation or select a recent run to inspect results.
             </p>
           </CardContent>
         </Card>

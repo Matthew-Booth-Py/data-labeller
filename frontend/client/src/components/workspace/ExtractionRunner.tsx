@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -17,13 +18,17 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Loader2, PlayCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, PlayCircle, ChevronRight, Trash2 } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { api } from "@/lib/api";
+import {
+  api,
+  type ExtractionRequestMetrics,
+  type ExtractionResult,
+} from "@/lib/api";
 
 type ExtractedField = {
   field_name: string;
@@ -31,52 +36,150 @@ type ExtractedField = {
   confidence?: number;
 };
 
+type CachedExtraction = {
+  fields: ExtractedField[];
+  requests: ExtractionRequestMetrics[];
+  schema_version_id?: string | null;
+  prompt_version_id?: string | null;
+  extracted_at?: string;
+};
+
+const EMPTY_EXTRACTION: CachedExtraction = {
+  fields: [],
+  requests: [],
+  schema_version_id: null,
+  prompt_version_id: null,
+  extracted_at: undefined,
+};
+
+function toCachedExtraction(value: unknown): CachedExtraction {
+  // Backward compatibility: previous cache format stored only `fields[]`.
+  if (Array.isArray(value)) {
+    return { ...EMPTY_EXTRACTION, fields: value as ExtractedField[] };
+  }
+
+  if (!value || typeof value !== "object") {
+    return { ...EMPTY_EXTRACTION };
+  }
+
+  const typed = value as Partial<ExtractionResult>;
+  return {
+    fields: Array.isArray(typed.fields) ? typed.fields : [],
+    requests: Array.isArray(typed.requests) ? typed.requests : [],
+    schema_version_id:
+      typeof typed.schema_version_id === "string" ||
+      typed.schema_version_id === null
+        ? typed.schema_version_id
+        : null,
+    prompt_version_id:
+      typeof typed.prompt_version_id === "string" ||
+      typed.prompt_version_id === null
+        ? typed.prompt_version_id
+        : null,
+    extracted_at:
+      typeof typed.extracted_at === "string" ? typed.extracted_at : undefined,
+  };
+}
+
+function formatLatency(latencyMs?: number | null): string {
+  if (typeof latencyMs !== "number" || Number.isNaN(latencyMs)) return "—";
+  if (latencyMs < 1000) return `${Math.round(latencyMs)} ms`;
+  return `${(latencyMs / 1000).toFixed(2)} s`;
+}
+
+function formatTokens(totalTokens?: number | null): string {
+  if (typeof totalTokens !== "number" || Number.isNaN(totalTokens)) return "—";
+  return totalTokens.toLocaleString();
+}
+
+function formatCost(costUsd?: number | null): string {
+  if (typeof costUsd !== "number" || Number.isNaN(costUsd)) return "—";
+  return `$${costUsd.toFixed(6)}`;
+}
+
+function formatRequestTime(createdAt?: string): string {
+  if (!createdAt) return "Unknown time";
+  const parsed = new Date(createdAt);
+  if (Number.isNaN(parsed.getTime())) return "Unknown time";
+  return parsed.toLocaleString();
+}
+
+function formatSchemaLabel(schemaVersionId: string): string {
+  if (schemaVersionId === "unknown") return "Unknown";
+  return schemaVersionId.slice(0, 12);
+}
+
 export function ExtractionRunner({ projectId }: { projectId?: string }) {
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
   const [useStructuredOutput, setUseStructuredOutput] = useState(true);
-  const [useRetrieval, setUseRetrieval] = useState(false);
+  const [useRetrieval, setUseRetrieval] = useState(true);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [localStorageVersion, setLocalStorageVersion] = useState(0);
 
-  // Persist extraction results per document
   const [extractionCache, setExtractionCache] = useState<
-    Map<string, ExtractedField[]>
+    Map<string, CachedExtraction>
   >(() => {
-    try {
-      const stored = sessionStorage.getItem("extraction-cache");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return new Map(Object.entries(parsed));
-      }
-    } catch (e) {
-      console.error("Failed to load extraction cache:", e);
-    }
-    return new Map();
+    const stored = sessionStorage.getItem("extraction-cache");
+    if (!stored) return new Map();
+    const parsed = JSON.parse(stored) as Record<string, unknown>;
+    return new Map(
+      Object.entries(parsed).map(([docId, extraction]) => [
+        docId,
+        toCachedExtraction(extraction),
+      ]),
+    );
   });
 
-  // Get fields for currently selected document
-  const fields = selectedDocumentId
-    ? extractionCache.get(selectedDocumentId) || []
-    : [];
+  const selectedExtraction = selectedDocumentId
+    ? extractionCache.get(selectedDocumentId) || EMPTY_EXTRACTION
+    : EMPTY_EXTRACTION;
+  const fields = selectedExtraction.fields || [];
+  const requests = selectedExtraction.requests || [];
 
-  // Save cache to sessionStorage whenever it changes
-  useEffect(() => {
-    try {
-      const obj = Object.fromEntries(extractionCache);
-      sessionStorage.setItem("extraction-cache", JSON.stringify(obj));
-    } catch (e) {
-      console.error("Failed to save extraction cache:", e);
+  const requestsBySchema = useMemo(() => {
+    const grouped = new Map<string, ExtractionRequestMetrics[]>();
+    for (const request of requests) {
+      const schemaVersionId =
+        request.schema_version_id ||
+        selectedExtraction.schema_version_id ||
+        "unknown";
+      const existing = grouped.get(schemaVersionId) || [];
+      existing.push(request);
+      grouped.set(schemaVersionId, existing);
     }
+
+    return Array.from(grouped.entries())
+      .map(([schemaVersionId, schemaRequests]) => ({
+        schemaVersionId,
+        requests: [...schemaRequests].sort((a, b) => {
+          const aTime = a.created_at ? Date.parse(a.created_at) : 0;
+          const bTime = b.created_at ? Date.parse(b.created_at) : 0;
+          return bTime - aTime;
+        }),
+      }))
+      .sort((a, b) => {
+        const aTime = a.requests[0]?.created_at
+          ? Date.parse(a.requests[0].created_at as string)
+          : 0;
+        const bTime = b.requests[0]?.created_at
+          ? Date.parse(b.requests[0].created_at as string)
+          : 0;
+        return bTime - aTime;
+      });
+  }, [requests, selectedExtraction.schema_version_id]);
+
+  useEffect(() => {
+    const obj = Object.fromEntries(extractionCache);
+    sessionStorage.setItem("extraction-cache", JSON.stringify(obj));
   }, [extractionCache]);
 
-  // Listen for localStorage changes
   useEffect(() => {
     const handleStorageChange = () => {
       setLocalStorageVersion((v) => v + 1);
     };
     window.addEventListener("storage", handleStorageChange);
-    // Also listen for custom event from same window
     window.addEventListener("localStorageUpdate", handleStorageChange);
     return () => {
       window.removeEventListener("storage", handleStorageChange);
@@ -84,264 +187,346 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
     };
   }, []);
 
-  // Fetch documents with React Query for automatic cache invalidation
   const { data: documentsData } = useQuery({
     queryKey: ["documents"],
     queryFn: () => api.listDocuments(),
   });
 
-  // Filter documents by project
   const documents = useMemo(() => {
     if (!documentsData?.documents || !projectId) return [];
+    const stored = localStorage.getItem("uu-projects");
+    if (!stored) return [];
+    const projects = JSON.parse(stored);
+    const project = projects.find((p: { id: string }) => p.id === projectId);
+    const projectDocumentIds: string[] = project?.documentIds || [];
 
-    // Get document IDs for this project from localStorage
-    let projectDocumentIds: string[] = [];
-    try {
-      const stored = localStorage.getItem("uu-projects");
-      if (stored) {
-        const projects = JSON.parse(stored);
-        const project = projects.find(
-          (p: { id: string }) => p.id === projectId,
-        );
-        projectDocumentIds = project?.documentIds || [];
-
-        console.log("[ExtractionRunner] Project:", projectId);
-        console.log(
-          "[ExtractionRunner] Project document IDs:",
-          projectDocumentIds,
-        );
-        console.log(
-          "[ExtractionRunner] All documents:",
-          documentsData.documents.length,
-        );
-      }
-    } catch (e) {
-      console.error("[ExtractionRunner] Error reading localStorage:", e);
-      projectDocumentIds = [];
-    }
-
-    const filtered = documentsData.documents.filter((doc) =>
+    return documentsData.documents.filter((doc) =>
       projectDocumentIds.includes(doc.id),
     );
-    console.log("[ExtractionRunner] Filtered documents:", filtered.length);
-
-    return filtered;
   }, [documentsData, projectId, localStorageVersion]);
 
-  // Update selected document when documents change
   useEffect(() => {
     if (documents.length > 0 && !selectedDocumentId) {
       setSelectedDocumentId(documents[0].id);
-    } else if (
+      return;
+    }
+    if (
       documents.length > 0 &&
-      !documents.find((d) => d.id === selectedDocumentId)
+      !documents.find((doc) => doc.id === selectedDocumentId)
     ) {
-      // Selected document was deleted, select first available
       setSelectedDocumentId(documents[0].id);
-    } else if (documents.length === 0) {
+      return;
+    }
+    if (documents.length === 0) {
       setSelectedDocumentId("");
     }
   }, [documents, selectedDocumentId]);
 
-  // Load extraction from backend when document changes (if not in cache)
   useEffect(() => {
     if (!selectedDocumentId) return;
-    if (extractionCache.has(selectedDocumentId)) return; // Already in cache
+    if (extractionCache.has(selectedDocumentId)) return;
 
-    // Try to load from backend
     const loadExtraction = async () => {
-      try {
-        const result = await api.getDocumentExtraction(selectedDocumentId);
-        if (result.fields && result.fields.length > 0) {
-          setExtractionCache((prev) => {
-            const updated = new Map(prev);
-            updated.set(selectedDocumentId, result.fields);
-            return updated;
-          });
-        }
-      } catch (e) {
-        // No extraction exists yet, that's fine
+      const result = await api.getDocumentExtraction(selectedDocumentId);
+      if (
+        (result.fields && result.fields.length > 0) ||
+        (result.requests && result.requests.length > 0)
+      ) {
+        setExtractionCache((prev) => {
+          const updated = new Map(prev);
+          updated.set(selectedDocumentId, toCachedExtraction(result));
+          return updated;
+        });
       }
     };
 
-    loadExtraction();
+    loadExtraction().catch(() => {
+      // No prior extraction exists for this document.
+    });
   }, [selectedDocumentId, extractionCache]);
 
   const selectedDoc = useMemo(
-    () => documents.find((d) => d.id === selectedDocumentId),
+    () => documents.find((doc) => doc.id === selectedDocumentId),
     [documents, selectedDocumentId],
   );
 
-  const runExtraction = async () => {
+  const clearUsageForDocument = () => {
     if (!selectedDocumentId) return;
-    setIsRunning(true);
-    setError(null);
-
-    // Clear fields for this document while loading
     setExtractionCache((prev) => {
       const updated = new Map(prev);
-      updated.set(selectedDocumentId, []);
+      const current = updated.get(selectedDocumentId) || EMPTY_EXTRACTION;
+      updated.set(selectedDocumentId, { ...current, requests: [] });
+      return updated;
+    });
+  };
+
+  const runExtraction = async () => {
+    if (!selectedDocumentId) return;
+
+    setIsRunning(true);
+    setError(null);
+    setExtractionCache((prev) => {
+      const updated = new Map(prev);
+      const current = updated.get(selectedDocumentId) || EMPTY_EXTRACTION;
+      updated.set(selectedDocumentId, { ...current, fields: [] });
       return updated;
     });
 
     try {
-      const data = await api.extractDocument(
+      const useRetrievalForRequest =
+        selectedDoc?.retrieval_index_status === "completed"
+          ? true
+          : useRetrieval;
+      const result = await api.extractDocument(
         selectedDocumentId,
         !useStructuredOutput,
         useStructuredOutput,
-        useRetrieval,
+        useRetrievalForRequest,
       );
-
-      // Save to cache
       setExtractionCache((prev) => {
         const updated = new Map(prev);
-        updated.set(selectedDocumentId, data.fields || []);
+        updated.set(selectedDocumentId, toCachedExtraction(result));
         return updated;
       });
-    } catch (e: any) {
-      setError(e.message || "Extraction failed");
+    } catch (err: any) {
+      setError(err.message || "Extraction failed");
     } finally {
       setIsRunning(false);
     }
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <Card>
+    <div className="grid grid-cols-1 xl:grid-cols-[380px_minmax(0,1fr)] gap-6">
+      <Card className="h-fit">
         <CardHeader>
-          <CardTitle>Live Extraction Runner</CardTitle>
+          <CardTitle>Run Extraction</CardTitle>
           <CardDescription>
-            Runs real extraction against a stored document.
-            {projectId ? (
-              <>
-                {" "}
-                Project ID: <span className="font-mono">{projectId}</span>
-              </>
-            ) : null}
+            Execute extraction against project documents and inspect structured
+            output.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2 md:col-span-2">
-              <Label>Document</Label>
-              <Select
-                value={selectedDocumentId}
-                onValueChange={setSelectedDocumentId}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a document" />
-                </SelectTrigger>
-                <SelectContent>
-                  {documents.map((doc) => (
-                    <SelectItem key={doc.id} value={doc.id}>
-                      {doc.filename}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Mode</Label>
-              <div className="flex items-center gap-2 rounded-md border px-3 py-2 h-10">
-                <Switch
-                  checked={useStructuredOutput}
-                  onCheckedChange={setUseStructuredOutput}
-                />
-                <span className="text-sm">
-                  {useStructuredOutput
-                    ? "Structured output"
-                    : "Annotation refinement"}
-                </span>
-              </div>
-            </div>
+          <div className="space-y-2">
+            <Label>Document</Label>
+            <Select
+              value={selectedDocumentId}
+              onValueChange={setSelectedDocumentId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a document" />
+              </SelectTrigger>
+              <SelectContent>
+                {documents.map((doc) => (
+                  <SelectItem key={doc.id} value={doc.id}>
+                    {doc.filename}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Switch
-                id="use-retrieval"
-                checked={useRetrieval}
-                onCheckedChange={setUseRetrieval}
-                disabled={selectedDoc?.retrieval_index_status !== "completed"}
-              />
-              <Label htmlFor="use-retrieval" className="text-sm cursor-pointer">
-                Use Contextual Retrieval
-              </Label>
-              {selectedDoc &&
-                selectedDoc.retrieval_index_status === "completed" &&
-                selectedDoc.retrieval_chunks_count && (
-                  <span className="text-xs text-muted-foreground">
-                    ({selectedDoc.retrieval_chunks_count} chunks indexed)
-                  </span>
-                )}
-              {selectedDoc &&
-                selectedDoc.retrieval_index_status === "processing" && (
-                  <span className="text-xs text-muted-foreground">
-                    (indexing...)
-                  </span>
-                )}
-              {selectedDoc &&
-                selectedDoc.retrieval_index_status !== "completed" &&
-                selectedDoc.retrieval_index_status !== "processing" && (
-                  <span className="text-xs text-muted-foreground">
-                    (not indexed)
-                  </span>
-                )}
-            </div>
-          </div>
+          <Collapsible
+            open={showAdvanced}
+            onOpenChange={setShowAdvanced}
+            className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)]"
+          >
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="w-full px-3 py-2.5 text-left flex items-center justify-between gap-2 hover:bg-[var(--state-hover)]"
+              >
+                <div>
+                  <p className="text-sm font-medium">Advanced options</p>
+                  <p className="text-xs text-muted-foreground">
+                    Retrieval and output behavior controls
+                  </p>
+                </div>
+                <ChevronRight
+                  className={`h-4 w-4 text-muted-foreground transition-transform ${showAdvanced ? "rotate-90" : ""}`}
+                />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-3 px-3 pb-3 border-t border-[var(--border-subtle)]">
+              <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-panel)] p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <Label className="cursor-pointer">
+                    Structured output mode
+                  </Label>
+                  <Switch
+                    checked={useStructuredOutput}
+                    onCheckedChange={setUseStructuredOutput}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {useStructuredOutput
+                    ? "Schema-aligned extraction output."
+                    : "Annotation refinement mode output."}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-panel)] p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor="use-retrieval" className="cursor-pointer">
+                    Contextual retrieval
+                  </Label>
+                  <Switch
+                    id="use-retrieval"
+                    checked={
+                      selectedDoc?.retrieval_index_status === "completed"
+                        ? true
+                        : useRetrieval
+                    }
+                    onCheckedChange={setUseRetrieval}
+                    disabled={
+                      selectedDoc?.retrieval_index_status === "completed"
+                    }
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {selectedDoc?.retrieval_index_status === "completed" &&
+                    selectedDoc.retrieval_chunks_count &&
+                    `${selectedDoc.retrieval_chunks_count} chunks indexed`}
+                  {selectedDoc?.retrieval_index_status === "processing" &&
+                    "Indexing in progress"}
+                  {selectedDoc?.retrieval_index_status &&
+                    !["completed", "processing"].includes(
+                      selectedDoc.retrieval_index_status,
+                    ) &&
+                    "Document is not indexed yet"}
+                </p>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
 
           <Button
             onClick={runExtraction}
             disabled={!selectedDocumentId || isRunning}
-            className="gap-2"
+            className="w-full gap-2"
           >
             {isRunning ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <PlayCircle className="h-4 w-4" />
             )}
-            Run Extraction
+            {isRunning ? "Running Extraction..." : "Run Extraction"}
           </Button>
         </CardContent>
       </Card>
 
-      {selectedDoc && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Document</CardTitle>
-            <CardDescription>{selectedDoc.filename}</CardDescription>
-          </CardHeader>
-        </Card>
-      )}
-
-      <Card className="flex flex-col max-h-[1200px]">
-        <CardHeader className="flex-shrink-0">
-          <CardTitle>Extracted Fields</CardTitle>
-          <CardDescription>
-            Real extraction output from backend.
-          </CardDescription>
+      <Card className="flex flex-col min-h-[560px]">
+        <CardHeader className="border-b border-[var(--border-subtle)]">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <CardTitle>Extraction Output</CardTitle>
+              <CardDescription>
+                {selectedDoc?.filename || "Select a document to inspect output"}
+              </CardDescription>
+            </div>
+            {selectedDoc?.retrieval_index_status === "completed" && (
+              <Badge variant="outline">Retrieval Indexed</Badge>
+            )}
+          </div>
         </CardHeader>
-        <CardContent className="flex-1 overflow-y-auto min-h-0">
-          {error ? <div className="text-sm text-red-600">{error}</div> : null}
-          {!error && fields.length === 0 ? (
-            <div className="text-sm text-muted-foreground">
+        <CardContent className="flex-1 overflow-y-auto py-4">
+          {error && (
+            <div className="rounded-lg border border-[var(--status-error)]/35 bg-[var(--status-error)]/10 p-3 text-sm text-[var(--status-error)]">
+              {error}
+            </div>
+          )}
+
+          {!error && fields.length === 0 && requestsBySchema.length === 0 && (
+            <div className="h-full min-h-[320px] rounded-lg border border-dashed border-[var(--border-strong)] flex items-center justify-center text-sm text-muted-foreground">
               No extraction results yet.
             </div>
-          ) : null}
-          {fields.length > 0 ? (
-            <div className="space-y-2 pr-2 pb-4">
+          )}
+
+          {requestsBySchema.length > 0 && (
+            <div className="space-y-3 pb-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
+                  Requests by Schema
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 text-muted-foreground hover:text-foreground"
+                  onClick={clearUsageForDocument}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Clear usage
+                </Button>
+              </div>
+              {requestsBySchema.map((group) => (
+                <div
+                  key={group.schemaVersionId}
+                  className="rounded-lg border border-[var(--border-subtle)] bg-card"
+                >
+                  <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-3 py-2">
+                    <div className="text-sm font-medium">
+                      Schema {formatSchemaLabel(group.schemaVersionId)}
+                    </div>
+                    <Badge variant="outline" className="text-[10px]">
+                      {group.requests.length} request
+                      {group.requests.length === 1 ? "" : "s"}
+                    </Badge>
+                  </div>
+                  <div className="divide-y divide-[var(--border-subtle)]">
+                    {group.requests.map((request) => (
+                      <div key={request.request_id} className="px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                          <span>
+                            <span className="text-muted-foreground">
+                              Latency:
+                            </span>{" "}
+                            <span className="font-medium">
+                              {formatLatency(request.latency_ms)}
+                            </span>
+                          </span>
+                          <span>
+                            <span className="text-muted-foreground">
+                              Tokens:
+                            </span>{" "}
+                            <span className="font-medium">
+                              {formatTokens(request.total_tokens)}
+                            </span>
+                          </span>
+                          <span>
+                            <span className="text-muted-foreground">Cost:</span>{" "}
+                            <span className="font-medium">
+                              {formatCost(request.cost_usd)}
+                            </span>
+                          </span>
+                          <span className="text-muted-foreground">
+                            {formatRequestTime(request.created_at)}
+                          </span>
+                        </div>
+                        {request.cost_note && (
+                          <p className="mt-1 text-xs text-amber-700">
+                            {request.cost_note}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {fields.length > 0 && (
+            <div className="space-y-2">
               {fields.map((field) => (
                 <Collapsible
                   key={field.field_name}
                   defaultOpen={false}
                   className="group"
                 >
-                  <div className="rounded-lg border bg-card overflow-hidden">
+                  <div className="rounded-lg border border-[var(--border-subtle)] bg-card overflow-hidden">
                     <CollapsibleTrigger asChild>
-                      <button className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors text-left">
-                        <div className="flex items-center gap-2">
-                          <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-90" />
-                          <span className="font-medium text-sm">
+                      <button className="w-full flex items-center justify-between p-3 hover:bg-muted/45 transition-colors text-left">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-90 shrink-0" />
+                          <span className="font-medium text-sm truncate">
                             {field.field_name}
                           </span>
                           {typeof field.value === "object" &&
@@ -359,9 +544,9 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
                       </button>
                     </CollapsibleTrigger>
                     <CollapsibleContent>
-                      <div className="px-3 pb-3 text-sm border-t">
+                      <div className="px-3 pb-3 text-sm border-t border-[var(--border-subtle)]">
                         {typeof field.value === "object" ? (
-                          <pre className="bg-muted p-3 rounded text-xs overflow-x-auto max-h-[500px] overflow-y-auto mt-3">
+                          <pre className="bg-muted p-3 rounded text-xs overflow-x-auto max-h-[420px] overflow-y-auto mt-3">
                             {JSON.stringify(field.value, null, 2)}
                           </pre>
                         ) : (
@@ -375,7 +560,7 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
                 </Collapsible>
               ))}
             </div>
-          ) : null}
+          )}
         </CardContent>
       </Card>
     </div>

@@ -3,7 +3,8 @@
  * Renders the actual PDF and allows highlighting text to create annotations
  */
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { Document, Page, pdfjs } from "react-pdf";
 import { ZoomIn, ZoomOut, Loader2 } from "lucide-react";
 import type {
@@ -11,6 +12,7 @@ import type {
   BoundingBoxData,
   AnnotationSuggestion,
 } from "@/lib/api";
+import { BEAZLEY_PALETTE } from "@/theme/design-tokens";
 import type { EntityType } from "./TextSpanAnnotator";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -24,6 +26,10 @@ interface PdfTextAnnotatorProps {
   annotations: GroundTruthAnnotation[];
   entityTypes: EntityType[];
   activeEntityTypeId: string | null;
+  activeRowNumber?: number;
+  showTableGrid?: boolean;
+  forceFieldChooser?: boolean;
+  preferredFieldIds?: string[];
   onAnnotationCreate: (
     fieldName: string,
     value: string,
@@ -49,12 +55,28 @@ interface PendingSelection {
   rects: AnnotationRect[];
 }
 
+interface SelectionExtraction {
+  pending: PendingSelection;
+  popup: {
+    x: number;
+    y: number;
+  };
+}
+
+interface SelectionSnapshot extends SelectionExtraction {
+  capturedAt: number;
+}
+
 export function PdfTextAnnotator({
   documentId,
   pdfUrl,
   annotations,
   entityTypes,
   activeEntityTypeId,
+  activeRowNumber = 1,
+  showTableGrid = false,
+  forceFieldChooser = false,
+  preferredFieldIds = [],
   onAnnotationCreate,
   onAnnotationDelete,
   onActiveEntityChange,
@@ -66,6 +88,7 @@ export function PdfTextAnnotator({
   const [scale, setScale] = useState(1.5);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelection | null>(null);
   const [popupPosition, setPopupPosition] = useState<{
@@ -74,16 +97,30 @@ export function PdfTextAnnotator({
   } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
+  const hasAutoScrolledToAnnotationRef = useRef(false);
+  const latestSelectionRef = useRef<SelectionSnapshot | null>(null);
 
   // Get active entity type
   const activeEntityType = entityTypes.find(
     (et) => et.id === activeEntityTypeId,
   );
 
+  const popupEntityTypes = useMemo(() => {
+    if (preferredFieldIds.length === 0) return entityTypes;
+    const rank = new Map(preferredFieldIds.map((id, index) => [id, index]));
+    return [...entityTypes].sort((a, b) => {
+      const rankA = rank.has(a.id) ? rank.get(a.id)! : Number.MAX_SAFE_INTEGER;
+      const rankB = rank.has(b.id) ? rank.get(b.id)! : Number.MAX_SAFE_INTEGER;
+      if (rankA !== rankB) return rankA - rankB;
+      return a.name.localeCompare(b.name);
+    });
+  }, [entityTypes, preferredFieldIds]);
+
   // Handle PDF load success
   const onDocumentLoadSuccess = useCallback(
     ({ numPages }: { numPages: number }) => {
       setNumPages(numPages);
+      setCurrentPage(1);
       setIsLoading(false);
       setError(null);
     },
@@ -101,59 +138,191 @@ export function PdfTextAnnotator({
   const getEntityColor = useCallback(
     (fieldName: string): string => {
       const et = entityTypes.find((e) => e.name === fieldName);
-      return et?.color || "#8b949e";
+      return et?.color || BEAZLEY_PALETTE.light;
     },
     [entityTypes],
   );
 
-  // Handle text selection
-  const handleMouseUp = useCallback(
-    (e: MouseEvent) => {
-      const selection = window.getSelection();
+  const getAnnotationPage = useCallback((annotation: GroundTruthAnnotation) => {
+    const rawPage = (annotation.annotation_data as { page?: unknown })?.page;
+    const parsedPage = typeof rawPage === "number" ? rawPage : Number(rawPage);
+
+    if (!Number.isFinite(parsedPage) || parsedPage < 1) {
+      return null;
+    }
+
+    return parsedPage;
+  }, []);
+
+  const normalizeBBox = useCallback(
+    (rawData: BoundingBoxData | Record<string, unknown>) => {
+      const x = Number((rawData as { x?: unknown }).x);
+      const y = Number((rawData as { y?: unknown }).y);
+      const width = Number((rawData as { width?: unknown }).width);
+      const height = Number((rawData as { height?: unknown }).height);
+
+      if (
+        !Number.isFinite(x) ||
+        !Number.isFinite(y) ||
+        !Number.isFinite(width) ||
+        !Number.isFinite(height)
+      ) {
+        return null;
+      }
+
+      return { x, y, width, height };
+    },
+    [],
+  );
+
+  const scrollToPage = useCallback((pageNum: number) => {
+    const pageEl = containerRef.current?.querySelector(
+      `.react-pdf__Page[data-page-number="${pageNum}"]`,
+    ) as HTMLElement | null;
+    if (pageEl) {
+      pageEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      setCurrentPage(pageNum);
+    }
+  }, []);
+
+  const annotationCountsByPage = useMemo(() => {
+    const counts: Record<number, number> = {};
+    annotations
+      .filter((annotation) => annotation.annotation_type === "bbox")
+      .forEach((annotation) => {
+        const page = getAnnotationPage(annotation);
+        if (!page) return;
+        counts[page] = (counts[page] || 0) + 1;
+      });
+    return counts;
+  }, [annotations, getAnnotationPage]);
+
+  const maxPageAnnotationCount = useMemo(() => {
+    const values = Object.values(annotationCountsByPage);
+    return values.length > 0 ? Math.max(...values) : 0;
+  }, [annotationCountsByPage]);
+
+  useEffect(() => {
+    hasAutoScrolledToAnnotationRef.current = false;
+  }, [documentId]);
+
+  useEffect(() => {
+    if (
+      isLoading ||
+      numPages === 0 ||
+      hasAutoScrolledToAnnotationRef.current ||
+      annotations.length === 0
+    ) {
+      return;
+    }
+
+    const pageCounts = new Map<number, number>();
+    for (const page of annotations
+      .filter((annotation) => annotation.annotation_type === "bbox")
+      .map((annotation) => getAnnotationPage(annotation))
+      .filter((page): page is number => page !== null)) {
+      pageCounts.set(page, (pageCounts.get(page) || 0) + 1);
+    }
+
+    const targetPage = Array.from(pageCounts.entries()).sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0] - b[0];
+    })[0]?.[0];
+
+    if (!targetPage || targetPage <= 1) {
+      hasAutoScrolledToAnnotationRef.current = true;
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      scrollToPage(targetPage);
+    });
+
+    hasAutoScrolledToAnnotationRef.current = true;
+  }, [annotations, getAnnotationPage, isLoading, numPages, scrollToPage]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || numPages === 0) return;
+
+    const handleScroll = () => {
+      const pages = Array.from(
+        container.querySelectorAll(".react-pdf__Page"),
+      ) as HTMLElement[];
+      if (pages.length === 0) return;
+
+      const viewportCenter = container.getBoundingClientRect().top + 240;
+      let nearestPage = currentPage;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+
+      pages.forEach((pageElement) => {
+        const top = pageElement.getBoundingClientRect().top;
+        const distance = Math.abs(top - viewportCenter);
+        const page = Number(pageElement.dataset.pageNumber || "1");
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestPage = page;
+        }
+      });
+
+      if (nearestPage !== currentPage) {
+        setCurrentPage(nearestPage);
+      }
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll();
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+    };
+  }, [currentPage, numPages]);
+
+  const extractSelection = useCallback(
+    (selection: Selection | null): SelectionExtraction | null => {
       if (!selection || selection.isCollapsed || !selection.rangeCount) {
-        setPopupPosition(null);
-        setPendingSelection(null);
-        return;
+        return null;
       }
 
       const range = selection.getRangeAt(0);
+      const startElement =
+        range.startContainer instanceof Element
+          ? range.startContainer
+          : range.startContainer.parentElement;
+      const endElement =
+        range.endContainer instanceof Element
+          ? range.endContainer
+          : range.endContainer.parentElement;
 
-      // Find the page containing the selection
-      const startPage = (
-        range.startContainer.parentElement as HTMLElement
-      )?.closest(".react-pdf__Page");
-      const endPage = (
-        range.endContainer.parentElement as HTMLElement
-      )?.closest(".react-pdf__Page");
+      if (!startElement || !endElement) {
+        return null;
+      }
 
+      const startPage = startElement.closest(".react-pdf__Page");
+      const endPage = endElement.closest(".react-pdf__Page");
       if (!startPage || !endPage || startPage !== endPage) {
-        setPopupPosition(null);
-        setPendingSelection(null);
-        return;
+        return null;
       }
 
-      // Check if selection is in text layer
-      const textLayer = (
-        range.startContainer.parentElement as HTMLElement
-      )?.closest(".react-pdf__Page__textContent");
-      if (!textLayer) {
-        setPopupPosition(null);
-        setPendingSelection(null);
-        return;
+      if (
+        !startElement.closest(".react-pdf__Page__textContent") ||
+        !endElement.closest(".react-pdf__Page__textContent")
+      ) {
+        return null;
       }
 
-      const pageNum = parseInt(
+      const selectedText = selection.toString().trim();
+      if (!selectedText) {
+        return null;
+      }
+
+      const pageNum = Number.parseInt(
         startPage.getAttribute("data-page-number") || "1",
+        10,
       );
-      const selectedText = selection.toString();
-
-      if (!selectedText.trim()) {
-        setPopupPosition(null);
-        setPendingSelection(null);
-        return;
+      if (!Number.isFinite(pageNum) || pageNum < 1) {
+        return null;
       }
 
-      // Get rects relative to page as percentages
       const pageRect = startPage.getBoundingClientRect();
       const clientRects = range.getClientRects();
       const rects: AnnotationRect[] = [];
@@ -170,43 +339,111 @@ export function PdfTextAnnotator({
       }
 
       if (rects.length === 0) {
-        setPopupPosition(null);
-        setPendingSelection(null);
-        return;
+        return null;
       }
 
-      // If active entity type, apply directly
-      if (activeEntityTypeId && activeEntityType) {
-        const bbox: BoundingBoxData = {
-          page: pageNum,
-          x: rects[0].leftPct,
-          y: rects[0].topPct,
-          width:
-            rects.reduce((max, r) => Math.max(max, r.leftPct + r.widthPct), 0) -
-            rects[0].leftPct,
-          height:
-            rects.reduce((max, r) => Math.max(max, r.topPct + r.heightPct), 0) -
-            rects[0].topPct,
-          text: selectedText.trim(),
-        };
-        onAnnotationCreate(activeEntityType.name, selectedText.trim(), bbox);
-        selection.removeAllRanges();
-        setPopupPosition(null);
-        setPendingSelection(null);
-        return;
-      }
-
-      // Show popup to pick entity type
-      if (entityTypes.length === 0) return;
-
-      setPendingSelection({ pageNum, text: selectedText, rects });
       const rect = range.getBoundingClientRect();
-      setPopupPosition({
-        x: Math.min(rect.left, window.innerWidth - 300),
-        y: rect.bottom + 8,
+      return {
+        pending: { pageNum, text: selectedText, rects },
+        popup: {
+          x: Math.min(rect.left, window.innerWidth - 420),
+          y: rect.bottom + 8,
+        },
+      };
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const extracted = extractSelection(window.getSelection());
+      if (!extracted) return;
+      latestSelectionRef.current = {
+        ...extracted,
+        capturedAt: Date.now(),
+      };
+    };
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => {
+      document.removeEventListener("selectionchange", handleSelectionChange);
+    };
+  }, [extractSelection]);
+
+  // Handle text selection
+  const handleMouseUp = useCallback(
+    (event: MouseEvent) => {
+      const targetNode = event.target as Node | null;
+
+      // Let the browser finalize text selection before reading range rects.
+      requestAnimationFrame(() => {
+        if (targetNode && popupRef.current?.contains(targetNode)) {
+          return;
+        }
+
+        const liveSelection = extractSelection(window.getSelection());
+        const cachedSelection =
+          latestSelectionRef.current &&
+          Date.now() - latestSelectionRef.current.capturedAt <= 500
+            ? latestSelectionRef.current
+            : null;
+        const extracted = liveSelection || cachedSelection;
+
+        if (!extracted) {
+          setPopupPosition(null);
+          setPendingSelection(null);
+          latestSelectionRef.current = null;
+          return;
+        }
+
+        const {
+          pending: { pageNum, text, rects },
+          popup,
+        } = extracted;
+
+        // If active entity type and inline chooser is off, apply directly.
+        if (activeEntityTypeId && activeEntityType && !forceFieldChooser) {
+          const bbox: BoundingBoxData = {
+            page: pageNum,
+            x: rects[0].leftPct,
+            y: rects[0].topPct,
+            width:
+              rects.reduce(
+                (max, r) => Math.max(max, r.leftPct + r.widthPct),
+                0,
+              ) - rects[0].leftPct,
+            height:
+              rects.reduce(
+                (max, r) => Math.max(max, r.topPct + r.heightPct),
+                0,
+              ) - rects[0].topPct,
+            text: text,
+          };
+          onAnnotationCreate(activeEntityType.name, text, bbox);
+          window.getSelection()?.removeAllRanges();
+          setPopupPosition(null);
+          setPendingSelection(null);
+          latestSelectionRef.current = null;
+          return;
+        }
+
+        // Show popup to pick entity type
+        if (popupEntityTypes.length === 0) {
+          return;
+        }
+
+        setPendingSelection({ pageNum, text, rects });
+        setPopupPosition(popup);
       });
     },
-    [activeEntityTypeId, activeEntityType, entityTypes, onAnnotationCreate],
+    [
+      extractSelection,
+      activeEntityTypeId,
+      activeEntityType,
+      forceFieldChooser,
+      onAnnotationCreate,
+      popupEntityTypes.length,
+    ],
   );
 
   // Apply annotation from popup
@@ -235,16 +472,20 @@ export function PdfTextAnnotator({
       window.getSelection()?.removeAllRanges();
       setPopupPosition(null);
       setPendingSelection(null);
+      latestSelectionRef.current = null;
     },
     [pendingSelection, entityTypes, onAnnotationCreate],
   );
 
-  // Close popup on outside click
+  // Close popup when clicking outside both the popup and the PDF viewer (e.g. sidebar).
+  // Clicks inside the PDF area do not close the popup so labels stay visible while working in the doc.
   const handleMouseDown = useCallback((e: MouseEvent) => {
-    if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
-      setPopupPosition(null);
-      setPendingSelection(null);
-    }
+    const target = e.target as Node;
+    if (popupRef.current?.contains(target)) return;
+    if (containerRef.current?.contains(target)) return;
+    setPopupPosition(null);
+    setPendingSelection(null);
+    latestSelectionRef.current = null;
   }, []);
 
   // Keyboard shortcuts
@@ -277,6 +518,17 @@ export function PdfTextAnnotator({
         setPopupPosition(null);
         setPendingSelection(null);
         window.getSelection()?.removeAllRanges();
+        latestSelectionRef.current = null;
+      }
+
+      // Enter confirms pending popup selection.
+      if (e.key === "Enter" && pendingSelection) {
+        const targetEntityId =
+          activeEntityTypeId || popupEntityTypes[0]?.id || null;
+        if (targetEntityId) {
+          applyFromPopup(targetEntityId);
+          e.preventDefault();
+        }
       }
 
       // Delete/Backspace to remove last annotation
@@ -303,12 +555,13 @@ export function PdfTextAnnotator({
     };
 
     document.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("mouseup", handleMouseUp);
+    // Use capture so PDF.js/React handlers cannot swallow the event before we process selection.
+    document.addEventListener("mouseup", handleMouseUp, true);
     document.addEventListener("mousedown", handleMouseDown);
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("mouseup", handleMouseUp, true);
       document.removeEventListener("mousedown", handleMouseDown);
     };
   }, [
@@ -319,25 +572,33 @@ export function PdfTextAnnotator({
     onAnnotationDelete,
     handleMouseUp,
     handleMouseDown,
+    applyFromPopup,
+    pendingSelection,
+    popupEntityTypes,
   ]);
 
   // Render annotation highlights on a page
   const renderAnnotationHighlights = (pageNum: number) => {
     const pageAnnotations = annotations.filter(
-      (a) =>
-        a.annotation_type === "bbox" &&
-        (a.annotation_data as BoundingBoxData).page === pageNum,
+      (a) => a.annotation_type === "bbox" && getAnnotationPage(a) === pageNum,
     );
 
     return pageAnnotations.map((ann) => {
-      const bbox = ann.annotation_data as BoundingBoxData;
+      const bboxData = ann.annotation_data as BoundingBoxData;
+      const bbox = normalizeBBox(bboxData);
+      if (!bbox) return null;
       const color = getEntityColor(ann.field_name);
+      const label = ann.field_name.split(".").pop() || ann.field_name;
 
       // Build tooltip with row number if available
-      const instanceNum = bbox.instance_num;
-      const tooltipText = instanceNum
-        ? `Row ${instanceNum} | ${ann.field_name}: "${bbox.text || ann.value}"\nClick to delete`
-        : `${ann.field_name}: "${bbox.text || ann.value}"\nClick to delete`;
+      const instanceNum = Number(
+        (bboxData as { instance_num?: number | string }).instance_num,
+      );
+      const hasRow = Number.isFinite(instanceNum);
+      const isActiveRow = hasRow && instanceNum === activeRowNumber;
+      const tooltipText = hasRow
+        ? `Row ${instanceNum} | Field ${ann.field_name} | "${bboxData.text || ann.value}"\nClick to delete`
+        : `Field ${ann.field_name} | "${bboxData.text || ann.value}"\nClick to delete`;
 
       return (
         <div
@@ -349,90 +610,84 @@ export function PdfTextAnnotator({
             top: `${bbox.y}%`,
             width: `${bbox.width}%`,
             height: `${bbox.height}%`,
-            backgroundColor: `${color}40`,
-            borderBottom: `2px solid ${color}`,
-            borderRadius: "2px",
+            backgroundColor: isActiveRow ? `${color}66` : `${color}33`,
+            border: `1.5px solid ${color}`,
+            borderRadius: "3px",
+            boxShadow: isActiveRow ? `0 0 0 1.5px ${color}80` : undefined,
           }}
           onClick={() => onAnnotationDelete(ann.id)}
           title={tooltipText}
-        />
+        >
+          {hasRow && (
+            <div
+              className={`dl-row-margin-badge ${isActiveRow ? "active" : ""}`}
+              style={{
+                borderColor: color,
+                color: isActiveRow ? BEAZLEY_PALETTE.dark : color,
+                background: isActiveRow ? color : "#ffffff",
+              }}
+            >
+              {instanceNum}
+            </div>
+          )}
+          <div
+            className="dl-overlay-label"
+            style={{ background: color, color: BEAZLEY_PALETTE.dark }}
+          >
+            {label}
+            {hasRow ? ` #${instanceNum}` : ""}
+          </div>
+        </div>
       );
     });
   };
 
   // Render suggestion overlays on a page
   const renderSuggestionOverlays = (pageNum: number) => {
-    const pageSuggestions = suggestions.filter(
-      (s) =>
-        s.annotation_type === "bbox" &&
-        (s.annotation_data as BoundingBoxData).page === pageNum,
-    );
+    const pageSuggestions = suggestions.filter((s) => {
+      if (s.annotation_type !== "bbox") return false;
+      const rawPage = (s.annotation_data as { page?: unknown })?.page;
+      const parsedPage =
+        typeof rawPage === "number" ? rawPage : Number(rawPage);
+      return Number.isFinite(parsedPage) && parsedPage === pageNum;
+    });
 
     return pageSuggestions.map((suggestion) => {
-      const bbox = suggestion.annotation_data as BoundingBoxData;
+      const bbox = normalizeBBox(suggestion.annotation_data as BoundingBoxData);
+      if (!bbox) return null;
       const label =
         suggestion.field_name.split(".").pop() || suggestion.field_name;
 
       return (
         <div
           key={suggestion.id}
-          className="absolute pointer-events-auto group"
+          className="absolute pointer-events-auto group dl-suggestion-box"
           style={{
             left: `${bbox.x}%`,
             top: `${bbox.y}%`,
             width: `${bbox.width}%`,
             height: `${bbox.height}%`,
-            backgroundColor: "rgba(240, 136, 62, 0.15)",
-            border: "2px dashed #f0883e",
-            borderRadius: "2px",
           }}
-          title={`AI suggestion: ${suggestion.field_name}\n"${suggestion.value}"`}
+          title={`AI suggestion (${Math.round((suggestion.confidence || 0) * 100)}%): ${suggestion.field_name}\n"${suggestion.value}"`}
         >
           {/* Label tag */}
-          <div
-            style={{
-              position: "absolute",
-              top: "-18px",
-              left: 0,
-              background: "#f0883e",
-              color: "#0d1117",
-              fontSize: "9px",
-              fontWeight: 700,
-              padding: "1px 4px",
-              borderRadius: "3px",
-              whiteSpace: "nowrap",
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-            }}
-          >
+          <div className="dl-overlay-label dl-suggestion-label">
             ✦ {label}
+            <span className="dl-suggestion-confidence">
+              {Math.round((suggestion.confidence || 0) * 100)}%
+            </span>
             <button
+              type="button"
               onClick={() => onSuggestionApprove?.(suggestion)}
-              style={{
-                background: "#238636",
-                border: "none",
-                color: "#fff",
-                borderRadius: "2px",
-                padding: "0 3px",
-                cursor: "pointer",
-                fontSize: "9px",
-              }}
+              className="dl-popup-action approve"
               title="Approve"
             >
               ✓
             </button>
             <button
+              type="button"
               onClick={() => onSuggestionReject?.(suggestion.id)}
-              style={{
-                background: "#f85149",
-                border: "none",
-                color: "#fff",
-                borderRadius: "2px",
-                padding: "0 3px",
-                cursor: "pointer",
-                fontSize: "9px",
-              }}
+              className="dl-popup-action reject"
               title="Reject"
             >
               ✕
@@ -444,16 +699,10 @@ export function PdfTextAnnotator({
   };
 
   return (
-    <div className="flex flex-col h-full" style={{ background: "#0d1117" }}>
+    <div className="dl-viewer flex h-full min-h-0 flex-col">
       {/* Toolbar */}
-      <div
-        className="flex items-center justify-between px-5 py-2 border-b"
-        style={{ borderColor: "#30363d", background: "#161b22" }}
-      >
-        <div
-          className="flex items-center gap-2 text-sm"
-          style={{ color: "#8b949e" }}
-        >
+      <div className="dl-toolbar justify-between">
+        <div className="dl-toolbar-info flex items-center gap-2">
           {activeEntityType ? (
             <>
               <span
@@ -461,11 +710,8 @@ export function PdfTextAnnotator({
                 style={{ background: activeEntityType.color }}
               />
               <span>
-                Labelling as{" "}
-                <strong style={{ color: "#c9d1d9" }}>
-                  {activeEntityType.name}
-                </strong>{" "}
-                — highlight text to annotate
+                Labelling as <strong>{activeEntityType.name}</strong> —
+                highlight text to annotate
               </span>
             </>
           ) : entityTypes.length === 0 ? (
@@ -473,21 +719,21 @@ export function PdfTextAnnotator({
           ) : (
             <span>Select an entity type, then highlight text to label it</span>
           )}
+          <span className="dl-viewer-hint">
+            Page {numPages === 0 ? "—" : `${currentPage}/${numPages}`}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <button
+            type="button"
             className="dl-btn dl-btn-sm"
             onClick={() => setScale((s) => Math.max(0.5, s - 0.25))}
           >
             <ZoomOut size={14} />
           </button>
-          <span
-            className="text-sm font-mono"
-            style={{ color: "#8b949e", minWidth: "50px", textAlign: "center" }}
-          >
-            {Math.round(scale * 100)}%
-          </span>
+          <span className="dl-zoom-value">{Math.round(scale * 100)}%</span>
           <button
+            type="button"
             className="dl-btn dl-btn-sm"
             onClick={() => setScale((s) => Math.min(4.0, s + 0.25))}
           >
@@ -497,150 +743,193 @@ export function PdfTextAnnotator({
       </div>
 
       {/* PDF Viewer */}
-      <div
-        ref={containerRef}
-        className="flex-1 overflow-auto"
-        style={{ background: "#0d1117" }}
-      >
-        <Document
-          file={pdfUrl}
-          onLoadSuccess={onDocumentLoadSuccess}
-          onLoadError={onDocumentLoadError}
-          loading={
-            <div
-              className="flex flex-col items-center justify-center h-96 gap-3"
-              style={{ color: "#8b949e" }}
-            >
-              <Loader2
-                className="h-8 w-8 animate-spin"
-                style={{ color: "#58a6ff" }}
-              />
-              <span>Loading PDF...</span>
-            </div>
-          }
-          error={
-            <div className="flex flex-col items-center justify-center h-96 gap-3">
-              <span style={{ fontSize: "48px", opacity: 0.3 }}>⚠️</span>
-              <span style={{ color: "#f85149" }}>Failed to load PDF</span>
-              <span style={{ color: "#484f58", fontSize: "12px" }}>
-                {error}
-              </span>
-            </div>
-          }
-        >
-          <div className="flex flex-col items-center gap-4 p-6">
-            {Array.from(new Array(numPages), (_, index) => (
-              <div
-                key={`page_${index + 1}`}
-                className="relative"
-                style={{
-                  background: "#fff",
-                  boxShadow: "0 2px 12px rgba(0,0,0,0.5)",
-                }}
-              >
-                <Page
-                  pageNumber={index + 1}
-                  scale={scale}
-                  renderTextLayer={true}
-                  renderAnnotationLayer={false}
-                />
-
-                {/* Annotation overlay */}
-                <div
-                  className="absolute inset-0 pointer-events-none overflow-hidden"
-                  style={{ zIndex: 10 }}
-                >
-                  {renderAnnotationHighlights(index + 1)}
-                </div>
-
-                {/* Suggestion overlay */}
-                <div
-                  className="absolute inset-0 overflow-visible"
-                  style={{ zIndex: 11, pointerEvents: "none" }}
-                >
-                  <div
-                    style={{
-                      position: "relative",
-                      width: "100%",
-                      height: "100%",
-                      pointerEvents: "none",
-                    }}
-                  >
-                    {renderSuggestionOverlays(index + 1)}
-                  </div>
-                </div>
-
-                {/* Page label */}
-                <div
-                  className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs whitespace-nowrap"
-                  style={{ color: "#484f58" }}
-                >
-                  Page {index + 1} of {numPages}
-                </div>
-              </div>
-            ))}
+      <Document
+        file={pdfUrl}
+        className="flex min-h-0 flex-1 overflow-hidden"
+        onLoadSuccess={onDocumentLoadSuccess}
+        onLoadError={onDocumentLoadError}
+        loading={
+          <div className="dl-viewer-loading flex h-96 flex-col items-center justify-center gap-3">
+            <Loader2 className="dl-accent-icon h-8 w-8 animate-spin" />
+            <span>Loading PDF...</span>
           </div>
-        </Document>
-      </div>
-
-      {/* Entity type popup */}
-      {popupPosition && entityTypes.length > 0 && (
-        <div
-          ref={popupRef}
-          className="dl-annotation-popup visible"
-          style={{
-            left: `${popupPosition.x}px`,
-            top: `${popupPosition.y}px`,
-          }}
-        >
-          {(() => {
-            // Group entity types by parent
-            const grouped: Record<string, typeof entityTypes> = {};
-            entityTypes.forEach((et) => {
-              const parts = et.name.split(".");
-              const parent = parts.length > 1 ? parts[0] : "_root";
-              if (!grouped[parent]) grouped[parent] = [];
-              grouped[parent].push(et);
-            });
-
-            return Object.entries(grouped).map(([parent, types]) => (
-              <div key={parent}>
-                {parent !== "_root" && (
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      color: "#8b949e",
-                      fontWeight: 600,
-                      padding: "4px 8px",
-                      borderBottom: "1px solid #21262d",
-                      marginTop: "4px",
-                    }}
+        }
+        error={
+          <div className="flex flex-col items-center justify-center h-96 gap-3">
+            <span className="text-5xl opacity-30">⚠️</span>
+            <span className="dl-viewer-error">Failed to load PDF</span>
+            <span className="dl-viewer-error-muted text-xs">{error}</span>
+          </div>
+        }
+      >
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <aside className="dl-page-nav flex flex-col w-[100px] lg:w-[130px] shrink-0 border-r border-[var(--dl-border)] bg-[var(--dl-bg-secondary)]">
+            <div className="dl-page-nav-scroll flex-1 space-y-2 overflow-y-auto p-2">
+              {Array.from(new Array(numPages), (_, index) => {
+                const pageNum = index + 1;
+                const count = annotationCountsByPage[pageNum] || 0;
+                const intensity =
+                  maxPageAnnotationCount > 0
+                    ? count / maxPageAnnotationCount
+                    : 0;
+                return (
+                  <button
+                    key={`nav-page-${pageNum}`}
+                    type="button"
+                    className={`dl-page-nav-item ${currentPage === pageNum ? "active" : ""}`}
+                    onClick={() => scrollToPage(pageNum)}
                   >
-                    {parent}
-                  </div>
-                )}
-                {types.map((et) => {
-                  const displayName = et.name.split(".").pop() || et.name;
+                    <div className="dl-page-thumb">
+                      <Page
+                        pageNumber={pageNum}
+                        width={78}
+                        renderTextLayer={false}
+                        renderAnnotationLayer={false}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-[var(--dl-text-muted)]">
+                      <span>P{pageNum}</span>
+                      <span
+                        className="rounded-full px-1.5 py-0.5"
+                        style={{
+                          backgroundColor:
+                            count > 0
+                              ? `rgba(217, 26, 166, ${0.18 + intensity * 0.5})`
+                              : "transparent",
+                        }}
+                      >
+                        {count}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="border-t border-[var(--dl-border)] p-2">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.05em] text-[var(--dl-text-subtle)]">
+                Annotation Heatmap
+              </div>
+              <div className="flex gap-1">
+                {Array.from(new Array(numPages), (_, index) => {
+                  const pageNum = index + 1;
+                  const count = annotationCountsByPage[pageNum] || 0;
+                  const intensity =
+                    maxPageAnnotationCount > 0
+                      ? count / maxPageAnnotationCount
+                      : 0;
                   return (
                     <button
-                      key={et.id}
-                      className="dl-popup-entity-btn"
+                      key={`heat-${pageNum}`}
+                      type="button"
+                      className="h-6 flex-1 rounded-sm border border-[var(--dl-border)] transition-transform hover:-translate-y-px"
                       style={{
-                        background: `${et.color}30`,
-                        color: et.color,
-                        borderColor: `${et.color}40`,
+                        backgroundColor:
+                          count > 0
+                            ? `rgba(217, 26, 166, ${0.12 + intensity * 0.55})`
+                            : "rgba(79, 2, 89, 0.06)",
                       }}
-                      onClick={() => applyFromPopup(et.id)}
-                    >
-                      {displayName}
-                    </button>
+                      title={`Page ${pageNum}: ${count} annotation${count === 1 ? "" : "s"}`}
+                      onClick={() => scrollToPage(pageNum)}
+                    />
                   );
                 })}
               </div>
-            ));
-          })()}
+            </div>
+          </aside>
+
+          <div ref={containerRef} className="dl-viewer flex-1 overflow-auto">
+            <div className="flex flex-col items-center gap-4 p-6">
+              {Array.from(new Array(numPages), (_, index) => (
+                <div
+                  key={`page_${index + 1}`}
+                  className="relative dl-viewer-surface"
+                >
+                  <Page
+                    pageNumber={index + 1}
+                    scale={scale}
+                    renderTextLayer={true}
+                    renderAnnotationLayer={false}
+                  />
+
+                  {showTableGrid && (
+                    <div className="dl-table-grid-overlay absolute inset-0 z-[9] pointer-events-none" />
+                  )}
+
+                  {/* Annotation overlay */}
+                  <div className="absolute inset-0 z-10 pointer-events-none overflow-visible">
+                    {renderAnnotationHighlights(index + 1)}
+                  </div>
+
+                  {/* Suggestion overlay */}
+                  <div className="absolute inset-0 z-[11] pointer-events-none overflow-visible">
+                    <div className="relative h-full w-full pointer-events-none">
+                      {renderSuggestionOverlays(index + 1)}
+                    </div>
+                  </div>
+
+                  {/* Page label */}
+                  <div className="dl-viewer-page-label absolute right-3 top-3 z-20 whitespace-nowrap">
+                    Page {index + 1} of {numPages}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      )}
+      </Document>
+
+      {/* Entity type popup — portaled to body so position:fixed is viewport-stable regardless of hover area */}
+      {popupPosition &&
+        popupEntityTypes.length > 0 &&
+        createPortal(
+          <div
+            ref={popupRef}
+            className="dl-annotation-popup visible"
+            style={{
+              left: `${popupPosition.x}px`,
+              top: `${popupPosition.y}px`,
+            }}
+          >
+            {(() => {
+              const grouped: Record<string, typeof popupEntityTypes> = {};
+              popupEntityTypes.forEach((et) => {
+                const parts = et.name.split(".");
+                const parent = parts.length > 1 ? parts[0] : "_root";
+                if (!grouped[parent]) grouped[parent] = [];
+                grouped[parent].push(et);
+              });
+              return Object.entries(grouped).map(([parent, types]) => (
+                <div key={parent} className="dl-popup-group">
+                  {parent !== "_root" && (
+                    <div className="dl-popup-group-title">{parent}</div>
+                  )}
+                  <div className="dl-popup-group-buttons">
+                    {types.map((et) => {
+                      const displayName = et.name.split(".").pop() || et.name;
+                      return (
+                        <button
+                          key={et.id}
+                          type="button"
+                          className="dl-popup-entity-btn"
+                          style={{
+                            /* Opaque tint so button text is readable over document */
+                            background: `${et.color}E6`,
+                            color: "#ffffff",
+                            border: `1px solid ${et.color}99`,
+                          }}
+                          onClick={() => applyFromPopup(et.id)}
+                        >
+                          {displayName}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

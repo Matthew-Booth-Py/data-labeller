@@ -23,3 +23,24 @@ export type BeazleyPaletteKey = keyof typeof BEAZLEY_PALETTE;
 
 /** Array of palette hex values for charts and gradients (pink, purple, dark, plum, light). */
 export const BEAZLEY_PALETTE_ARRAY = Object.values(BEAZLEY_PALETTE);
+
+/**
+ * Semantic tokens for the default brand-light application experience.
+ * These values are consumed by CSS custom properties in client/src/index.css.
+ */
+export const BEAZLEY_SEMANTIC_TOKENS = {
+  surfacePage: "#F8F4F8",
+  surfacePanel: "#FFFFFF",
+  surfaceElevated: "#FBF9FB",
+  textPrimary: "#2D0833",
+  textSecondary: "#5F4464",
+  interactivePrimary: BEAZLEY_PALETTE.purple,
+  interactivePrimaryHover: BEAZLEY_PALETTE.dark,
+  interactiveAccent: BEAZLEY_PALETTE.pink,
+  interactiveAccentHover: BEAZLEY_PALETTE.plum,
+  borderStrong: "#D7CDD9",
+  borderSubtle: "#E9E1EB",
+  statusSuccess: "#0E9F6E",
+  statusWarn: "#C27803",
+  statusError: "#D1344B",
+} as const;
