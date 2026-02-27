@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useState } from "react";
 
 export function APIManagement() {
+  const apiKeysEnabled = false;
   const [backgroundProcessing, setBackgroundProcessing] = useState<
     Record<string, boolean>
   >({});
@@ -31,9 +32,9 @@ export function APIManagement() {
             Manage keys specifically for this project's extraction pipeline.
           </p>
         </div>
-        <Button className="gap-2 shrink-0">
+        <Button className="gap-2 shrink-0" variant="secondary" disabled>
           <Plus className="h-4 w-4" />
-          Create New Key
+          Create New Key (Coming Soon)
         </Button>
       </div>
 
@@ -62,6 +63,7 @@ export function APIManagement() {
                         variant="ghost"
                         size="icon"
                         className="h-4 w-4 shrink-0"
+                        disabled={!apiKeysEnabled}
                       >
                         <Copy className="h-3 w-3" />
                       </Button>
@@ -85,6 +87,7 @@ export function APIManagement() {
                         onCheckedChange={(checked) =>
                           toggleProcessing(key.id, checked)
                         }
+                        disabled={!apiKeysEnabled}
                       />
                     </div>
                   </div>
@@ -92,6 +95,7 @@ export function APIManagement() {
                     variant="ghost"
                     size="icon"
                     className="text-muted-foreground hover:text-destructive shrink-0"
+                    disabled={!apiKeysEnabled}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -113,6 +117,7 @@ export function APIManagement() {
                       size="sm"
                       variant="outline"
                       className="border-primary/30 text-primary shrink-0"
+                      disabled={!apiKeysEnabled}
                     >
                       Test
                     </Button>
@@ -130,7 +135,8 @@ export function APIManagement() {
           <Card className="border-muted bg-[var(--surface-panel)] min-w-0">
             <CardContent className="p-4 text-sm text-muted-foreground break-words">
               API key storage is not yet wired to backend persistence. No
-              synthetic keys are shown.
+              synthetic keys are shown, and key actions remain disabled until
+              persistence is enabled.
             </CardContent>
           </Card>
         )}

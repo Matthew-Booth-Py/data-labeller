@@ -76,8 +76,8 @@ export default function Dashboard() {
         </Button>
       }
     >
-      <div className="space-y-6">
-        <Card className="border-primary/20 bg-gradient-to-r from-primary to-[var(--interactive-primary-hover)] text-primary-foreground">
+      <div className="space-y-7">
+        <Card className="border-primary/20 bg-gradient-to-r from-primary to-[var(--interactive-primary-hover)] text-primary-foreground shadow-[0_10px_24px_rgba(56,1,64,0.2)]">
           <CardContent className="py-8 px-6 md:px-8">
             <div className="max-w-3xl space-y-3">
               <p className="text-xs tracking-[0.18em] uppercase text-primary-foreground/80">
@@ -99,7 +99,13 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
+              Platform Snapshot
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Documents in System</CardDescription>
@@ -158,7 +164,8 @@ export default function Dashboard() {
               </Badge>
             </CardContent>
           </Card>
-        </div>
+          </div>
+        </section>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <Card className="xl:col-span-2">
@@ -199,7 +206,7 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="space-y-2">
               <Button
-                variant="outline"
+                variant="secondary"
                 className="w-full justify-between"
                 onClick={() => setLocation("/projects/new")}
               >
@@ -207,7 +214,7 @@ export default function Dashboard() {
                 <ArrowRight className="h-4 w-4" />
               </Button>
               <Button
-                variant="outline"
+                variant="quiet"
                 className="w-full justify-between"
                 onClick={() => setLocation("/fields-library")}
               >
@@ -215,7 +222,7 @@ export default function Dashboard() {
                 <ArrowRight className="h-4 w-4" />
               </Button>
               <Button
-                variant="outline"
+                variant="quiet"
                 className="w-full justify-between"
                 onClick={() => setLocation("/settings")}
               >
@@ -237,15 +244,23 @@ export default function Dashboard() {
           <CardContent className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {projects.length === 0 ? (
               <div className="col-span-full rounded-lg border border-dashed border-[var(--border-strong)] p-8 text-center text-muted-foreground">
-                No projects yet. Create your first project to start ingestion
-                and schema work.
+                <p>No projects yet. Create your first project to start ingestion and schema work.</p>
+                <div className="mt-4">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setLocation("/projects/new")}
+                  >
+                    Create Project
+                  </Button>
+                </div>
               </div>
             ) : (
               projects.map((project) => (
                 <button
                   key={project.id}
                   type="button"
-                  className="text-left rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-4 hover:border-primary/40 hover:bg-white transition-colors"
+                  className="text-left rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-4 hover:border-primary/40 hover:bg-white transition-colors hover-elevate"
                   onClick={() => setLocation(`/project/${project.id}`)}
                 >
                   <p className="font-medium">{project.name}</p>

@@ -245,9 +245,14 @@ export default function ProjectWorkspace() {
           onValueChange={handleTabChange}
           className="flex-1 flex flex-col overflow-hidden"
         >
-          <div className="border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]/90 backdrop-blur supports-[backdrop-filter]:bg-[var(--surface-elevated)]/75">
+          <div className="sticky top-0 z-20 border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]/95 shadow-[0_1px_0_rgba(56,1,64,0.08)] backdrop-blur supports-[backdrop-filter]:bg-[var(--surface-elevated)]/80">
             <div className="w-full lg:max-w-[80vw] mx-auto px-4 md:px-8">
-              <TabsList className="w-full justify-start bg-transparent border-0 p-0 py-3 gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap">
+              <div className="pt-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
+                  Project Modules
+                </p>
+              </div>
+              <TabsList className="w-full justify-start bg-transparent border-0 p-0 py-2.5 gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap">
                 {WORKSPACE_TABS.map((tabId) => {
                   const tabMeta = WORKSPACE_TAB_META[tabId];
                   const Icon = tabMeta.icon;
@@ -257,7 +262,7 @@ export default function ProjectWorkspace() {
                       key={tabId}
                       value={tabId}
                       className={cn(
-                        "h-9 px-3.5 gap-2 text-xs md:text-sm",
+                        "h-10 px-3.5 gap-2 text-xs md:text-sm",
                         tabMeta.className,
                       )}
                     >

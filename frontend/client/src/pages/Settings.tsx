@@ -528,6 +528,11 @@ export default function Settings() {
       pageDescription="Manage global LLM and extraction runtime configuration."
       showProjectRail
     >
+      <div className="mb-4">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
+          Configuration Domains
+        </h2>
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-6">
         <aside className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-panel)] p-3 h-fit">
           <h2 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2">
@@ -535,7 +540,7 @@ export default function Settings() {
           </h2>
           <div className="space-y-1">
             <Button
-              variant={activeTab === "llm" ? "primary" : "quiet"}
+              variant={activeTab === "llm" ? "secondary" : "quiet"}
               className="w-full justify-start gap-2"
               onClick={() => setActiveTab("llm")}
             >
@@ -543,7 +548,7 @@ export default function Settings() {
               LLM Configuration
             </Button>
             <Button
-              variant={activeTab === "engines" ? "primary" : "quiet"}
+              variant={activeTab === "engines" ? "secondary" : "quiet"}
               className="w-full justify-start gap-2"
               onClick={() => setActiveTab("engines")}
             >
@@ -551,7 +556,7 @@ export default function Settings() {
               Extraction Engines
             </Button>
             <Button
-              variant={activeTab === "workspace" ? "primary" : "quiet"}
+              variant={activeTab === "workspace" ? "secondary" : "quiet"}
               className="w-full justify-start gap-2"
               onClick={() => setActiveTab("workspace")}
             >
@@ -634,6 +639,9 @@ export default function Settings() {
                     Configure Engine
                     <ExternalLink className="h-4 w-4" />
                   </Button>
+                  <p className="mt-2 text-xs text-[var(--text-secondary)]">
+                    Action disabled until backend engine profiles are available.
+                  </p>
                 </div>
               </CardContent>
             </Card>

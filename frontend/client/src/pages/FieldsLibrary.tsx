@@ -226,6 +226,13 @@ export default function FieldsLibrary() {
       }
     >
       <div className="space-y-8">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
+            Field Catalog
+          </h2>
+          <Badge variant="outline">{filteredFields.length} visible</Badge>
+        </div>
+
         <div className="flex items-center gap-2 mb-2 max-w-md">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -248,7 +255,12 @@ export default function FieldsLibrary() {
                 {filteredFields.length} fields defined
               </p>
             </div>
-            <Button size="sm" className="gap-2" onClick={openCreateDialog}>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="gap-2"
+              onClick={openCreateDialog}
+            >
               <Plus className="h-4 w-4" /> Add Field
             </Button>
           </div>
@@ -267,7 +279,7 @@ export default function FieldsLibrary() {
               filteredFields.map((field) => (
                 <div
                   key={field.id}
-                  className="flex flex-col rounded-lg border bg-card shadow-sm hover:shadow-md hover:border-accent/40 transition-all overflow-hidden group"
+                  className="flex flex-col rounded-lg border bg-card shadow-sm hover:shadow-md hover:border-accent/40 transition-all overflow-hidden group hover-elevate"
                 >
                   <div className="flex items-center gap-3 p-3 bg-card border-b">
                     <div className="cursor-grab text-muted-foreground/30 hover:text-muted-foreground">
@@ -352,8 +364,8 @@ export default function FieldsLibrary() {
             )}
 
             <Button
-              variant="outline"
-              className="w-full border-dashed border-muted-foreground/20 text-muted-foreground hover:border-accent hover:text-accent h-12"
+              variant="quiet"
+              className="w-full border border-dashed border-[var(--border-strong)] text-[var(--text-secondary)] hover:border-accent h-12"
               onClick={openCreateDialog}
             >
               <Plus className="h-4 w-4 mr-2" /> Add Another Field
@@ -391,7 +403,7 @@ export default function FieldsLibrary() {
                 />
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="secondary"
                   onClick={suggestField}
                   disabled={!aiFieldInput.trim() || isSuggesting}
                 >

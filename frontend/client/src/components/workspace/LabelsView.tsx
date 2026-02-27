@@ -204,30 +204,36 @@ export function LabelsView() {
 
   return (
     <div className="space-y-6">
+      <div>
+        <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
+          Label Analytics
+        </h2>
+      </div>
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total Annotations</CardDescription>
-            <CardTitle className="text-3xl">{stats.totalAnnotations}</CardTitle>
+            <CardTitle className="text-2xl">{stats.totalAnnotations}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Documents Labeled</CardDescription>
-            <CardTitle className="text-3xl">{stats.totalDocuments}</CardTitle>
+            <CardTitle className="text-2xl">{stats.totalDocuments}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Unique Fields</CardDescription>
-            <CardTitle className="text-3xl">{stats.totalFields}</CardTitle>
+            <CardTitle className="text-2xl">{stats.totalFields}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Manual Labels</CardDescription>
-            <CardTitle className="text-3xl">
+            <CardTitle className="text-2xl">
               {stats.annotationsByLabeler.manual || 0}
             </CardTitle>
           </CardHeader>
@@ -244,7 +250,7 @@ export function LabelsView() {
                 View and export all annotations across your project
               </CardDescription>
             </div>
-            <Button onClick={handleExportCSV} variant="outline" size="sm">
+            <Button onClick={handleExportCSV} variant="secondary" size="sm">
               <Download className="h-4 w-4 mr-2" />
               Export CSV
             </Button>
@@ -302,9 +308,9 @@ export function LabelsView() {
           </div>
 
           {/* Table */}
-          <div className="border rounded-lg">
+          <div className="border rounded-lg overflow-auto">
             <Table>
-              <TableHeader>
+              <TableHeader sticky>
                 <TableRow>
                   <TableHead>Document</TableHead>
                   <TableHead>Field Name</TableHead>

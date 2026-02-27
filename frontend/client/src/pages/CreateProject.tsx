@@ -82,9 +82,12 @@ export default function CreateProject() {
           </CardHeader>
 
           <CardContent className="space-y-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
+              Project Setup
+            </p>
             <div className="space-y-2">
               <Label htmlFor="name" className="text-sm font-medium">
-                Project Name <span className="text-red-500">*</span>
+                Project Name <span className="text-[var(--status-error)]">*</span>
               </Label>
               <Input
                 id="name"

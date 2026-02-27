@@ -30,6 +30,7 @@ import {
   Image,
   Copy,
   ChevronDown,
+  ChevronRight,
   Sparkles,
   Trash2,
   Search,
@@ -48,6 +49,11 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { formatAnnotationValue, cn } from "@/lib/utils";
 import { BEAZLEY_PALETTE } from "@/theme/design-tokens";
 
@@ -1508,137 +1514,157 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
                         )}
                       </div>
 
-                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
-                        <div className="mb-2 flex items-center justify-between">
-                          <p className="text-sm font-medium">
-                            Row Template Fields
-                          </p>
-                          <Badge variant="outline">
-                            {effectiveTemplateFields.length}
-                          </Badge>
-                        </div>
-                        {rowAwareFieldNames.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">
-                            No row-based fields found in the active schema.
-                          </p>
-                        ) : (
-                          <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
-                            {activeGroupFieldNames.map((field) => {
-                              const selected =
-                                selectedTemplateFields.includes(field);
-                              return (
-                                <button
-                                  key={field}
-                                  type="button"
-                                  onClick={() =>
-                                    setSelectedTemplateFields((prev) =>
-                                      prev.includes(field)
-                                        ? prev.filter(
-                                            (entry) => entry !== field,
-                                          )
-                                        : [...prev, field],
-                                    )
-                                  }
-                                  className={cn(
-                                    "flex w-full items-center justify-between rounded-md border px-2 py-1 text-xs",
-                                    selected
-                                      ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
-                                      : "border-[var(--border-subtle)] bg-white",
-                                  )}
-                                >
-                                  <span>{getFieldLeafName(field)}</span>
-                                  {selected ? (
-                                    <Check size={13} />
-                                  ) : (
-                                    <X size={13} />
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3">
-                        <p className="mb-2 text-sm font-medium">
-                          Field Completion
-                        </p>
-                        {effectiveTemplateFields.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">
-                            Select at least one row-template field to track
-                            progress.
-                          </p>
-                        ) : (
-                          <div className="space-y-2">
-                            {rowCompletionRows.map((row) => {
-                              const done = effectiveTemplateFields.filter(
-                                (field) => rowFieldStatus[row]?.has(field),
-                              ).length;
-                              const progress = Math.round(
-                                (done / effectiveTemplateFields.length) * 100,
-                              );
-                              return (
-                                <div
-                                  key={row}
-                                  className={cn(
-                                    "rounded-md border px-2 py-2",
-                                    row === activeInstanceNum
-                                      ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
-                                      : "border-[var(--border-subtle)] bg-white",
-                                  )}
-                                >
-                                  <div className="flex items-center justify-between text-xs">
-                                    <span className="font-medium">
-                                      Row {row}
-                                    </span>
-                                    <span>
-                                      {done}/{effectiveTemplateFields.length}
-                                    </span>
-                                  </div>
-                                  <div className="mt-1.5 h-1.5 rounded-full bg-[var(--surface-page)]">
-                                    <div
-                                      className="h-full rounded-full bg-[var(--interactive-accent)] transition-all"
-                                      style={{ width: `${progress}%` }}
-                                    />
-                                  </div>
-                                  <div className="mt-2 flex flex-wrap gap-1">
-                                    {effectiveTemplateFields
-                                      .slice(0, 4)
-                                      .map((field) => {
-                                        const isComplete =
-                                          !!rowFieldStatus[row]?.has(field);
-                                        return (
-                                          <span
-                                            key={`${row}-${field}`}
-                                            className={cn(
-                                              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]",
-                                              isComplete
-                                                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                                                : "border-rose-200 bg-rose-50 text-rose-700",
-                                            )}
-                                          >
-                                            {isComplete ? (
-                                              <Check size={10} />
-                                            ) : (
-                                              <X size={10} />
-                                            )}
-                                            {getFieldLeafName(field)}
-                                          </span>
-                                        );
-                                      })}
-                                    {effectiveTemplateFields.length > 4 && (
-                                      <span className="inline-flex items-center rounded-full border border-[var(--border-subtle)] px-2 py-0.5 text-[10px] text-muted-foreground">
-                                        +{effectiveTemplateFields.length - 4}{" "}
-                                        more
-                                      </span>
+                      <Collapsible
+                        defaultOpen={false}
+                        className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)]"
+                      >
+                        <CollapsibleTrigger asChild>
+                          <button
+                            type="button"
+                            className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[var(--state-hover)]"
+                          >
+                            <p className="text-sm font-medium">
+                              Row Template Fields
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline">
+                                {effectiveTemplateFields.length}
+                              </Badge>
+                              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          </button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="space-y-2 border-t border-[var(--border-subtle)] px-3 pb-3 pt-2">
+                          {rowAwareFieldNames.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">
+                              No row-based fields found in the active schema.
+                            </p>
+                          ) : (
+                            <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
+                              {activeGroupFieldNames.map((field) => {
+                                const selected =
+                                  selectedTemplateFields.includes(field);
+                                return (
+                                  <button
+                                    key={field}
+                                    type="button"
+                                    onClick={() =>
+                                      setSelectedTemplateFields((prev) =>
+                                        prev.includes(field)
+                                          ? prev.filter(
+                                              (entry) => entry !== field,
+                                            )
+                                          : [...prev, field],
+                                      )
+                                    }
+                                    className={cn(
+                                      "flex w-full items-center justify-between rounded-md border px-2 py-1 text-xs",
+                                      selected
+                                        ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
+                                        : "border-[var(--border-subtle)] bg-white",
                                     )}
+                                  >
+                                    <span>{getFieldLeafName(field)}</span>
+                                    {selected ? <Check size={13} /> : <X size={13} />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </CollapsibleContent>
+                      </Collapsible>
+
+                      <Collapsible
+                        defaultOpen={false}
+                        className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)]"
+                      >
+                        <CollapsibleTrigger asChild>
+                          <button
+                            type="button"
+                            className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[var(--state-hover)]"
+                          >
+                            <p className="text-sm font-medium">Field Completion</p>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          </button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="space-y-2 border-t border-[var(--border-subtle)] px-3 pb-3 pt-2">
+                          {effectiveTemplateFields.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">
+                              Select at least one row-template field to track
+                              progress.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {rowCompletionRows.map((row) => {
+                                const done = effectiveTemplateFields.filter(
+                                  (field) => rowFieldStatus[row]?.has(field),
+                                ).length;
+                                const progress = Math.round(
+                                  (done / effectiveTemplateFields.length) * 100,
+                                );
+                                return (
+                                  <div
+                                    key={row}
+                                    className={cn(
+                                      "rounded-md border px-2 py-2",
+                                      row === activeInstanceNum
+                                        ? "border-[var(--interactive-accent)] bg-[var(--dl-accent-soft)]"
+                                        : "border-[var(--border-subtle)] bg-white",
+                                    )}
+                                  >
+                                    <div className="flex items-center justify-between text-xs">
+                                      <span className="font-medium">
+                                        Row {row}
+                                      </span>
+                                      <span>
+                                        {done}/{effectiveTemplateFields.length}
+                                      </span>
+                                    </div>
+                                    <div className="mt-1.5 h-1.5 rounded-full bg-[var(--surface-page)]">
+                                      <div
+                                        className="h-full rounded-full bg-[var(--interactive-accent)] transition-all"
+                                        style={{ width: `${progress}%` }}
+                                      />
+                                    </div>
+                                    <div className="mt-2 flex flex-wrap gap-1">
+                                      {effectiveTemplateFields
+                                        .slice(0, 4)
+                                        .map((field) => {
+                                          const isComplete =
+                                            !!rowFieldStatus[row]?.has(field);
+                                          return (
+                                            <span
+                                              key={`${row}-${field}`}
+                                              className={cn(
+                                                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]",
+                                                isComplete
+                                                  ? "border-[var(--status-success)]/35 bg-[var(--status-success)]/10 text-[var(--status-success)]"
+                                                  : "border-[var(--status-error)]/35 bg-[var(--status-error)]/10 text-[var(--status-error)]",
+                                              )}
+                                            >
+                                              {isComplete ? (
+                                                <Check size={10} />
+                                              ) : (
+                                                <X size={10} />
+                                              )}
+                                              {getFieldLeafName(field)}
+                                            </span>
+                                          );
+                                        })}
+                                      {effectiveTemplateFields.length > 4 && (
+                                        <span className="inline-flex items-center rounded-full border border-[var(--border-subtle)] px-2 py-0.5 text-[10px] text-muted-foreground">
+                                          +{effectiveTemplateFields.length - 4}{" "}
+                                          more
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </CollapsibleContent>
+                      </Collapsible>
                     </div>
                   </TabsContent>
 

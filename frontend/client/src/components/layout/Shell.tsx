@@ -17,7 +17,6 @@ import {
   LayoutDashboard,
   LifeBuoy,
   Menu,
-  Search,
   Settings as SettingsIcon,
   X,
 } from "lucide-react";
@@ -143,7 +142,7 @@ function RailContent({
                   "flex items-center text-sm font-medium rounded-md border border-transparent",
                   compact ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
                   isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground border-sidebar-accent/35"
+                    ? "bg-sidebar-accent/90 text-sidebar-accent-foreground border-sidebar-accent/50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
                     : "text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent/35",
                 )}
               >
@@ -230,6 +229,7 @@ interface ShellProps {
   pageDescription?: string;
   primaryAction?: React.ReactNode;
   secondaryActions?: React.ReactNode;
+  utilityRightContent?: ReactNode;
   projectId?: string;
   showProjectRail?: boolean;
   contentClassName?: string;
@@ -244,6 +244,7 @@ export function Shell({
   pageDescription,
   primaryAction,
   secondaryActions,
+  utilityRightContent,
   projectId,
   showProjectRail = true,
   contentClassName,
@@ -294,19 +295,19 @@ export function Shell({
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-[var(--border-subtle)] backdrop-blur-xl bg-background/92">
-        <div className="hidden md:flex items-center justify-between h-9 px-6 text-xs border-b border-[var(--border-subtle)] text-[var(--text-secondary)]">
+        <div className="hidden md:flex items-center justify-between h-9 px-6 text-xs border-b border-[var(--border-subtle)] text-[var(--text-tertiary)]">
           <div className="flex items-center gap-3">
             <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
             System healthy
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 whitespace-nowrap">
             <span>US region</span>
             <span>Claims ops</span>
             <span>Support</span>
           </div>
         </div>
 
-        <div className="h-16 px-4 md:px-6 flex items-center gap-3 md:gap-6">
+        <div className="h-14 px-4 md:px-6 flex items-center gap-3 md:gap-6">
           {showProjectRail && (
             <Button
               variant="ghost"
@@ -379,21 +380,8 @@ export function Shell({
             </p>
           </div>
 
-          <div className="hidden md:flex ml-auto max-w-lg w-full">
-            <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <input
-                type="text"
-                value=""
-                readOnly
-                aria-label="Search"
-                placeholder="Search projects, documents, schemas..."
-                className="w-full h-10 rounded-full bg-[var(--surface-panel)] border border-[var(--border-strong)] pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground"
-              />
-            </div>
-          </div>
-
           <div className="ml-auto md:ml-0 flex items-center gap-2">
+            {utilityRightContent}
             <Button variant="quiet" size="icon" className="h-9 w-9">
               <Bell className="h-4 w-4" />
             </Button>
@@ -405,7 +393,7 @@ export function Shell({
         {showProjectRail && desktopRailMode !== "hidden" && (
           <aside
             className={cn(
-              "hidden lg:block shrink-0 sticky top-[6.25rem] h-[calc(100vh-6.25rem)] transition-[width] duration-200 ease-out",
+              "hidden lg:block shrink-0 sticky top-[5.75rem] h-[calc(100vh-5.75rem)] transition-[width] duration-200 ease-out",
               isDesktopRailCompact ? "w-20" : "w-72",
             )}
           >

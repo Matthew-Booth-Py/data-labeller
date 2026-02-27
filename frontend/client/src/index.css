@@ -115,11 +115,15 @@
   --surface-elevated: #fbf9fb;
   --text-primary: #2d0833;
   --text-secondary: #5f4464;
+  --text-tertiary: #7d6882;
   --interactive-primary: #4f0259;
   --interactive-primary-hover: #380140;
   --interactive-accent: #d91aa6;
   --interactive-accent-hover: #b31186;
   --focus-ring: #d91aa6;
+  --state-hover: rgba(79, 2, 89, 0.06);
+  --state-pressed: rgba(79, 2, 89, 0.12);
+  --state-focus: rgba(217, 26, 166, 0.35);
   --border-strong: #d7cdd9;
   --border-subtle: #e9e1eb;
   --status-success: #0e9f6e;
@@ -181,11 +185,15 @@
   --surface-elevated: #201828;
   --text-primary: #f5eff7;
   --text-secondary: #c8b4cf;
+  --text-tertiary: #9b88a1;
   --interactive-primary: #d91aa6;
   --interactive-primary-hover: #bf138f;
   --interactive-accent: #d91aa6;
   --interactive-accent-hover: #b31186;
   --focus-ring: #d91aa6;
+  --state-hover: rgba(217, 26, 166, 0.08);
+  --state-pressed: rgba(217, 26, 166, 0.16);
+  --state-focus: rgba(217, 26, 166, 0.44);
   --border-strong: #46324c;
   --border-subtle: #34253a;
   --status-success: #22c55e;
@@ -219,10 +227,15 @@
     @apply font-sans antialiased bg-background text-foreground;
     background-image: radial-gradient(
       circle at top right,
-      rgba(217, 26, 166, 0.06),
+      rgba(217, 26, 166, 0.05),
       transparent 42%
     );
     min-height: 100vh;
+  }
+
+  ::placeholder {
+    color: var(--text-tertiary);
+    opacity: 1;
   }
 
   h1,
@@ -259,7 +272,15 @@
 
   .focus-brand {
     outline: none;
-    box-shadow: 0 0 0 2px rgba(217, 26, 166, 0.35);
+    box-shadow: 0 0 0 2px var(--state-focus);
+  }
+
+  .text-tertiary {
+    color: var(--text-tertiary);
+  }
+
+  .surface-hover {
+    background-color: var(--state-hover);
   }
 }
 /* PDF Text Layer Styles - Enable text selection */

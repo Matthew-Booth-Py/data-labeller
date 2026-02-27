@@ -4,8 +4,10 @@ import base64
 import io
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from django.utils import timezone
 
@@ -13,6 +15,7 @@ from uu_backend.config import get_settings
 from uu_backend.llm.openai_client import get_openai_client
 from uu_backend.models.taxonomy import (
     ExtractedField,
+    ExtractionRequestMetrics,
     ExtractionResult,
     FieldType,
     SchemaField,
@@ -39,6 +42,7 @@ class ExtractionService:
         self.client = openai_client._client
         settings = get_settings()
         self.model = settings.effective_tagging_model
+        self._pricing_by_model = settings.openai_model_pricing or {}
         self._raw_guardrails = (
             "Critical extraction rules:\n"
             "1) Extract values EXACTLY as they appear in the document (RAW).\n"
@@ -277,13 +281,13 @@ Extract all fields according to the schema. Return null for fields that cannot b
         )
 
         try:
-            response = self.client.beta.chat.completions.parse(
+            extracted_data, request_metrics = self._parse_with_metrics(
                 model=model_name,
                 messages=messages,
                 response_format=ExtractionModel,
+                schema_version_id=doc_type.schema_version_id,
+                prompt_version_id=prompt_version_id,
             )
-
-            extracted_data = response.choices[0].message.parsed
 
             logger.warning(
                 f"[EXTRACTION DEBUG] Raw extraction output:\n"
@@ -312,6 +316,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
                 document_id=document_id,
                 document_type_id=doc_type.id,
                 fields=extracted_fields,
+                requests=[request_metrics],
                 schema_version_id=doc_type.schema_version_id,
                 prompt_version_id=prompt_version_id,
                 extracted_at=timezone.now(),
@@ -488,13 +493,13 @@ Extract all fields according to the schema. Return null for fields that cannot b
         )
 
         try:
-            response = self.client.beta.chat.completions.parse(
+            extracted_data, request_metrics = self._parse_with_metrics(
                 model=model_name,
                 messages=messages,
                 response_format=ExtractionModel,
+                schema_version_id=doc_type.schema_version_id,
+                prompt_version_id=prompt_version_id,
             )
-
-            extracted_data = response.choices[0].message.parsed
 
             print(f"Extracted: {extracted_data.model_dump()}")
 
@@ -524,6 +529,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
                 document_id=document_id,
                 document_type_id=doc_type.id,
                 fields=extracted_fields,
+                requests=[request_metrics],
                 schema_version_id=doc_type.schema_version_id,
                 prompt_version_id=prompt_version_id,
                 extracted_at=timezone.now(),
@@ -732,13 +738,13 @@ fields not found in the table.""",
         )
 
         try:
-            response = self.client.beta.chat.completions.parse(
+            extracted_data, request_metrics = self._parse_with_metrics(
                 model=model_name,
                 messages=messages,
                 response_format=ExtractionModel,
+                schema_version_id=doc_type.schema_version_id,
+                prompt_version_id=prompt_version_id,
             )
-
-            extracted_data = response.choices[0].message.parsed
 
             logger.warning(
                 f"[EXTRACTION DEBUG] Raw extraction output:\n"
@@ -770,6 +776,7 @@ fields not found in the table.""",
                 document_id=document_id,
                 document_type_id=doc_type.id,
                 fields=extracted_fields,
+                requests=[request_metrics],
                 schema_version_id=doc_type.schema_version_id,
                 prompt_version_id=prompt_version_id,
                 extracted_at=timezone.now(),
@@ -783,6 +790,106 @@ fields not found in the table.""",
         except Exception as e:
             logger.error(f"Retrieval-vision extraction failed: {e}", exc_info=True)
             raise ValueError(f"Extraction failed: {str(e)}")
+
+    def _parse_with_metrics(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        response_format: Any,
+        schema_version_id: str | None,
+        prompt_version_id: str | None,
+    ) -> tuple[Any, ExtractionRequestMetrics]:
+        started_at = timezone.now()
+        started = time.perf_counter()
+        response = self.client.beta.chat.completions.parse(
+            model=model,
+            messages=messages,
+            response_format=response_format,
+        )
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        usage = self._usage_from_response(response)
+        cost_usd, cost_note = self._estimate_request_cost(model=model, usage=usage)
+        metrics = ExtractionRequestMetrics(
+            request_id=str(uuid4()),
+            schema_version_id=schema_version_id,
+            prompt_version_id=prompt_version_id,
+            model=model,
+            latency_ms=latency_ms,
+            prompt_tokens=usage["prompt_tokens"],
+            completion_tokens=usage["completion_tokens"],
+            total_tokens=usage["total_tokens"],
+            cost_usd=cost_usd,
+            cost_note=cost_note,
+            created_at=started_at,
+        )
+        return response.choices[0].message.parsed, metrics
+
+    def _usage_from_response(self, response: Any) -> dict[str, int | None]:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return {
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "total_tokens": None,
+                "cached_prompt_tokens": None,
+            }
+
+        payload = usage.model_dump() if hasattr(usage, "model_dump") else {}
+        if not isinstance(payload, dict):
+            payload = {}
+
+        prompt_tokens = payload.get("prompt_tokens")
+        completion_tokens = payload.get("completion_tokens")
+        total_tokens = payload.get("total_tokens")
+
+        prompt_details = payload.get("prompt_tokens_details")
+        cached_prompt_tokens = None
+        if isinstance(prompt_details, dict):
+            cached_prompt_tokens = prompt_details.get("cached_tokens")
+
+        return {
+            "prompt_tokens": int(prompt_tokens) if isinstance(prompt_tokens, int) else None,
+            "completion_tokens": (
+                int(completion_tokens) if isinstance(completion_tokens, int) else None
+            ),
+            "total_tokens": int(total_tokens) if isinstance(total_tokens, int) else None,
+            "cached_prompt_tokens": (
+                int(cached_prompt_tokens) if isinstance(cached_prompt_tokens, int) else None
+            ),
+        }
+
+    def _estimate_request_cost(
+        self, *, model: str, usage: dict[str, int | None]
+    ) -> tuple[float | None, str | None]:
+        pricing = self._pricing_by_model.get(model)
+        if not pricing:
+            for configured_model, configured_pricing in self._pricing_by_model.items():
+                if model.startswith(configured_model):
+                    pricing = configured_pricing
+                    break
+        if not pricing:
+            return None, f"Cost unavailable: pricing not configured for model '{model}'"
+
+        input_rate = pricing.get("input_per_million")
+        output_rate = pricing.get("output_per_million")
+        cached_input_rate = pricing.get("cached_input_per_million", input_rate)
+
+        if input_rate is None or output_rate is None:
+            return None, f"Cost unavailable: pricing for model '{model}' is incomplete"
+
+        prompt_tokens = usage.get("prompt_tokens") or 0
+        completion_tokens = usage.get("completion_tokens") or 0
+        cached_prompt_tokens = min(usage.get("cached_prompt_tokens") or 0, prompt_tokens)
+        uncached_prompt_tokens = max(prompt_tokens - cached_prompt_tokens, 0)
+
+        cost_usd = (
+            uncached_prompt_tokens * float(input_rate) / 1_000_000
+            + cached_prompt_tokens * float(cached_input_rate) / 1_000_000
+            + completion_tokens * float(output_rate) / 1_000_000
+        )
+
+        return round(cost_usd, 8), None
 
     def extract_structured_from_snapshot(
         self,

@@ -448,6 +448,9 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
   const filteredDocs = (filteredData?.documents || []).filter((doc) =>
     doc.filename.toLowerCase().includes(searchQuery.toLowerCase()),
   );
+  const unclassifiedCount = filteredDocs.filter((doc) => !doc.document_type)
+    .length;
+  const classifiedCount = filteredDocs.length - unclassifiedCount;
 
   const formatDate = (dateStr: string | undefined) => {
     if (!dateStr) return "—";
@@ -698,51 +701,54 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              className="gap-2"
-              onClick={handleUploadClick}
-              disabled={uploadMutation.isPending}
-            >
-              {uploadMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Upload className="h-4 w-4" />
-              )}
-              Upload
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-2"
-              onClick={handleClassifyAll}
-              disabled={
-                classifying ||
-                filteredDocs.filter((d) => !d.document_type).length === 0
-              }
-            >
-              {classifying ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Wand2 className="h-4 w-4" />
-              )}
-              Classify
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-2"
-              onClick={handleExtractAll}
-              disabled={
-                extracting ||
-                filteredDocs.filter((d) => d.document_type).length === 0
-              }
-            >
-              {extracting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
-              )}
-              Extract
-            </Button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-1">
+              <Button
+                className="gap-2"
+                onClick={handleUploadClick}
+                disabled={uploadMutation.isPending}
+              >
+                {uploadMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+                Upload
+              </Button>
+              <Button variant="quiet" size="icon" onClick={() => refetch()}>
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-1">
+              <Button
+                variant="secondary"
+                className="gap-2"
+                onClick={handleClassifyAll}
+                disabled={classifying || unclassifiedCount === 0}
+              >
+                {classifying ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Wand2 className="h-4 w-4" />
+                )}
+                Classify
+              </Button>
+              <Button
+                variant="secondary"
+                className="gap-2"
+                onClick={handleExtractAll}
+                disabled={extracting || classifiedCount === 0}
+              >
+                {extracting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                Extract
+              </Button>
+            </div>
+
             {selectedDocs.size > 0 && (
               <Button
                 variant="danger"
@@ -764,9 +770,6 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                 Delete ({selectedDocs.size})
               </Button>
             )}
-            <Button variant="outline" size="icon" onClick={() => refetch()}>
-              <RefreshCw className="h-4 w-4" />
-            </Button>
             <div className="flex items-center gap-0 border rounded-md p-1 bg-background">
               <Button
                 variant="ghost"
@@ -796,11 +799,13 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
       </div>
 
       {/* Stats */}
-      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
         <span>
           {filteredData?.total || 0} document
           {(filteredData?.total || 0) !== 1 ? "s" : ""}
         </span>
+        <span>{unclassifiedCount} unclassified</span>
+        <span>{classifiedCount} classified</span>
       </div>
 
       {isLoading ? (
@@ -868,7 +873,7 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
       ) : (
         <div className="rounded-md border bg-card">
           <Table>
-            <TableHeader>
+            <TableHeader sticky>
               <TableRow className="bg-muted/5">
                 <TableHead className="w-[50px]">
                   <Checkbox
@@ -1003,7 +1008,10 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                             className="flex items-center gap-2 group cursor-pointer"
                             onClick={() => setEditingDoc(doc.id)}
                           >
-                            <Badge variant="default" className="bg-emerald-600">
+                            <Badge
+                              variant="outline"
+                              className="border-[var(--status-success)]/35 bg-[var(--status-success)]/15 text-[var(--status-success)]"
+                            >
                               {doc.document_type.name}
                             </Badge>
                             <Edit2 className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -1031,7 +1039,10 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                             className="flex items-center gap-2 group cursor-pointer"
                             onClick={() => setEditingDoc(doc.id)}
                           >
-                            <Badge variant="default" className="bg-emerald-600">
+                            <Badge
+                              variant="outline"
+                              className="border-[var(--status-success)]/35 bg-[var(--status-success)]/15 text-[var(--status-success)]"
+                            >
                               <Check className="h-3 w-3 mr-1" />
                               {classification.type}
                             </Badge>
@@ -1071,7 +1082,7 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="h-6 w-6 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10"
+                              className="h-6 w-6 p-0 text-[var(--status-success)] hover:text-[var(--status-success)] hover:bg-[var(--status-success)]/10"
                               onClick={() =>
                                 acceptMutation.mutate({
                                   docId: doc.id,
@@ -1085,7 +1096,7 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-500/10"
+                              className="h-6 w-6 p-0 text-[var(--status-error)] hover:text-[var(--status-error)] hover:bg-[var(--status-error)]/10"
                               onClick={() => handleReject(doc.id)}
                             >
                               <X className="h-3 w-3" />

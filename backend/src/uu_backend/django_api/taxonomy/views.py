@@ -771,22 +771,12 @@ class ExtractDocumentView(APIView):
                 f"{json.dumps([{'field_name': f.field_name, 'value': f.value, 'confidence': f.confidence} for f in result.fields], indent=2)}"
             )
 
-            return Response(
-                {
-                    "document_id": result.document_id,
-                    "document_type_id": result.document_type_id,
-                    "fields": [
-                        {
-                            "field_name": field.field_name,
-                            "value": field.value,
-                            "confidence": field.confidence,
-                            "source_text": field.source_text,
-                        }
-                        for field in result.fields
-                    ],
-                    "extracted_at": result.extracted_at.isoformat(),
-                }
-            )
+            repository = get_repository()
+            persisted = repository.get_extraction(document_id)
+            if persisted:
+                return Response(_jsonable(persisted))
+
+            return Response(_jsonable(result))
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=400)
         except Exception as exc:

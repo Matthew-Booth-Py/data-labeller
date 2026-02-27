@@ -1214,6 +1214,11 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   return (
     <div className="h-full">
       <Tabs defaultValue="document-types" className="h-full">
+        <div className="mb-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
+            Schema Workspace
+          </p>
+        </div>
         <TabsList className="mb-4">
           <TabsTrigger value="document-types" className="gap-2 h-9 px-4">
             <Code className="h-4 w-4" />
@@ -1243,7 +1248,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                     <div className="flex gap-2">
                       {selectedType && (
                         <Button
-                          variant="outline"
+                          variant="secondary"
                           size="sm"
                           className="gap-2"
                           onClick={saveSchema}
@@ -1424,7 +1429,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 {selectedType && (
                   <Button
                     size="sm"
-                    className="gap-2 bg-primary hover:bg-primary/90"
+                    variant="secondary"
+                    className="gap-2"
                     onClick={openNewFieldDialog}
                   >
                     <Plus className="h-4 w-4" /> Add Field
@@ -1436,7 +1442,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 {selectedType?.schema_fields?.map((field) => (
                   <div
                     key={field.name}
-                    className="flex flex-col rounded-lg border bg-card shadow-sm hover:shadow-md hover:border-accent/40 transition-all overflow-hidden group"
+                    className="flex flex-col rounded-lg border bg-card shadow-sm hover:shadow-md hover:border-accent/40 transition-all overflow-hidden group hover-elevate"
                   >
                     <div className="flex items-center gap-3 p-3 bg-card border-b">
                       <div className="cursor-grab text-muted-foreground/30 hover:text-muted-foreground">

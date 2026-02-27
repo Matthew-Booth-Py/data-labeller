@@ -161,12 +161,31 @@ class ExtractedField(BaseModel):
     source_text: str | None = Field(None, description="Source text for extraction")
 
 
+class ExtractionRequestMetrics(BaseModel):
+    """Per-request telemetry for extraction calls."""
+
+    request_id: str = Field(..., description="Unique request ID")
+    schema_version_id: str | None = Field(None, description="Schema version used for this request")
+    prompt_version_id: str | None = Field(None, description="Prompt version used for this request")
+    model: str = Field(..., description="Model used for this request")
+    latency_ms: int = Field(..., description="Request latency in milliseconds")
+    prompt_tokens: int | None = Field(None, description="Prompt tokens consumed")
+    completion_tokens: int | None = Field(None, description="Completion tokens consumed")
+    total_tokens: int | None = Field(None, description="Total tokens consumed")
+    cost_usd: float | None = Field(None, description="Estimated request cost in USD")
+    cost_note: str | None = Field(
+        None, description="Why cost is unavailable or caveats about estimate"
+    )
+    created_at: datetime = Field(..., description="Request timestamp")
+
+
 class ExtractionResult(BaseModel):
     """Extraction results for a document."""
 
     document_id: str
     document_type_id: str
     fields: list[ExtractedField]
+    requests: list[ExtractionRequestMetrics] = Field(default_factory=list)
     schema_version_id: str | None = None
     prompt_version_id: str | None = None
     extracted_at: datetime

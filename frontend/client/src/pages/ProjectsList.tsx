@@ -254,6 +254,13 @@ export default function ProjectsList() {
       }
     >
       <div className="space-y-8">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
+            Active Workspaces
+          </h2>
+          <Badge variant="outline">{projects.length} projects</Badge>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {projects.map((project) => (
             <Card
@@ -362,6 +369,7 @@ export default function ProjectsList() {
 
                       <Button
                         size="sm"
+                        variant="secondary"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -397,12 +405,19 @@ export default function ProjectsList() {
         </div>
 
         {projects.length === 0 && (
-          <div className="text-center py-12">
+          <div className="text-center py-12 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-panel)]">
             <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-medium">No projects yet</h3>
             <p className="text-muted-foreground mt-1">
               Create your first project to get started
             </p>
+            <Button
+              className="mt-4"
+              variant="secondary"
+              onClick={() => setLocation("/projects/new")}
+            >
+              Create Project
+            </Button>
           </div>
         )}
       </div>

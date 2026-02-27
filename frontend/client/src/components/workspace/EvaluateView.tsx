@@ -61,11 +61,16 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const MATCH_TYPE_STYLES: Record<string, string> = {
-  exact: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  normalized: "border-sky-200 bg-sky-50 text-sky-700",
-  fuzzy: "border-amber-200 bg-amber-50 text-amber-700",
-  semantic: "border-violet-200 bg-violet-50 text-violet-700",
-  no_match: "border-rose-200 bg-rose-50 text-rose-700",
+  exact:
+    "border-[var(--status-success)]/30 bg-[var(--status-success)]/10 text-[var(--status-success)]",
+  normalized:
+    "border-[var(--interactive-primary)]/25 bg-[var(--interactive-primary)]/10 text-[var(--interactive-primary)]",
+  fuzzy:
+    "border-[var(--status-warn)]/30 bg-[var(--status-warn)]/10 text-[var(--status-warn)]",
+  semantic:
+    "border-[var(--interactive-accent)]/30 bg-[var(--interactive-accent)]/10 text-[var(--interactive-accent)]",
+  no_match:
+    "border-[var(--status-error)]/30 bg-[var(--status-error)]/10 text-[var(--status-error)]",
 };
 
 function formatPercentage(value: number): string {
@@ -79,9 +84,13 @@ function getScoreTextClass(score: number): string {
 }
 
 function getScorePillClass(score: number): string {
-  if (score >= 0.9) return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (score >= 0.75) return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-rose-200 bg-rose-50 text-rose-700";
+  if (score >= 0.9) {
+    return "border-[var(--status-success)]/30 bg-[var(--status-success)]/10 text-[var(--status-success)]";
+  }
+  if (score >= 0.75) {
+    return "border-[var(--status-warn)]/30 bg-[var(--status-warn)]/10 text-[var(--status-warn)]";
+  }
+  return "border-[var(--status-error)]/30 bg-[var(--status-error)]/10 text-[var(--status-error)]";
 }
 
 function getScoreLabel(score: number): string {
@@ -496,7 +505,7 @@ export function EvaluateView() {
 
             <Button
               onClick={handleExportCSV}
-              variant="outline"
+              variant="secondary"
               disabled={!evaluation}
               className="min-w-[130px]"
             >
@@ -847,35 +856,35 @@ export function EvaluateView() {
 
               <TabsContent value="flattened" className="space-y-4">
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-center">
-                    <p className="text-2xl font-semibold text-emerald-700">
+                  <div className="rounded-lg border border-[var(--status-success)]/30 bg-[var(--status-success)]/10 px-4 py-3 text-center">
+                    <p className="text-2xl font-semibold text-[var(--status-success)]">
                       {evaluation.result.metrics.flattened.correct_fields}
                     </p>
-                    <p className="text-xs uppercase tracking-wide text-emerald-700/80">
+                    <p className="text-xs uppercase tracking-wide text-[var(--status-success)]">
                       Correct
                     </p>
                   </div>
-                  <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-center">
-                    <p className="text-2xl font-semibold text-rose-700">
+                  <div className="rounded-lg border border-[var(--status-error)]/30 bg-[var(--status-error)]/10 px-4 py-3 text-center">
+                    <p className="text-2xl font-semibold text-[var(--status-error)]">
                       {evaluation.result.metrics.flattened.incorrect_fields}
                     </p>
-                    <p className="text-xs uppercase tracking-wide text-rose-700/80">
+                    <p className="text-xs uppercase tracking-wide text-[var(--status-error)]">
                       Incorrect
                     </p>
                   </div>
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-center">
-                    <p className="text-2xl font-semibold text-amber-700">
+                  <div className="rounded-lg border border-[var(--status-warn)]/30 bg-[var(--status-warn)]/10 px-4 py-3 text-center">
+                    <p className="text-2xl font-semibold text-[var(--status-warn)]">
                       {evaluation.result.metrics.flattened.missing_fields}
                     </p>
-                    <p className="text-xs uppercase tracking-wide text-amber-700/80">
+                    <p className="text-xs uppercase tracking-wide text-[var(--status-warn)]">
                       Missing
                     </p>
                   </div>
-                  <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-center">
-                    <p className="text-2xl font-semibold text-sky-700">
+                  <div className="rounded-lg border border-[var(--interactive-primary)]/30 bg-[var(--interactive-primary)]/10 px-4 py-3 text-center">
+                    <p className="text-2xl font-semibold text-[var(--interactive-primary)]">
                       {evaluation.result.metrics.flattened.extra_fields}
                     </p>
-                    <p className="text-xs uppercase tracking-wide text-sky-700/80">
+                    <p className="text-xs uppercase tracking-wide text-[var(--interactive-primary)]">
                       Extra
                     </p>
                   </div>
@@ -883,7 +892,7 @@ export function EvaluateView() {
 
                 <div className="rounded-xl border border-[var(--border-subtle)] overflow-hidden">
                   <Table>
-                    <TableHeader>
+                    <TableHeader sticky>
                       <TableRow className="bg-[var(--surface-elevated)]/70 hover:bg-[var(--surface-elevated)]/70">
                         <TableHead className="w-[220px]">Field</TableHead>
                         <TableHead>Ground Truth</TableHead>
@@ -1022,7 +1031,7 @@ export function EvaluateView() {
                           </div>
 
                           <Table>
-                            <TableHeader>
+                            <TableHeader sticky>
                               <TableRow className="bg-background hover:bg-background">
                                 <TableHead className="w-16">Row</TableHead>
                                 <TableHead className="w-32">Source</TableHead>
@@ -1074,24 +1083,24 @@ export function EvaluateView() {
                                       {allFields.map((field) => (
                                         <TableCell
                                           key={`gt-${instance.instance_num}-${field}`}
-                                          className={cn(
-                                            "text-xs",
-                                            matchStatus[field] === false &&
+                                            className={cn(
+                                              "text-xs",
+                                              matchStatus[field] === false &&
                                               gtValues[field]
-                                              ? "bg-rose-50"
-                                              : "",
-                                          )}
-                                        >
+                                                ? "bg-[var(--status-error)]/10"
+                                                : "",
+                                            )}
+                                          >
                                           {formatValue(gtValues[field])}
                                         </TableCell>
                                       ))}
                                     </TableRow>
 
-                                    <TableRow className="border-b-2 border-b-[var(--border-subtle)] bg-sky-50/50 hover:bg-sky-50/55">
+                                    <TableRow className="border-b-2 border-b-[var(--border-subtle)] bg-[var(--interactive-primary)]/10 hover:bg-[var(--interactive-primary)]/12">
                                       <TableCell className="text-xs">
                                         <Badge
                                           variant="outline"
-                                          className="text-[10px] border-sky-200 text-sky-700 bg-sky-50"
+                                          className="text-[10px] border-[var(--interactive-primary)]/35 text-[var(--interactive-primary)] bg-[var(--interactive-primary)]/10"
                                         >
                                           Prediction
                                         </Badge>
@@ -1109,10 +1118,10 @@ export function EvaluateView() {
                                             className={cn(
                                               "text-xs",
                                               isMatch && hasPrediction
-                                                ? "bg-emerald-50"
+                                                ? "bg-[var(--status-success)]/12"
                                                 : "",
                                               !isMatch && hasPrediction
-                                                ? "bg-rose-50"
+                                                ? "bg-[var(--status-error)]/10"
                                                 : "",
                                             )}
                                           >
@@ -1121,10 +1130,10 @@ export function EvaluateView() {
                                                 {formatValue(predValues[field])}
                                               </span>
                                               {isMatch && hasPrediction && (
-                                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                                                <CheckCircle2 className="h-3.5 w-3.5 text-[var(--status-success)]" />
                                               )}
                                               {!isMatch && hasPrediction && (
-                                                <XCircle className="h-3.5 w-3.5 text-rose-600" />
+                                                <XCircle className="h-3.5 w-3.5 text-[var(--status-error)]" />
                                               )}
                                             </div>
                                           </TableCell>
@@ -1146,7 +1155,7 @@ export function EvaluateView() {
               <TabsContent value="field" className="space-y-4">
                 <div className="rounded-xl border border-[var(--border-subtle)] overflow-hidden">
                   <Table>
-                    <TableHeader>
+                    <TableHeader sticky>
                       <TableRow className="bg-[var(--surface-elevated)]/70 hover:bg-[var(--surface-elevated)]/70">
                         <TableHead>Field Name</TableHead>
                         <TableHead className="w-[110px]">Occurrences</TableHead>

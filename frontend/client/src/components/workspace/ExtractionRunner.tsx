@@ -24,7 +24,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { api } from "@/lib/api";
+import {
+  api,
+  type ExtractionRequestMetrics,
+  type ExtractionResult,
+} from "@/lib/api";
 
 type ExtractedField = {
   field_name: string;
@@ -32,26 +36,139 @@ type ExtractedField = {
   confidence?: number;
 };
 
+type CachedExtraction = {
+  fields: ExtractedField[];
+  requests: ExtractionRequestMetrics[];
+  schema_version_id?: string | null;
+  prompt_version_id?: string | null;
+  extracted_at?: string;
+};
+
+const EMPTY_EXTRACTION: CachedExtraction = {
+  fields: [],
+  requests: [],
+  schema_version_id: null,
+  prompt_version_id: null,
+  extracted_at: undefined,
+};
+
+function toCachedExtraction(value: unknown): CachedExtraction {
+  // Backward compatibility: previous cache format stored only `fields[]`.
+  if (Array.isArray(value)) {
+    return { ...EMPTY_EXTRACTION, fields: value as ExtractedField[] };
+  }
+
+  if (!value || typeof value !== "object") {
+    return { ...EMPTY_EXTRACTION };
+  }
+
+  const typed = value as Partial<ExtractionResult>;
+  return {
+    fields: Array.isArray(typed.fields) ? typed.fields : [],
+    requests: Array.isArray(typed.requests) ? typed.requests : [],
+    schema_version_id:
+      typeof typed.schema_version_id === "string" ||
+      typed.schema_version_id === null
+        ? typed.schema_version_id
+        : null,
+    prompt_version_id:
+      typeof typed.prompt_version_id === "string" ||
+      typed.prompt_version_id === null
+        ? typed.prompt_version_id
+        : null,
+    extracted_at:
+      typeof typed.extracted_at === "string" ? typed.extracted_at : undefined,
+  };
+}
+
+function formatLatency(latencyMs?: number | null): string {
+  if (typeof latencyMs !== "number" || Number.isNaN(latencyMs)) return "—";
+  if (latencyMs < 1000) return `${Math.round(latencyMs)} ms`;
+  return `${(latencyMs / 1000).toFixed(2)} s`;
+}
+
+function formatTokens(totalTokens?: number | null): string {
+  if (typeof totalTokens !== "number" || Number.isNaN(totalTokens)) return "—";
+  return totalTokens.toLocaleString();
+}
+
+function formatCost(costUsd?: number | null): string {
+  if (typeof costUsd !== "number" || Number.isNaN(costUsd)) return "—";
+  return `$${costUsd.toFixed(6)}`;
+}
+
+function formatRequestTime(createdAt?: string): string {
+  if (!createdAt) return "Unknown time";
+  const parsed = new Date(createdAt);
+  if (Number.isNaN(parsed.getTime())) return "Unknown time";
+  return parsed.toLocaleString();
+}
+
+function formatSchemaLabel(schemaVersionId: string): string {
+  if (schemaVersionId === "unknown") return "Unknown";
+  return schemaVersionId.slice(0, 12);
+}
+
 export function ExtractionRunner({ projectId }: { projectId?: string }) {
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
   const [useStructuredOutput, setUseStructuredOutput] = useState(true);
   const [useRetrieval, setUseRetrieval] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [localStorageVersion, setLocalStorageVersion] = useState(0);
 
   const [extractionCache, setExtractionCache] = useState<
-    Map<string, ExtractedField[]>
+    Map<string, CachedExtraction>
   >(() => {
     const stored = sessionStorage.getItem("extraction-cache");
     if (!stored) return new Map();
-    const parsed = JSON.parse(stored);
-    return new Map(Object.entries(parsed));
+    const parsed = JSON.parse(stored) as Record<string, unknown>;
+    return new Map(
+      Object.entries(parsed).map(([docId, extraction]) => [
+        docId,
+        toCachedExtraction(extraction),
+      ]),
+    );
   });
 
-  const fields = selectedDocumentId
-    ? extractionCache.get(selectedDocumentId) || []
-    : [];
+  const selectedExtraction = selectedDocumentId
+    ? extractionCache.get(selectedDocumentId) || EMPTY_EXTRACTION
+    : EMPTY_EXTRACTION;
+  const fields = selectedExtraction.fields || [];
+  const requests = selectedExtraction.requests || [];
+
+  const requestsBySchema = useMemo(() => {
+    const grouped = new Map<string, ExtractionRequestMetrics[]>();
+    for (const request of requests) {
+      const schemaVersionId =
+        request.schema_version_id ||
+        selectedExtraction.schema_version_id ||
+        "unknown";
+      const existing = grouped.get(schemaVersionId) || [];
+      existing.push(request);
+      grouped.set(schemaVersionId, existing);
+    }
+
+    return Array.from(grouped.entries())
+      .map(([schemaVersionId, schemaRequests]) => ({
+        schemaVersionId,
+        requests: [...schemaRequests].sort((a, b) => {
+          const aTime = a.created_at ? Date.parse(a.created_at) : 0;
+          const bTime = b.created_at ? Date.parse(b.created_at) : 0;
+          return bTime - aTime;
+        }),
+      }))
+      .sort((a, b) => {
+        const aTime = a.requests[0]?.created_at
+          ? Date.parse(a.requests[0].created_at as string)
+          : 0;
+        const bTime = b.requests[0]?.created_at
+          ? Date.parse(b.requests[0].created_at as string)
+          : 0;
+        return bTime - aTime;
+      });
+  }, [requests, selectedExtraction.schema_version_id]);
 
   useEffect(() => {
     const obj = Object.fromEntries(extractionCache);
@@ -111,10 +228,13 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
 
     const loadExtraction = async () => {
       const result = await api.getDocumentExtraction(selectedDocumentId);
-      if (result.fields && result.fields.length > 0) {
+      if (
+        (result.fields && result.fields.length > 0) ||
+        (result.requests && result.requests.length > 0)
+      ) {
         setExtractionCache((prev) => {
           const updated = new Map(prev);
-          updated.set(selectedDocumentId, result.fields);
+          updated.set(selectedDocumentId, toCachedExtraction(result));
           return updated;
         });
       }
@@ -137,7 +257,8 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
     setError(null);
     setExtractionCache((prev) => {
       const updated = new Map(prev);
-      updated.set(selectedDocumentId, []);
+      const current = updated.get(selectedDocumentId) || EMPTY_EXTRACTION;
+      updated.set(selectedDocumentId, { ...current, fields: [] });
       return updated;
     });
 
@@ -150,7 +271,7 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
       );
       setExtractionCache((prev) => {
         const updated = new Map(prev);
-        updated.set(selectedDocumentId, result.fields || []);
+        updated.set(selectedDocumentId, toCachedExtraction(result));
         return updated;
       });
     } catch (err: any) {
@@ -190,46 +311,70 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
             </Select>
           </div>
 
-          <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3 space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <Label className="cursor-pointer">Structured output mode</Label>
-              <Switch
-                checked={useStructuredOutput}
-                onCheckedChange={setUseStructuredOutput}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {useStructuredOutput
-                ? "Schema-aligned extraction output."
-                : "Annotation refinement mode output."}
-            </p>
-          </div>
+          <Collapsible
+            open={showAdvanced}
+            onOpenChange={setShowAdvanced}
+            className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)]"
+          >
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="w-full px-3 py-2.5 text-left flex items-center justify-between gap-2 hover:bg-[var(--state-hover)]"
+              >
+                <div>
+                  <p className="text-sm font-medium">Advanced options</p>
+                  <p className="text-xs text-muted-foreground">
+                    Retrieval and output behavior controls
+                  </p>
+                </div>
+                <ChevronRight
+                  className={`h-4 w-4 text-muted-foreground transition-transform ${showAdvanced ? "rotate-90" : ""}`}
+                />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-3 px-3 pb-3 border-t border-[var(--border-subtle)]">
+              <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-panel)] p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <Label className="cursor-pointer">Structured output mode</Label>
+                  <Switch
+                    checked={useStructuredOutput}
+                    onCheckedChange={setUseStructuredOutput}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {useStructuredOutput
+                    ? "Schema-aligned extraction output."
+                    : "Annotation refinement mode output."}
+                </p>
+              </div>
 
-          <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3 space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="use-retrieval" className="cursor-pointer">
-                Contextual retrieval
-              </Label>
-              <Switch
-                id="use-retrieval"
-                checked={useRetrieval}
-                onCheckedChange={setUseRetrieval}
-                disabled={selectedDoc?.retrieval_index_status !== "completed"}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {selectedDoc?.retrieval_index_status === "completed" &&
-                selectedDoc.retrieval_chunks_count &&
-                `${selectedDoc.retrieval_chunks_count} chunks indexed`}
-              {selectedDoc?.retrieval_index_status === "processing" &&
-                "Indexing in progress"}
-              {selectedDoc?.retrieval_index_status &&
-                !["completed", "processing"].includes(
-                  selectedDoc.retrieval_index_status,
-                ) &&
-                "Document is not indexed yet"}
-            </p>
-          </div>
+              <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-panel)] p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor="use-retrieval" className="cursor-pointer">
+                    Contextual retrieval
+                  </Label>
+                  <Switch
+                    id="use-retrieval"
+                    checked={useRetrieval}
+                    onCheckedChange={setUseRetrieval}
+                    disabled={selectedDoc?.retrieval_index_status !== "completed"}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {selectedDoc?.retrieval_index_status === "completed" &&
+                    selectedDoc.retrieval_chunks_count &&
+                    `${selectedDoc.retrieval_chunks_count} chunks indexed`}
+                  {selectedDoc?.retrieval_index_status === "processing" &&
+                    "Indexing in progress"}
+                  {selectedDoc?.retrieval_index_status &&
+                    !["completed", "processing"].includes(
+                      selectedDoc.retrieval_index_status,
+                    ) &&
+                    "Document is not indexed yet"}
+                </p>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
 
           <Button
             onClick={runExtraction}
@@ -262,15 +407,77 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
         </CardHeader>
         <CardContent className="flex-1 overflow-y-auto py-4">
           {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div className="rounded-lg border border-[var(--status-error)]/35 bg-[var(--status-error)]/10 p-3 text-sm text-[var(--status-error)]">
               {error}
             </div>
           )}
-          {!error && fields.length === 0 && (
+
+          {!error && fields.length === 0 && requestsBySchema.length === 0 && (
             <div className="h-full min-h-[320px] rounded-lg border border-dashed border-[var(--border-strong)] flex items-center justify-center text-sm text-muted-foreground">
               No extraction results yet.
             </div>
           )}
+
+          {requestsBySchema.length > 0 && (
+            <div className="space-y-3 pb-4">
+              <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
+                Requests by Schema
+              </div>
+              {requestsBySchema.map((group) => (
+                <div
+                  key={group.schemaVersionId}
+                  className="rounded-lg border border-[var(--border-subtle)] bg-card"
+                >
+                  <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-3 py-2">
+                    <div className="text-sm font-medium">
+                      Schema {formatSchemaLabel(group.schemaVersionId)}
+                    </div>
+                    <Badge variant="outline" className="text-[10px]">
+                      {group.requests.length} request
+                      {group.requests.length === 1 ? "" : "s"}
+                    </Badge>
+                  </div>
+                  <div className="divide-y divide-[var(--border-subtle)]">
+                    {group.requests.map((request) => (
+                      <div key={request.request_id} className="px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                          <span>
+                            <span className="text-muted-foreground">
+                              Latency:
+                            </span>{" "}
+                            <span className="font-medium">
+                              {formatLatency(request.latency_ms)}
+                            </span>
+                          </span>
+                          <span>
+                            <span className="text-muted-foreground">Tokens:</span>{" "}
+                            <span className="font-medium">
+                              {formatTokens(request.total_tokens)}
+                            </span>
+                          </span>
+                          <span>
+                            <span className="text-muted-foreground">Cost:</span>{" "}
+                            <span className="font-medium">
+                              {formatCost(request.cost_usd)}
+                            </span>
+                          </span>
+                          <span className="text-muted-foreground">
+                            {formatRequestTime(request.created_at)}
+                          </span>
+                        </div>
+                        {request.cost_note && (
+                          <p className="mt-1 text-xs text-amber-700">
+                            {request.cost_note}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {fields.length > 0 && (
             <div className="space-y-2">
               {fields.map((field) => (
