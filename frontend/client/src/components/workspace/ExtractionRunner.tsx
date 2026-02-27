@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Loader2, PlayCircle, ChevronRight } from "lucide-react";
+import { Loader2, PlayCircle, ChevronRight, Trash2 } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -112,7 +112,7 @@ function formatSchemaLabel(schemaVersionId: string): string {
 export function ExtractionRunner({ projectId }: { projectId?: string }) {
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
   const [useStructuredOutput, setUseStructuredOutput] = useState(true);
-  const [useRetrieval, setUseRetrieval] = useState(false);
+  const [useRetrieval, setUseRetrieval] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -250,6 +250,16 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
     [documents, selectedDocumentId],
   );
 
+  const clearUsageForDocument = () => {
+    if (!selectedDocumentId) return;
+    setExtractionCache((prev) => {
+      const updated = new Map(prev);
+      const current = updated.get(selectedDocumentId) || EMPTY_EXTRACTION;
+      updated.set(selectedDocumentId, { ...current, requests: [] });
+      return updated;
+    });
+  };
+
   const runExtraction = async () => {
     if (!selectedDocumentId) return;
 
@@ -263,11 +273,15 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
     });
 
     try {
+      const useRetrievalForRequest =
+        selectedDoc?.retrieval_index_status === "completed"
+          ? true
+          : useRetrieval;
       const result = await api.extractDocument(
         selectedDocumentId,
         !useStructuredOutput,
         useStructuredOutput,
-        useRetrieval,
+        useRetrievalForRequest,
       );
       setExtractionCache((prev) => {
         const updated = new Map(prev);
@@ -335,7 +349,9 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
             <CollapsibleContent className="space-y-3 px-3 pb-3 border-t border-[var(--border-subtle)]">
               <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-panel)] p-3 space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                  <Label className="cursor-pointer">Structured output mode</Label>
+                  <Label className="cursor-pointer">
+                    Structured output mode
+                  </Label>
                   <Switch
                     checked={useStructuredOutput}
                     onCheckedChange={setUseStructuredOutput}
@@ -355,9 +371,15 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
                   </Label>
                   <Switch
                     id="use-retrieval"
-                    checked={useRetrieval}
+                    checked={
+                      selectedDoc?.retrieval_index_status === "completed"
+                        ? true
+                        : useRetrieval
+                    }
                     onCheckedChange={setUseRetrieval}
-                    disabled={selectedDoc?.retrieval_index_status !== "completed"}
+                    disabled={
+                      selectedDoc?.retrieval_index_status === "completed"
+                    }
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -420,8 +442,19 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
 
           {requestsBySchema.length > 0 && (
             <div className="space-y-3 pb-4">
-              <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
-                Requests by Schema
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
+                  Requests by Schema
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 text-muted-foreground hover:text-foreground"
+                  onClick={clearUsageForDocument}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Clear usage
+                </Button>
               </div>
               {requestsBySchema.map((group) => (
                 <div
@@ -450,7 +483,9 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
                             </span>
                           </span>
                           <span>
-                            <span className="text-muted-foreground">Tokens:</span>{" "}
+                            <span className="text-muted-foreground">
+                              Tokens:
+                            </span>{" "}
                             <span className="font-medium">
                               {formatTokens(request.total_tokens)}
                             </span>
