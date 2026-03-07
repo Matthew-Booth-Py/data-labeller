@@ -1,226 +1,246 @@
-# Document Extraction Platform
+# Document Anonymizer
 
-[![Backend CI](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/backend-ci.yml)
-[![Frontend CI](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/frontend-ci.yml)
-[![Docker Publish](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/docker-publish.yml)
-[![CodeQL](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/codeql.yml/badge.svg)](https://github.com/YOUR_USERNAME/data-labeller/actions/workflows/codeql.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+PII detection and anonymization for documents and emails using Azure OpenAI.
 
-A general-purpose document extraction and data labelling platform that enables teams to define schemas, label documents, and extract structured data from any document type using AI.
+## Quick Start
 
-## Core Capabilities
 
-### Schema-Driven Extraction
-- Define document types and field schemas for any use case (invoices, contracts, forms, financial filings, etc.)
-- Use the AI Field Assistant to automatically suggest relevant fields based on sample documents
-- Attach extraction prompts at the field level for precise control
-- Run extraction with configurable prompts and models — including contextual retrieval and retrieval-vision modes for complex multi-page documents
-- Deploy extraction configurations as versioned API endpoints
-
-### Data Labeller
-- Dark-themed labelling UI with a three-panel layout (document list, viewer, output panel)
-- **PDF annotation**: renders raw PDF with text layer selection — highlight text directly on the rendered page to create annotations
-- **Image annotation**: bounding box drawing for image documents
-- **AI Suggest**: generates annotation suggestions using the same contextual retrieval-vision pipeline as extraction — finds the right pages via semantic search, uses pdfplumber to get bounding box positions on those pages, and overlays suggestions directly on the document
-- Approve or reject individual AI suggestions inline
-- Output panel displays current annotations as JSON
-
-### Multi-Project Support
-- Organize extraction configurations by project
-- Each project can handle different document types and schemas
-- Scale to multiple extraction use cases simultaneously
-
-## Extraction Workflow
-
-1. **Upload documents** - Ingest documents from any source
-2. **Define schema** - Create document types and field definitions (use AI Field Assistant for suggestions)
-3. **Classify documents** - Assign document types manually or with AI assistance
-4. **Label data** - Use the Data Labeller to manually annotate documents or use AI Suggest to generate and approve annotations
-5. **Extract data** - Run structured extraction using LLM with your defined schema (standard, contextual retrieval, or retrieval-vision)
-6. **Deploy** - Save extraction configurations as versioned API endpoints for production use
-
-## Architecture (Current)
-
-```mermaid
-flowchart LR
-    UI[React Frontend] --> ASGI[ASGI Entrypoint]
-    ASGI --> DJ[Django + DRF APIs]
-    DJ --> REPO[Django ORM Repository]
-    REPO --> PG[(Postgres)]
-    DJ --> FILES[(File Storage)]
-    DJ --> REDIS[(Redis Broker)]
-    REDIS --> CELERY[Celery Workers]
-    DJ --> LLM[LLM Provider API]
-    DJ --> CHROMA[(ChromaDB)]
-    DJ --> PDFTXT[pdfplumber]
+### Start FastAPI Server
+REST API for document anonymization and email synthetic data generation:
+```bash
+uv run uvicorn src/api:app --reload
 ```
 
-- Frontend (`frontend/client`): schema builder, document management, data labeller, extraction runner, deployment manager.
-- Backend (`backend/src/uu_backend`): Django/DRF runtime via `uu_backend.asgi_dispatcher`.
-- Persistence:
-  - Postgres: schemas, classifications, extractions, annotations, versions, deployment snapshots.
-  - File storage: uploaded source documents.
-  - ChromaDB: contextual retrieval index (chunks + embeddings for per-field semantic search).
-- pdfplumber: bounding box extraction for text PDFs and AI suggestion positioning.
+### Launch Streamlit UI
+Interactive web interface for document anonymization:
+```bash
+uv run streamlit run src/streamlit.py
+```
 
-### Runtime Routing (Wave Status)
-- All `/api/v1` route groups are served by Django/DRF.
-- No legacy routing split is active.
+## How It Works
 
-## Data Flow
+### Current Processing Model
+
+The application has two user-facing entry points:
+
+- **Streamlit UI** for interactive uploads
+- **FastAPI** for programmatic uploads
+
+Both paths converge on `DocumentConverter`, which routes the uploaded file to the correct processor based on file type.
+
+> In the Streamlit UI, uploading a file does **not** immediately anonymize it. Processing starts only when the user clicks **Anonymize**.
+
+### Interactive Upload Flow
 
 ```mermaid
 flowchart TD
-    A[Upload Document] --> B[Convert & Chunk]
-    B --> C[Store File + Index in ChromaDB]
-    C --> D[Classify Document Type]
-    D --> E[Define/Select Schema]
-    E --> F1[Label Manually in Data Labeller]
-    E --> F2[AI Suggest Annotations]
-    F2 --> F2a[Retrieval finds relevant pages]
-    F2a --> F2b[pdfplumber extracts word bboxes]
-    F2b --> F2c[Overlay suggestions on document]
-    F1 --> G[Ground Truth Annotations]
-    F2c --> G
-    G --> H[Run Extraction with Field Prompts]
-    H --> I[Structured Output]
-    I --> J[Save Deployment Version]
-    J --> K[Active/Pinned Extraction API Endpoints]
+    A[User uploads file] --> B{Entry point}
+
+    B -->|Web UI| C[Streamlit UI]
+    B -->|API| D[FastAPI /api/v1/anonymize_document]
+
+    C --> E[User clicks Anonymize]
+    E --> F[create_detector]
+    D --> G[Validate filename size and params]
+    G --> F
+
+    F --> H[DocumentConverter.anonymize]
+    H --> I{File type}
+
+    I -->|.eml| J[EmailProcessor]
+    I -->|.msg| K[MSGProcessor]
+    I -->|.pdf| L[PDFProcessor]
+    I -->|.docx| M[DocxProcessor]
+    I -->|.txt| N[TxtProcessor]
+
+    K --> K1[Convert MSG to EML-compatible email]
+    K1 --> J
+
+    J --> J2[Check email skip rules]
+    J2 -->|Skipped| JX[Return warning or HTTP 422]
+    J2 -->|Continue| J3[Extract visible text from headers body and supported attachments]
+    J3 --> O[PIIDetector.detect]
+    O --> P[Create replacement tags]
+    P --> J4[Rebuild anonymized email]
+    J4 --> Q[Anonymized email bytes]
+
+    L --> L1[Extract text]
+    M --> M1[Extract text]
+    N --> N1[Extract text]
+    L1 --> O
+    M1 --> O
+    N1 --> O
+
+    P --> L2[Rewrite PDF]
+    P --> M2[Rewrite DOCX]
+    P --> N2[Rewrite TXT]
+    L2 --> R[Anonymized file bytes]
+    M2 --> R
+    N2 --> R
+
+    Q --> S{Response path}
+    R --> S
+    S -->|UI| T[Store in session state and show download button]
+    S -->|API| U[Return attachment response]
+
+    Q -. optional email-only .-> V[fill_anonymized_email_async]
 ```
 
-- Documents are classified by type (manual or AI-assisted)
-- Annotations can be created manually (text selection on PDFs, bounding boxes on images) or via AI Suggest
-- AI Suggest uses contextual retrieval to find which pages contain the data, runs pdfplumber on those pages for bounding box coordinates, and overlays results on the document
-- Extraction uses schema fields and prompts to generate structured output; supports standard vision, contextual retrieval, and retrieval-vision modes
-- Deployment versions freeze schema + prompts for production use
+### PII Detection Pipeline
 
-## What “Save as New Version” Does
+The detector uses a multi-step pipeline to produce consistent anonymization tags:
 
-Saving a new version creates a deployable extraction snapshot for the selected project/document type:
-- Captures schema + field prompts + active versions at save time.
-- Stores it as a semantic version (`0.0`, `0.1`, `0.2`, ...).
-- Allows activation/deactivation via Deployment UI.
-- Exposes extraction endpoints that return outputs using that frozen config.
+1. **Regex extraction** - Fast extraction of emails, phone numbers, URLs, SSNs, and other structured values
+2. **LLM detection** - Azure OpenAI identifies names, companies, addresses, and context-dependent PII
+3. **Merging and deduplication** - Regex and LLM detections are consolidated
+4. **Profile linking** - Related names and emails are grouped so person-related tags stay consistent
+5. **Second-pass review** - A second LLM pass checks the partially anonymized text for missed entities
 
-## API (Deployment)
+> **Current tag format** uses short placeholders such as `<p_1>`, `<p_1_em>`, `<cn_1>`, and `<ph_1>`.
 
-All public APIs remain under `/api/v1`.
-Runtime request ownership is served directly by Django via `uu_backend.asgi_dispatcher`.
+**Input Example:**
+```
+From: John Smith <john.smith@example.com>
+Subject: Meeting Request
 
-- `POST /api/v1/deployments/versions`
-  - Create a new deployment snapshot version.
-- `GET /api/v1/deployments/projects/{project_id}/versions`
-  - List versions for a project.
-- `GET /api/v1/deployments/projects/{project_id}/active`
-  - Get active version.
-- `POST /api/v1/deployments/projects/{project_id}/versions/{version_id}/activate`
-  - Promote a version to active.
-- `POST /api/v1/deployments/projects/{project_id}/extract`
-  - Extract with active version.
-- `POST /api/v1/deployments/projects/{project_id}/v/{version}/extract`
-  - Extract with a pinned version.
+Hi, please call me at 555-123-4567.
+```
 
-## Endpoint Dependencies
+**Anonymized Output:**
+```
+From: Sender <synthetic-sender@example.com>
+Subject: <cn_1> Request
 
-### Core Runtime Dependencies
-- Backend ASGI dispatcher running (`backend`)
-- Postgres available at configured `DJANGO_DATABASE_URL`
-- File storage path writable for document uploads
-- ChromaDB available for contextual retrieval (chunk/embedding index)
-- Redis + Celery worker available for background indexing tasks
-- LLM credentials/config present in `.env`
+Hi, please call me at <ph_1>.
+```
 
-### Route Group Dependency Map
+### Optional Stage 2: Synthetic Data
 
-| Endpoint Group | Key Routes | Depends On |
-|---|---|---|
-| Health | `/health`, `/api/v1/health` | Dispatcher + service checks |
-| Documents/Ingestion | `/api/v1/ingest`, `/api/v1/documents*` | File storage, converter/chunker, ChromaDB, Postgres metadata, Celery |
-| Taxonomy/Schema | `/api/v1/taxonomy/*` | Postgres |
-| Classification/Suggestions | `/api/v1/documents/{id}/classify`, `/api/v1/documents/{id}/suggest*` | Postgres, document content, LLM |
-| Annotations | `/api/v1/documents/{id}/ground-truth*`, `/api/v1/annotations*` | Postgres |
-| AI Annotation Suggestions | `/api/v1/documents/{id}/suggest-annotations` | Postgres, ChromaDB (retrieval), pdfplumber (PDF word boxes), LLM (extraction) |
-| Extraction | `/api/v1/documents/{id}/extract`, `/api/v1/documents/{id}/extraction` | Postgres schema/prompts, document content, LLM, ChromaDB (retrieval modes) |
-| Evaluation | `/api/v1/evaluation*` | Postgres evaluations + annotations + schema metadata, extraction pipeline, LLM (when enabled) |
-| Deployments | `/api/v1/deployments*` | Postgres deployment snapshots, extraction service, active/pinned version resolution, LLM |
-| Timeline/Graph/Search | `/api/v1/timeline`, `/api/v1/graph*`, `/api/v1/search*`, `/api/v1/ask` | ChromaDB, Postgres metadata, LLM (for Q&A) |
+Synthetic data generation is available for **anonymized email files only** (`.eml` and `.msg`). It replaces tags with realistic values while preserving name/email linkage.
 
-### Deployment Endpoint-Specific Requirements
-- `POST /api/v1/deployments/versions`
-  - Requires valid `project_id` + `document_type_id` and existing schema fields.
-- `POST /api/v1/deployments/projects/{project_id}/extract`
-  - Requires an active deployment version for that project.
-- `POST /api/v1/deployments/projects/{project_id}/v/{version}/extract`
-  - Requires the specified saved version to exist.
-- All extract endpoints require multipart file payload and a configured extraction model.
+**Synthetic Output:**
+```
+From: Sender <synthetic-sender@example.com>
+Subject: Acme Corp Request
 
-## Tech Stack
+Hi, please call me at 555-789-0123.
+```
 
-- Frontend
-  - React 19 + TypeScript
-  - Vite
-  - Tailwind CSS + shadcn/ui (Radix UI)
-  - react-pdf / PDF.js (PDF rendering with text layer selection)
-  - TanStack Query, Framer Motion, Lucide React
-- Backend
-  - Django + DRF ASGI runtime
-  - Pydantic models
-  - Service-layer extraction/evaluation/annotation pipelines
-  - `pypdf` for PDF page extraction
-- Data + Infra
-  - Postgres (schemas, annotations, extractions, deployments)
-  - ChromaDB (contextual retrieval index)
-  - Celery + Redis (background indexing tasks)
-  - Docker Compose
-- AI/LLM
-  - OpenAI-compatible API (structured output, vision)
-  - pdfplumber (text PDF word-level box extraction for annotation overlay)
-  - Cohere (optional reranking for retrieval)
+### Supported File Types
 
-## Run Locally (Docker)
+**Top-level uploads:**
+- `.eml` - Standard email format
+- `.msg` - Microsoft Outlook format
+- `.pdf` - PDF documents
+- `.docx` - Microsoft Word documents
+- `.txt` - Plain text files
 
-The app is expected to run with Docker Compose.
+**Supported email attachment anonymization:**
+- `.pdf` - Text-based PDFs (single scanned PDFs with no text may trigger a skip)
+- `.docx` - Microsoft Word documents
+- `.txt` - Plain text files
 
+**Synthetic data fill:**
+- `.eml`
+- `.msg`
+
+> `.msg` files are converted internally into an EML-compatible message representation before anonymization.
+
+**Email-specific skip conditions:**
+The email processor will **not process** emails containing:
+1. A single scanned PDF attachment (no extractable text)
+2. Excel or CSV files (`.xls`, `.xlsx`, `.xlsm`, `.xlsb`, `.csv`)
+3. More than 5 attachments
+4. A DOCX attachment with form fields or fill-in-the-blank template content
+
+When skipped, the API returns HTTP 422 with the skip reason.
+
+### What Gets Anonymized
+
+**Email Headers:**
+- From, To, CC, BCC addresses → Synthetic values
+- Subject line → PII replaced with tags
+- Other headers preserved
+
+**Email Body:**
+- HTML and plain text content
+- Images removed
+- Hyperlinks removed (text preserved)
+
+**Attachments:**
+- Text content in supported PDF, DOCX, and TXT attachments
+- Filenames randomized (e.g., `report.pdf` → `a1b2c3d4e5f6.pdf`)
+- Images within PDFs removed
+
+## Components
+
+- **API** (`src/api.py`) - FastAPI endpoints for document anonymization and email synthetic fill
+- **Streamlit App** (`src/streamlit.py`) - Interactive upload UI
+- **Document Router** (`src/processors/converter.py`) - Routes uploaded files to the correct processor
+- **PII Detector** (`src/anonymizer.py`) - Regex + LLM-based detection and tag generation
+- **Email Processor** (`src/processors/email_processor.py`) - Handles email headers, bodies, and supported attachments
+- **Standalone Processors** (`src/processors/`) - PDF, DOCX, TXT, and MSG handling
+- **Evaluation Pipeline** (`pipelines/eval/pipeline.py`) - Benchmarks PII extraction quality
+- **Blob Batch Pipeline** (`pipelines/blob_pipeline.py`) - Processes submitted emails from Azure Blob Storage
+
+## API Endpoints
+
+- `GET /` - Health check and endpoint listing
+- `POST /api/v1/anonymize_document` - Primary document anonymization endpoint
+- `POST /api/v1/anonymize_email` - Deprecated email-only anonymization endpoint
+- `POST /api/v1/fill_anonymized_email` - Fill anonymized email files with synthetic data
+
+## Configuration Notes
+
+- Azure OpenAI model/deployment settings are configurable via application settings.
+- The README intentionally avoids hard-coding a single deployment name because the configured deployment can vary by environment.
+
+## Testing
+
+### Run Tests
 ```bash
-# First time setup: Install pre-commit hooks
-pip install pre-commit
-pre-commit install
-pre-commit install --hook-type pre-push
+# Run all tests
+uv run pytest
 
-# Build and start services
-docker compose build
-docker compose up -d
+# Run unit tests only
+uv run pytest tests/unit/ -v
+
+# Run integration tests only
+uv run pytest tests/integration/ -v
 ```
 
-Frontend: `http://localhost:3000`
-Backend API: `http://localhost:8000`
+## License
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
 
-**Note**: Pre-commit hooks will automatically run tests and checks before commits and pushes. See [docs/PRE_COMMIT_SETUP.md](docs/PRE_COMMIT_SETUP.md) for details.
+AGPL-3.0 Compliance Requirements
 
-- **Setup**: One-time clone, env config, pre-commit install, then start services with Docker Compose.
-- **Develop**: Work on a feature branch; each commit triggers pre-commit (lint, tests, conventional commit). Fix any failures before pushing.
-- **Integrate**: Open a PR; CI runs per path (backend/frontend). After review and approval, merge to main; then deploy or create a release as needed.
+If you distribute or deploy this software (including as a network service), you must:
 
-## Environment
+Provide Source Code Access: Make the complete source code (including all modifications) available to users
+Preserve License Notices: Keep all copyright notices, license statements, and disclaimers intact
+Share Modifications: Any modifications or derivative works must also be licensed under AGPL-3.0
+Network Use Disclosure: If you run a modified version on a server accessible to users over a network, you must make the modified source code available to those users
+Document Changes: Clearly document what changes were made and when
+Key principle: The AGPL's "network copyleft" provision ensures that users who interact with the software over a network have the same rights to the source code as those who receive it directly.
 
-Use your `.env` file. Important keys include:
-- `OPENAI_API_KEY` — LLM for extraction, classification, and AI suggestions
-- `OPENAI_MODEL` — primary model used across extraction, classification, and retrieval enrichment
-- `AZURE_OPENAI_*` — optional Azure OpenAI endpoint/key/version if using Azure-hosted models
-- `CO_API_KEY` / `CO_RERANK_ENDPOINT` — optional Cohere reranking for contextual retrieval
-- `DJANGO_DATABASE_URL` — Postgres connection string
-- `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` — Redis URLs for background tasks
+These actions would trigger additional compliance obligations or incompatibility:
 
-## Repo Layout
+❌ Combining with proprietary/closed-source code: Cannot integrate this code into proprietary software without making the entire combined work AGPL-3.0
+❌ Hosting without source code access: Cannot deploy as a web service/API without providing source code to users
+❌ Removing license notices: Cannot strip out copyright notices or license information
+❌ Re-licensing under incompatible licenses: Cannot change to licenses like MIT, Apache 2.0, or proprietary licenses
+❌ SaaS without disclosure: Cannot offer this as a service (SaaS) while keeping modifications private
+❌ Mixing with GPL-2.0-only code: AGPL-3.0 is not compatible with GPL-2.0-only (GPL-3.0+ is compatible)
+❌ Commercial use without compliance: You can use commercially, but must still provide source code to all users
+What You CAN Do
+✅ Use the software for any purpose (personal, commercial, internal)
+✅ Modify the code for your own use
+✅ Distribute the software to others
+✅ Charge for the software or services
+✅ Use it internally without disclosing source code (if not deployed as a network service accessible to external users)
+Important Note
+If you're offering this application as an interactive service over a network (web app, API, etc.), the AGPL requires you to provide a prominent way for users to access the source code. This is the key difference from the standard GPL.
 
-- `backend/` dispatcher runtime, Django + DRF APIs, extraction services, persistence
-- `frontend/` React app (schema builder, document management, extraction UI, deployment manager)
-- `docs/` implementation notes and guides
-- `data/` local runtime storage
+For the full license text, see the LICENSE file in this repository.
 
-## Notes
-
-- The platform is domain-agnostic and works with any document type
-- Use projects to organize different extraction use cases
-- **AI Suggest** requires the document to be indexed for contextual retrieval (ChromaDB); it automatically identifies which pages contain the relevant data before running pdfplumber bounding box analysis
-- **Extraction modes**: standard (full-doc vision), contextual retrieval (per-field semantic search + text context), retrieval-vision (semantic search to find pages, then vision on rendered page images) — the labeller's AI Suggest uses retrieval-vision
+For questions about licensing or compliance, consult with a legal professional familiar with open source licenses.
