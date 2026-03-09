@@ -287,7 +287,7 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
       );
 
       try {
-        await api.extractDocument(doc.id, false, true); // use structured output
+        await api.extractDocument(doc.id, false, true, true);
         const elapsed = ((Date.now() - docStartTime) / 1000).toFixed(2);
         console.log(
           `✅ [${index + 1}/${classifiedDocs.length}] Completed ${doc.filename} in ${elapsed}s`,

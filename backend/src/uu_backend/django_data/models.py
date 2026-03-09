@@ -89,6 +89,7 @@ class ExtractionModel(models.Model):
     schema_version_id = models.CharField(max_length=64, blank=True, null=True)
     prompt_version_id = models.CharField(max_length=64, blank=True, null=True)
     extracted_data = models.JSONField(default=dict)
+    request_metadata = models.JSONField(default=dict)
     request_logs = models.JSONField(default=list)
     extracted_at = models.DateTimeField()
 

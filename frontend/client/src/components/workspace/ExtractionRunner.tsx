@@ -112,7 +112,6 @@ function formatSchemaLabel(schemaVersionId: string): string {
 export function ExtractionRunner({ projectId }: { projectId?: string }) {
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
   const [useStructuredOutput, setUseStructuredOutput] = useState(true);
-  const [useRetrieval, setUseRetrieval] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -273,15 +272,11 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
     });
 
     try {
-      const useRetrievalForRequest =
-        selectedDoc?.retrieval_index_status === "completed"
-          ? true
-          : useRetrieval;
       const result = await api.extractDocument(
         selectedDocumentId,
         !useStructuredOutput,
         useStructuredOutput,
-        useRetrievalForRequest,
+        true,
       );
       setExtractionCache((prev) => {
         const updated = new Map(prev);
@@ -366,33 +361,24 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
 
               <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-panel)] p-3 space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                  <Label htmlFor="use-retrieval" className="cursor-pointer">
+                  <Label>
                     Contextual retrieval
                   </Label>
-                  <Switch
-                    id="use-retrieval"
-                    checked={
-                      selectedDoc?.retrieval_index_status === "completed"
-                        ? true
-                        : useRetrieval
-                    }
-                    onCheckedChange={setUseRetrieval}
-                    disabled={
-                      selectedDoc?.retrieval_index_status === "completed"
-                    }
-                  />
+                  <Badge variant="secondary">Always on</Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {selectedDoc?.retrieval_index_status === "completed" &&
                     selectedDoc.retrieval_chunks_count &&
                     `${selectedDoc.retrieval_chunks_count} chunks indexed`}
                   {selectedDoc?.retrieval_index_status === "processing" &&
-                    "Indexing in progress"}
+                    "Indexing in progress. Extraction will fail until indexing completes."}
+                  {selectedDoc?.retrieval_index_status === "failed" &&
+                    "Indexing failed. Reindex the document before extraction."}
                   {selectedDoc?.retrieval_index_status &&
-                    !["completed", "processing"].includes(
+                    !["completed", "processing", "failed"].includes(
                       selectedDoc.retrieval_index_status,
                     ) &&
-                    "Document is not indexed yet"}
+                    "Document is not indexed yet. Index or reindex before extraction."}
                 </p>
               </div>
             </CollapsibleContent>

@@ -301,9 +301,8 @@ def extract_pdf_with_tables(pdf_path: str) -> tuple[str, int]:
                 )
 
                 if text.strip():
-                    # Add page header for multi-page documents
                     if page_count > 1:
-                        page_content.append(f"\n--- Page {page_num} ---\n")
+                        page_content.append(f"\n## Page {page_num}\n")
                     page_content.append(text)
 
             if page_content:

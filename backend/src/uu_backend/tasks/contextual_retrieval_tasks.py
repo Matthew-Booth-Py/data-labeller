@@ -1,13 +1,52 @@
 """Celery tasks for Contextual Retrieval indexing."""
 
 import logging
+from pathlib import Path
 
 from celery import shared_task
 
+from uu_backend.config import get_settings
+from uu_backend.ingestion.converter import extract_pdf_with_tables, postprocess_markdown
 from uu_backend.repositories.document_repository import get_document_repository
 from uu_backend.services.contextual_retrieval import get_contextual_retrieval_service
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_document_file_path(document) -> Path | None:
+    if document.file_path:
+        file_path = Path(document.file_path)
+        if file_path.exists():
+            return file_path
+
+    if not document.file_type:
+        return None
+
+    settings = get_settings()
+    candidate = settings.file_storage_path / f"{document.id}.{document.file_type.lower()}"
+    return candidate if candidate.exists() else None
+
+
+def _load_document_content_for_retrieval(document) -> str:
+    """Load the layout-preserving content used to build the retrieval index."""
+    if document.file_type.lower() == "pdf":
+        file_path = _resolve_document_file_path(document)
+        if file_path:
+            logger.info(
+                "Extracting retrieval content from PDF with layout-preserving converter: %s",
+                file_path,
+            )
+            content, _ = extract_pdf_with_tables(str(file_path))
+            content = postprocess_markdown(content)
+            if content.strip():
+                return content
+            logger.warning(
+                "Layout-preserving PDF extraction returned no content for %s; "
+                "falling back to stored document content",
+                document.id,
+            )
+
+    return document.content or ""
 
 
 @shared_task(bind=True, max_retries=3)
@@ -46,42 +85,13 @@ def index_document_for_retrieval(self, document_id: str):
             doc_model.save()
             return {"status": "error", "message": "Document not found"}
 
-        # Extract content using pdfplumber for PDFs
-        content = None
-
-        # Try pdfplumber first for PDFs
-        if document.file_type.lower() == "pdf":
-            import pdfplumber
-
-            from uu_backend.config import get_settings
-
-            settings = get_settings()
-            file_path = settings.file_storage_path / f"{document_id}.pdf"
-
-            if file_path.exists():
-                try:
-                    logger.info(f"Extracting content from PDF using pdfplumber: {file_path}")
-                    with pdfplumber.open(file_path) as pdf:
-                        pages_text = []
-                        for page in pdf.pages:
-                            page_text = page.extract_text()
-                            if page_text:
-                                pages_text.append(f"## Page {page.page_number}\n\n{page_text}")
-                        content = "\n\n".join(pages_text)
-                        logger.info(
-                            f"Extracted {len(content)} chars from {len(pages_text)} pages "
-                            f"using pdfplumber"
-                        )
-                except Exception as e:
-                    logger.warning(f"Failed to extract with pdfplumber: {e}")
-
-        # Fall back to standard document content
-        if not content or not content.strip():
-            content = document.content
-            if content:
-                logger.info(
-                    f"Using standard document content for {document_id} ({len(content)} chars)"
-                )
+        content = _load_document_content_for_retrieval(document)
+        if content:
+            logger.info(
+                "Loaded %s chars of retrieval content for %s",
+                len(content),
+                document_id,
+            )
 
         if not content or not content.strip():
             logger.warning(f"Document {document_id} has no content to index")

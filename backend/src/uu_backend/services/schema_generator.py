@@ -26,10 +26,11 @@ def generate_pydantic_schema(
 
     for field in schema_fields:
         python_type = _field_type_to_python_type(field)
+        field_annotation = python_type if field.required else _optional_annotation(python_type)
         field_info = Field(
             description=field.description, default=None if not field.required else ...
         )
-        field_definitions[field.name] = (python_type, field_info)
+        field_definitions[field.name] = (field_annotation, field_info)
 
     # Create the Pydantic model dynamically
     return create_model(model_name, **field_definitions)
@@ -67,8 +68,14 @@ def _field_type_to_python_type(field: SchemaField) -> Any:
             )
             for prop_name, prop_schema in sorted_props:
                 prop_type = _field_type_to_python_type(prop_schema)
-                prop_field = Field(description=prop_schema.description, default=None)
-                nested_fields[prop_name] = (prop_type, prop_field)
+                prop_annotation = (
+                    prop_type if prop_schema.required else _optional_annotation(prop_type)
+                )
+                prop_field = Field(
+                    description=prop_schema.description,
+                    default=None if not prop_schema.required else ...,
+                )
+                nested_fields[prop_name] = (prop_annotation, prop_field)
 
             # Create nested model
             nested_model = create_model(
@@ -78,6 +85,14 @@ def _field_type_to_python_type(field: SchemaField) -> Any:
         return dict[str, Any]
 
     return Any
+
+
+def _optional_annotation(python_type: Any) -> Any:
+    """Allow null for non-required fields, including nested object properties."""
+
+    if python_type is Any:
+        return Any
+    return python_type | None
 
 
 def schema_to_json_schema(pydantic_model: type[BaseModel]) -> dict:

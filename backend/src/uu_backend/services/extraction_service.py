@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -57,16 +58,202 @@ class ExtractionService:
     def _has_table_like_field(self, schema_fields: list[SchemaField]) -> bool:
         """True if any field is an array (table-like) or has explicit visual_content_type=table."""
         for field in schema_fields:
-            content_type = getattr(field, "visual_content_type", None)
-            if content_type:
-                type_value = (
-                    content_type.value if hasattr(content_type, "value") else str(content_type)
-                )
-                if type_value == "table":
-                    return True
-            if field.type == FieldType.ARRAY and field.items:
+            if self._is_table_field(field):
                 return True
         return False
+
+    def _is_table_field(self, field: SchemaField) -> bool:
+        content_type = getattr(field, "visual_content_type", None)
+        if content_type:
+            type_value = content_type.value if hasattr(content_type, "value") else str(content_type)
+            if type_value == "table":
+                return True
+        return field.type == FieldType.ARRAY and field.items is not None
+
+    def _ensure_retrieval_ready(self, document) -> None:
+        status = (document.retrieval_index_status or "pending").lower()
+
+        if status == "completed":
+            if document.retrieval_chunks_count == 0:
+                raise ValueError(
+                    "Contextual retrieval completed, but no retrieval content was indexed for "
+                    "this document. Reindex the document after confirming it has extractable text."
+                )
+            return
+
+        if status == "processing":
+            raise ValueError(
+                "Contextual retrieval indexing is still in progress for this document. "
+                "Wait for indexing to complete before running extraction."
+            )
+
+        if status == "failed":
+            raise ValueError(
+                "Contextual retrieval indexing failed for this document. "
+                "Reindex the document before running extraction."
+            )
+
+        raise ValueError(
+            "Contextual retrieval indexing is required before extraction. "
+            "Index or reindex this document and retry."
+        )
+
+    def _normalize_query_fragment(self, value: str | None, *, max_chars: int = 400) -> str:
+        if not value:
+            return ""
+        normalized = re.sub(r"\s+", " ", value).strip()
+        return normalized[:max_chars].strip()
+
+    def _dedupe_fragments(self, fragments: list[str]) -> list[str]:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for fragment in fragments:
+            normalized = self._normalize_query_fragment(fragment)
+            if not normalized:
+                continue
+            marker = normalized.lower()
+            if marker in seen:
+                continue
+            seen.add(marker)
+            deduped.append(normalized)
+        return deduped
+
+    def _build_field_queries(self, doc_type, field: SchemaField) -> list[str]:
+        field_name = field.name.replace("_", " ")
+        base_fragments = self._dedupe_fragments(
+            [
+                doc_type.name,
+                doc_type.description,
+                field_name,
+                field.description,
+            ]
+        )
+        visual_fragments = self._dedupe_fragments(field.visual_features or [])
+        prompt_fragments = self._dedupe_fragments(
+            [
+                field.extraction_prompt,
+                field.visual_guidance,
+            ]
+        )
+
+        query_variants: list[list[str]] = [base_fragments]
+
+        if prompt_fragments:
+            query_variants.append(base_fragments + prompt_fragments)
+
+        if visual_fragments:
+            query_variants.append(base_fragments + visual_fragments)
+
+        if self._is_table_field(field):
+            query_variants.append(
+                base_fragments
+                + visual_fragments
+                + [
+                    "table",
+                    "row labels",
+                    "column headers",
+                    "data cells",
+                    "financial reconciliation",
+                ]
+            )
+
+        queries: list[str] = []
+        seen_queries: set[str] = set()
+        for fragments in query_variants:
+            query = " ".join(self._dedupe_fragments(fragments))
+            if not query:
+                continue
+            marker = query.lower()
+            if marker in seen_queries:
+                continue
+            seen_queries.add(marker)
+            queries.append(query)
+
+        return queries or [field_name]
+
+    def _rank_pages_from_query_results(
+        self,
+        *,
+        results_by_query: dict[str, list[Any]],
+        min_score: float = 0.0,
+    ) -> list[tuple[int, dict[str, Any]]]:
+        page_stats: dict[int, dict[str, Any]] = {}
+
+        for query, results in results_by_query.items():
+            for rank, result in enumerate(results):
+                score = float(getattr(result, "score", 0.0) or 0.0)
+                if score < min_score:
+                    continue
+
+                page_number = result.metadata.get("page_number") if result.metadata else None
+                if page_number is None:
+                    continue
+                page_num = int(page_number)
+
+                stat = page_stats.setdefault(
+                    page_num,
+                    {
+                        "score": 0.0,
+                        "best_score": 0.0,
+                        "hits": 0,
+                        "queries": set(),
+                        "chunks": [],
+                    },
+                )
+                rank_bonus = 1.0 / (rank + 1)
+                stat["score"] += score + rank_bonus
+                stat["best_score"] = max(stat["best_score"], score)
+                stat["hits"] += 1
+                stat["queries"].add(query)
+                stat["chunks"].append(result)
+
+        return sorted(
+            page_stats.items(),
+            key=lambda item: (
+                len(item[1]["queries"]),
+                item[1]["hits"],
+                item[1]["score"],
+                item[1]["best_score"],
+            ),
+            reverse=True,
+        )
+
+    def _finalize_page_selection(
+        self,
+        *,
+        overall_page_stats: dict[int, dict[str, Any]],
+        required_pages: set[int],
+        min_pages: int = 2,
+        max_pages: int = 4,
+    ) -> list[int]:
+        ordered_pages = [
+            page
+            for page, _ in sorted(
+                overall_page_stats.items(),
+                key=lambda item: (
+                    len(item[1]["fields"]),
+                    item[1]["score"],
+                    item[1]["hits"],
+                    item[1]["best_score"],
+                ),
+                reverse=True,
+            )
+        ]
+
+        final_pages: list[int] = [page for page in ordered_pages if page in required_pages]
+
+        if len(final_pages) < min_pages:
+            for page in ordered_pages:
+                if page in final_pages:
+                    continue
+                final_pages.append(page)
+                if len(final_pages) >= min(min_pages, len(ordered_pages)):
+                    break
+
+        if len(final_pages) > max_pages:
+            final_pages = final_pages[:max_pages]
+
+        return final_pages
 
     def _should_use_vision_extraction(
         self, schema_fields: list[SchemaField], file_type: str
@@ -75,6 +262,17 @@ class ExtractionService:
         if file_type.lower() != "pdf":
             return False
         return self._has_table_like_field(schema_fields)
+
+    def _build_request_metadata(
+        self,
+        *,
+        strategy: str,
+        source_page_numbers: list[int] | None = None,
+    ) -> dict[str, Any]:
+        metadata: dict[str, Any] = {"strategy": strategy}
+        if source_page_numbers:
+            metadata["source_page_numbers"] = sorted(source_page_numbers)
+        return metadata
 
     def extract_auto(
         self,
@@ -317,6 +515,9 @@ Extract all fields according to the schema. Return null for fields that cannot b
                 document_type_id=doc_type.id,
                 fields=extracted_fields,
                 requests=[request_metrics],
+                request_metadata=self._build_request_metadata(
+                    strategy="structured_output",
+                ),
                 schema_version_id=doc_type.schema_version_id,
                 prompt_version_id=prompt_version_id,
                 extracted_at=timezone.now(),
@@ -433,18 +634,33 @@ Extract all fields according to the schema. Return null for fields that cannot b
         # Get retrieval service
         retrieval_service = get_contextual_retrieval_service()
 
+        self._ensure_retrieval_ready(document)
+
         logger.info(f"Starting field-by-field retrieval for {len(effective_schema_fields)} fields")
 
         all_chunks = {}
         for field in effective_schema_fields:
-            query = self._build_field_query(field)
-            results = retrieval_service.search(
-                query=query,
-                top_k=top_k_per_field,
-                filter_doc_id=document_id,
-                use_reranking=True,
-            )
-            all_chunks[field.name] = results
+            queries = self._build_field_queries(doc_type, field)
+            logger.info("[RETRIEVAL DEBUG] Field '%s' queries: %s", field.name, queries)
+
+            field_results = []
+            seen_chunk_ids: set[str] = set()
+            for query in queries:
+                results = retrieval_service.search(
+                    query=query,
+                    top_k=top_k_per_field,
+                    filter_doc_id=document_id,
+                    use_reranking=True,
+                )
+                for result in results:
+                    chunk_id = f"{result.doc_id}_{result.chunk_index}"
+                    if chunk_id in seen_chunk_ids:
+                        continue
+                    seen_chunk_ids.add(chunk_id)
+                    field_results.append(result)
+
+            field_results.sort(key=lambda result: result.score, reverse=True)
+            all_chunks[field.name] = field_results
 
         seen_chunk_ids = set()
         unique_chunks = []
@@ -530,6 +746,9 @@ Extract all fields according to the schema. Return null for fields that cannot b
                 document_type_id=doc_type.id,
                 fields=extracted_fields,
                 requests=[request_metrics],
+                request_metadata=self._build_request_metadata(
+                    strategy="contextual_retrieval",
+                ),
                 schema_version_id=doc_type.schema_version_id,
                 prompt_version_id=prompt_version_id,
                 extracted_at=timezone.now(),
@@ -542,19 +761,6 @@ Extract all fields according to the schema. Return null for fields that cannot b
         except Exception as e:
             logger.error(f"Retrieval extraction failed: {e}", exc_info=True)
             raise ValueError(f"Extraction failed: {str(e)}")
-
-    def _build_field_query(self, field: SchemaField) -> str:
-        parts = []
-
-        if field.description:
-            parts.append(field.description)
-
-        parts.append(field.name.replace("_", " "))
-
-        if field.visual_features:
-            parts.extend(field.visual_features[:3])
-
-        return " ".join(parts)
 
     def extract_structured_with_retrieval_vision(
         self,
@@ -592,6 +798,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
         document = document_repo.get_document(document_id)
         if not document:
             raise ValueError(f"Document {document_id} not found")
+        self._ensure_retrieval_ready(document)
 
         classification = repository.get_classification(document_id)
         if not classification:
@@ -617,43 +824,77 @@ Extract all fields according to the schema. Return null for fields that cannot b
 
         logger.info(f"Retrieval-vision extraction: {document.filename} (type={doc_type.name})")
 
-        all_page_numbers = set()
-        field_page_map = {}
+        overall_page_stats: dict[int, dict[str, Any]] = {}
+        field_page_map: dict[str, set[int]] = {}
 
         for field in effective_schema_fields:
-            query = self._build_field_query(field)
-            results = retrieval_service.search(
-                query=query,
-                top_k=top_k_per_field,
-                filter_doc_id=document_id,
-                use_reranking=True,
+            queries = self._build_field_queries(doc_type, field)
+            logger.info("[RETRIEVAL DEBUG] Field '%s' queries: %s", field.name, queries)
+
+            results_by_query: dict[str, list[Any]] = {}
+            for query in queries:
+                results_by_query[query] = retrieval_service.search(
+                    query=query,
+                    top_k=top_k_per_field,
+                    filter_doc_id=document_id,
+                    use_reranking=True,
+                )
+
+            ranked_pages = self._rank_pages_from_query_results(
+                results_by_query=results_by_query,
+                min_score=min_score,
+            )
+            pages_per_field = 2 if self._is_table_field(field) else 1
+            selected_pages = {
+                page_number for page_number, _ in ranked_pages[:pages_per_field]
+            }
+            field_page_map[field.name] = selected_pages
+
+            logger.info(
+                "[RETRIEVAL DEBUG] Field '%s' selected pages: %s",
+                field.name,
+                sorted(selected_pages),
             )
 
-            field_pages = set()
-            if results and results[0].score >= min_score:
-                result = results[0]
-                page_num = result.metadata.get("page_number")
-                if page_num:
-                    page_num_int = int(page_num) if isinstance(page_num, str) else page_num
-                    field_pages.add(page_num_int)
-                    all_page_numbers.add(page_num_int)
+            for page_number, stats in ranked_pages:
+                page_entry = overall_page_stats.setdefault(
+                    page_number,
+                    {
+                        "score": 0.0,
+                        "best_score": 0.0,
+                        "hits": 0,
+                        "fields": set(),
+                    },
+                )
+                page_entry["score"] += stats["score"]
+                page_entry["best_score"] = max(page_entry["best_score"], stats["best_score"])
+                page_entry["hits"] += stats["hits"]
+                page_entry["fields"].add(field.name)
 
-                    page_summary = result.metadata.get("page_summary", "")
-                    if page_summary:
-                        logger.debug(
-                            f"Selected page {page_num_int} for field '{field.name}' "
-                            f"(score={result.score:.3f}): {page_summary[:100]}"
-                        )
-
-            field_page_map[field.name] = field_pages
+        required_pages = {page for pages in field_page_map.values() for page in pages}
+        all_page_numbers = self._finalize_page_selection(
+            overall_page_stats=overall_page_stats,
+            required_pages=required_pages,
+        )
 
         if not all_page_numbers:
             raise ValueError(
-                f"No relevant pages found via retrieval. "
-                f"Document may not be indexed or min_score={min_score} is too high."
+                "No relevant pages were found via contextual retrieval. "
+                "Reindex the document or refine the field prompts and visual cues."
             )
 
-        logger.info(f"Rendering {len(all_page_numbers)} pages: {sorted(all_page_numbers)}")
+        logger.info(
+            "[RETRIEVAL DEBUG] Final source pages for %s: %s",
+            document_id,
+            all_page_numbers,
+        )
+
+        field_page_map = {
+            field_name: {page for page in pages if page in set(all_page_numbers)}
+            for field_name, pages in field_page_map.items()
+        }
+
+        logger.info(f"Rendering {len(all_page_numbers)} pages: {all_page_numbers}")
 
         file_path = self._get_document_file_path(document)
         if not file_path or not file_path.exists():
@@ -665,10 +906,10 @@ Extract all fields according to the schema. Return null for fields that cannot b
                 f"Retrieval-vision extraction only supports PDF documents, got {file_type}"
             )
 
-        page_images = self._render_pdf_pages(file_path, sorted(all_page_numbers))
+        page_images = self._render_pdf_pages(file_path, all_page_numbers)
 
         if not page_images:
-            raise ValueError(f"Failed to render PDF pages {sorted(all_page_numbers)}")
+            raise ValueError(f"Failed to render PDF pages {all_page_numbers}")
 
         system_prompt = doc_type.system_prompt or self._get_default_extraction_prompt(doc_type)
         system_prompt = f"{system_prompt}\n\n{self._raw_guardrails}"
@@ -777,6 +1018,10 @@ fields not found in the table.""",
                 document_type_id=doc_type.id,
                 fields=extracted_fields,
                 requests=[request_metrics],
+                request_metadata=self._build_request_metadata(
+                    strategy="contextual_retrieval_vision",
+                    source_page_numbers=all_page_numbers,
+                ),
                 schema_version_id=doc_type.schema_version_id,
                 prompt_version_id=prompt_version_id,
                 extracted_at=timezone.now(),

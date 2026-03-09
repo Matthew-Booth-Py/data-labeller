@@ -548,6 +548,7 @@ class DjangoORMRepository:
             }
             for request in (getattr(result, "requests", None) or [])
         ]
+        request_metadata = dict(getattr(result, "request_metadata", None) or {})
 
         existing = orm.ExtractionModel.objects.filter(document_id=result.document_id).first()
         if existing:
@@ -560,6 +561,7 @@ class DjangoORMRepository:
             existing.schema_version_id = result.schema_version_id
             existing.prompt_version_id = result.prompt_version_id
             existing.extracted_data = fields_data
+            existing.request_metadata = request_metadata
             existing.request_logs = combined_logs
             existing.extracted_at = result.extracted_at
             existing.save(
@@ -568,6 +570,7 @@ class DjangoORMRepository:
                     "schema_version_id",
                     "prompt_version_id",
                     "extracted_data",
+                    "request_metadata",
                     "request_logs",
                     "extracted_at",
                 ]
@@ -581,6 +584,7 @@ class DjangoORMRepository:
             schema_version_id=result.schema_version_id,
             prompt_version_id=result.prompt_version_id,
             extracted_data=fields_data,
+            request_metadata=request_metadata,
             request_logs=request_logs_data,
             extracted_at=result.extracted_at,
         )
@@ -597,6 +601,7 @@ class DjangoORMRepository:
             "schema_version_id": row.schema_version_id,
             "prompt_version_id": row.prompt_version_id,
             "fields": row.extracted_data or [],
+            "request_metadata": row.request_metadata or {},
             "requests": row.request_logs or [],
             "extracted_at": self._iso(row.extracted_at),
         }

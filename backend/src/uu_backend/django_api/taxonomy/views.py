@@ -55,6 +55,40 @@ def _bool_query_param(value: str | None, default: bool) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _merge_visual_retrieval_features(
+    *,
+    distinguishing_features: list[str] | None,
+    column_headers: list[str] | None,
+    row_labels: list[str] | None,
+    data_types: list[str] | None,
+) -> list[str]:
+    merged: list[str] = []
+
+    def add(values: list[str] | None, prefix: str | None = None) -> None:
+        if not values:
+            return
+        for value in values:
+            text = str(value).strip()
+            if not text:
+                continue
+            merged.append(f"{prefix}: {text}" if prefix else text)
+
+    add(distinguishing_features)
+    add(column_headers, "column header")
+    add(row_labels, "row label")
+    add(data_types, "data type")
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in merged:
+        marker = item.lower()
+        if marker in seen:
+            continue
+        seen.add(marker)
+        deduped.append(item)
+    return deduped
+
+
 class TaxonomyPrefixView(APIView):
     authentication_classes: list = []
     permission_classes: list = []
@@ -504,12 +538,19 @@ class TaxonomyPrefixView(APIView):
                     field_description=field_description,
                 )
 
+                visual_features = _merge_visual_retrieval_features(
+                    distinguishing_features=analysis.distinguishing_features,
+                    column_headers=analysis.column_headers,
+                    row_labels=analysis.row_labels,
+                    data_types=analysis.data_types,
+                )
+
                 return Response(
                     {
                         "visual_content_type": analysis.content_type.value,
                         "structure_description": analysis.structure_description,
                         "extraction_guidance": analysis.extraction_guidance,
-                        "distinguishing_features": analysis.distinguishing_features,
+                        "distinguishing_features": visual_features,
                         "column_headers": analysis.column_headers,
                         "row_labels": analysis.row_labels,
                         "data_types": analysis.data_types,
@@ -746,22 +787,26 @@ class ExtractDocumentView(APIView):
         )
 
         try:
-            if use_retrieval_vision or use_retrieval:
+            if not (use_retrieval or use_retrieval_vision):
                 logger.warning(
-                    f"[EXTRACTION API] Calling extract_structured_with_retrieval_vision "
-                    f"for {document_id}"
+                    "[EXTRACTION API] Rejecting non-retrieval extraction for %s",
+                    document_id,
                 )
-                result = service.extract_structured_with_retrieval_vision(document_id)
-            elif use_structured_output:
-                logger.warning(f"[EXTRACTION API] Calling extract_structured for {document_id}")
-                result = service.extract_structured(document_id)
-            else:
-                logger.warning(
-                    f"[EXTRACTION API] Calling extract_from_annotations for {document_id}"
+                return Response(
+                    {
+                        "detail": (
+                            "Contextual retrieval is mandatory for document extraction. "
+                            "Retry with use_retrieval=true."
+                        )
+                    },
+                    status=400,
                 )
-                result = service.extract_from_annotations(  # type: ignore
-                    document_id, use_llm_refinement=use_llm
-                )
+
+            logger.warning(
+                f"[EXTRACTION API] Calling extract_structured_with_retrieval_vision "
+                f"for {document_id}"
+            )
+            result = service.extract_structured_with_retrieval_vision(document_id)
 
             logger.warning(
                 f"[EXTRACTION API] Extraction completed for {document_id}\n"

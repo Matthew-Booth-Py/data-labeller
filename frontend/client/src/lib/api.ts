@@ -905,7 +905,7 @@ class ApiClient {
     documentId: string,
     useLlm: boolean = true,
     useStructuredOutput: boolean = false,
-    useRetrieval: boolean = false,
+    useRetrieval: boolean = true,
     useRetrievalVision: boolean = false,
   ): Promise<ExtractionResult> {
     return this.request(

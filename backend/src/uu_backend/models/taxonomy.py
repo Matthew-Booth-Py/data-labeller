@@ -186,6 +186,7 @@ class ExtractionResult(BaseModel):
     document_type_id: str
     fields: list[ExtractedField]
     requests: list[ExtractionRequestMetrics] = Field(default_factory=list)
+    request_metadata: dict[str, Any] = Field(default_factory=dict)
     schema_version_id: str | None = None
     prompt_version_id: str | None = None
     extracted_at: datetime
