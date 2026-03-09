@@ -80,7 +80,7 @@
     "zod-validation-error": "^5.0.0"
   },
   "devDependencies": {
-    "@replit/vite-plugin-cartographer": "^0.4.4",
+    "@replit/vite-plugin-cartographer": "^0.4.11",
     "@replit/vite-plugin-dev-banner": "^0.1.1",
     "@replit/vite-plugin-runtime-error-modal": "^0.0.4",
     "@tailwindcss/vite": "^4.1.14",
