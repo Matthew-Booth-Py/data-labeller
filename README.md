@@ -1,246 +1,309 @@
-# Document Anonymizer
+# Unstructured Unlocked
 
-PII detection and anonymization for documents and emails using Azure OpenAI.
+Schema-driven document extraction workbench for ingesting business documents, defining extraction schemas, supervising labels, measuring extraction quality, and publishing versioned extraction endpoints.
 
-## Quick Start
+This repository is not a generic data labelling library. The codebase implements a full document intelligence product with these stages:
 
+1. Ingest documents and convert them into searchable text.
+2. Define document types and schema fields.
+3. Classify documents into a document type.
+4. Index documents for contextual retrieval.
+5. Generate and approve ground-truth annotations.
+6. Run structured extraction against the active schema.
+7. Evaluate extraction output against approved labels.
+8. Snapshot the current configuration into a deployment version and expose a stable extraction endpoint.
 
-### Start FastAPI Server
-REST API for document anonymization and email synthetic data generation:
-```bash
-uv run uvicorn src/api:app --reload
-```
+## What The Product Does
 
-### Launch Streamlit UI
-Interactive web interface for document anonymization:
-```bash
-uv run streamlit run src/streamlit.py
-```
+The application is built for semi-structured document workflows such as:
 
-## How It Works
+- insurance claims
+- invoices and receipts
+- forms and certificates
+- table-heavy financial filings
+- any repeatable document family that needs schema-aligned JSON output
 
-### Current Processing Model
+The strongest product signals in the code are:
 
-The application has two user-facing entry points:
+- document-type schemas with nested fields and table-aware arrays
+- AI field suggestion and screenshot-assisted schema design
+- manual and automatic document classification
+- retrieval-first extraction, including table-aware PDF handling
+- AI-generated annotation suggestions mapped back onto source documents
+- ground-truth storage for evaluation
+- versioned deployment endpoints per project/workspace
 
-- **Streamlit UI** for interactive uploads
-- **FastAPI** for programmatic uploads
+## Core Workflow
 
-Both paths converge on `DocumentConverter`, which routes the uploaded file to the correct processor based on file type.
+### 1. Create a workspace
 
-> In the Streamlit UI, uploading a file does **not** immediately anonymize it. Processing starts only when the user clicks **Anonymize**.
+The frontend groups work into "projects". In the current implementation, those project records live in browser `localStorage`, not a backend `projects` table.
 
-### Interactive Upload Flow
+### 2. Ingest documents
 
-```mermaid
-flowchart TD
-    A[User uploads file] --> B{Entry point}
+Documents are uploaded through `POST /api/v1/ingest`. The backend stores the original file, converts it into text/markdown, saves metadata, and queues contextual retrieval indexing.
 
-    B -->|Web UI| C[Streamlit UI]
-    B -->|API| D[FastAPI /api/v1/anonymize_document]
+### 3. Define document types and fields
 
-    C --> E[User clicks Anonymize]
-    E --> F[create_detector]
-    D --> G[Validate filename size and params]
-    G --> F
+Schemas are defined as document types with field prompts, nested object fields, and array-of-object fields for tables. The field assistant can suggest field definitions from natural language and screenshots.
 
-    F --> H[DocumentConverter.anonymize]
-    H --> I{File type}
+### 4. Classify documents
 
-    I -->|.eml| J[EmailProcessor]
-    I -->|.msg| K[MSGProcessor]
-    I -->|.pdf| L[PDFProcessor]
-    I -->|.docx| M[DocxProcessor]
-    I -->|.txt| N[TxtProcessor]
+Each document must be associated with a document type before structured extraction is meaningful. Classification can be manual or LLM-assisted.
 
-    K --> K1[Convert MSG to EML-compatible email]
-    K1 --> J
+### 5. Wait for contextual retrieval indexing
 
-    J --> J2[Check email skip rules]
-    J2 -->|Skipped| JX[Return warning or HTTP 422]
-    J2 -->|Continue| J3[Extract visible text from headers body and supported attachments]
-    J3 --> O[PIIDetector.detect]
-    O --> P[Create replacement tags]
-    P --> J4[Rebuild anonymized email]
-    J4 --> Q[Anonymized email bytes]
+Contextual retrieval is not optional in the main extraction path. If a document has not finished indexing, extraction is expected to fail until indexing completes.
 
-    L --> L1[Extract text]
-    M --> M1[Extract text]
-    N --> N1[Extract text]
-    L1 --> O
-    M1 --> O
-    N1 --> O
+### 6. Label and approve ground truth
 
-    P --> L2[Rewrite PDF]
-    P --> M2[Rewrite DOCX]
-    P --> N2[Rewrite TXT]
-    L2 --> R[Anonymized file bytes]
-    M2 --> R
-    N2 --> R
+The labeller supports:
 
-    Q --> S{Response path}
-    R --> S
-    S -->|UI| T[Store in session state and show download button]
-    S -->|API| U[Return attachment response]
+- text span annotations
+- bounding-box annotations
+- table-row annotations
 
-    Q -. optional email-only .-> V[fill_anonymized_email_async]
-```
+The system can also generate AI annotation suggestions and save approved suggestions as ground truth.
 
-### PII Detection Pipeline
+### 7. Run extraction
 
-The detector uses a multi-step pipeline to produce consistent anonymization tags:
+Extraction is schema-driven and optimized for exact-value capture. For PDFs with table-like fields, the backend uses retrieval-vision selection and table-aware PDF extraction so output stays aligned with the source document.
 
-1. **Regex extraction** - Fast extraction of emails, phone numbers, URLs, SSNs, and other structured values
-2. **LLM detection** - Azure OpenAI identifies names, companies, addresses, and context-dependent PII
-3. **Merging and deduplication** - Regex and LLM detections are consolidated
-4. **Profile linking** - Related names and emails are grouped so person-related tags stay consistent
-5. **Second-pass review** - A second LLM pass checks the partially anonymized text for missed entities
+### 8. Evaluate and deploy
 
-> **Current tag format** uses short placeholders such as `<p_1>`, `<p_1_em>`, `<cn_1>`, and `<ph_1>`.
+Evaluation compares extracted output against approved labels and computes quality metrics. Once the schema and prompts are in a good state, the current configuration can be saved as a deployment version and exposed through a versioned extraction endpoint.
 
-**Input Example:**
-```
-From: John Smith <john.smith@example.com>
-Subject: Meeting Request
+## Architecture
 
-Hi, please call me at 555-123-4567.
-```
+### Backend
 
-**Anonymized Output:**
-```
-From: Sender <synthetic-sender@example.com>
-Subject: <cn_1> Request
+- Django + Django REST Framework API
+- ASGI entrypoint via `uvicorn`
+- Celery worker for retrieval indexing and async evaluation tasks
+- PostgreSQL for persistent app data
+- Redis for Celery broker/result backend
+- Chroma/BM25-based contextual retrieval stack
+- OpenAI or Azure OpenAI for classification, field suggestion, extraction, and evaluation
 
-Hi, please call me at <ph_1>.
-```
+### Frontend
 
-### Optional Stage 2: Synthetic Data
+- React 19
+- TanStack Query
+- Wouter routing
+- Radix UI components
+- Express host for the frontend shell
+- Vite in development, bundled server in production
 
-Synthetic data generation is available for **anonymized email files only** (`.eml` and `.msg`). It replaces tags with realistic values while preserving name/email linkage.
+## Supported Input Types
 
-**Synthetic Output:**
-```
-From: Sender <synthetic-sender@example.com>
-Subject: Acme Corp Request
+The ingestion converter currently accepts:
 
-Hi, please call me at 555-789-0123.
-```
-
-### Supported File Types
-
-**Top-level uploads:**
-- `.eml` - Standard email format
-- `.msg` - Microsoft Outlook format
-- `.pdf` - PDF documents
-- `.docx` - Microsoft Word documents
-- `.txt` - Plain text files
-
-**Supported email attachment anonymization:**
-- `.pdf` - Text-based PDFs (single scanned PDFs with no text may trigger a skip)
-- `.docx` - Microsoft Word documents
-- `.txt` - Plain text files
-
-**Synthetic data fill:**
+- `.pdf`
+- `.docx`
+- `.doc`
+- `.xlsx`
+- `.xls`
+- `.pptx`
+- `.ppt`
+- `.html`
+- `.htm`
+- `.txt`
+- `.md`
+- `.csv`
+- `.json`
+- `.xml`
+- `.jpg`
+- `.jpeg`
+- `.png`
+- `.gif`
+- `.webp`
 - `.eml`
 - `.msg`
 
-> `.msg` files are converted internally into an EML-compatible message representation before anonymization.
+PDFs receive special handling. Bordered tables are converted into markdown tables, while non-bordered financial tables use layout-preserving extraction so column alignment is not lost.
 
-**Email-specific skip conditions:**
-The email processor will **not process** emails containing:
-1. A single scanned PDF attachment (no extractable text)
-2. Excel or CSV files (`.xls`, `.xlsx`, `.xlsm`, `.xlsb`, `.csv`)
-3. More than 5 attachments
-4. A DOCX attachment with form fields or fill-in-the-blank template content
+## Running With Docker Compose
 
-When skipped, the API returns HTTP 422 with the skip reason.
+Docker Compose is the most reliable way to run the full stack because it brings up PostgreSQL, Redis, the backend, the frontend, and the Celery worker together.
 
-### What Gets Anonymized
+### Prerequisites
 
-**Email Headers:**
-- From, To, CC, BCC addresses → Synthetic values
-- Subject line → PII replaced with tags
-- Other headers preserved
+- Docker
+- Docker Compose
+- an OpenAI API key, or Azure OpenAI credentials
 
-**Email Body:**
-- HTML and plain text content
-- Images removed
-- Hyperlinks removed (text preserved)
+### Required environment
 
-**Attachments:**
-- Text content in supported PDF, DOCX, and TXT attachments
-- Filenames randomized (e.g., `report.pdf` → `a1b2c3d4e5f6.pdf`)
-- Images within PDFs removed
+At minimum:
 
-## Components
+```bash
+export OPENAI_API_KEY=your_key_here
+```
 
-- **API** (`src/api.py`) - FastAPI endpoints for document anonymization and email synthetic fill
-- **Streamlit App** (`src/streamlit.py`) - Interactive upload UI
-- **Document Router** (`src/processors/converter.py`) - Routes uploaded files to the correct processor
-- **PII Detector** (`src/anonymizer.py`) - Regex + LLM-based detection and tag generation
-- **Email Processor** (`src/processors/email_processor.py`) - Handles email headers, bodies, and supported attachments
-- **Standalone Processors** (`src/processors/`) - PDF, DOCX, TXT, and MSG handling
-- **Evaluation Pipeline** (`pipelines/eval/pipeline.py`) - Benchmarks PII extraction quality
-- **Blob Batch Pipeline** (`pipelines/blob_pipeline.py`) - Processes submitted emails from Azure Blob Storage
+If you are using Azure OpenAI instead:
 
-## API Endpoints
+```bash
+export USE_AZURE_OPENAI=true
+export AZURE_OPENAI_ENDPOINT=...
+export AZURE_OPENAI_API_KEY=...
+export AZURE_OPENAI_API_VERSION=2024-12-01-preview
+```
 
-- `GET /` - Health check and endpoint listing
-- `POST /api/v1/anonymize_document` - Primary document anonymization endpoint
-- `POST /api/v1/anonymize_email` - Deprecated email-only anonymization endpoint
-- `POST /api/v1/fill_anonymized_email` - Fill anonymized email files with synthetic data
+### Start the stack
 
-## Configuration Notes
+```bash
+docker compose up --build
+```
 
-- Azure OpenAI model/deployment settings are configurable via application settings.
-- The README intentionally avoids hard-coding a single deployment name because the configured deployment can vary by environment.
+### Default URLs
+
+- Frontend: [http://localhost:3000](http://localhost:3000)
+- Backend API: [http://localhost:8000](http://localhost:8000)
+- Health: [http://localhost:8000/health](http://localhost:8000/health)
+- Swagger docs: [http://localhost:8000/api/docs/](http://localhost:8000/api/docs/)
+- ReDoc: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+
+The backend container runs Django migrations before starting the API server.
+
+## Local Development
+
+### Backend
+
+```bash
+cd backend
+uv sync
+
+export OPENAI_API_KEY=your_key_here
+export DJANGO_DATABASE_URL=postgres://uu:uu@localhost:5432/uu_django
+export REDIS_URL=redis://localhost:6379/0
+export DJANGO_SETTINGS_MODULE=uu_backend.django_project.settings.local
+
+uv run python manage.py migrate
+uv run uvicorn uu_backend.asgi_dispatcher:application --reload --host 0.0.0.0 --port 8000
+```
+
+### Celery worker
+
+```bash
+cd backend
+export OPENAI_API_KEY=your_key_here
+export DJANGO_DATABASE_URL=postgres://uu:uu@localhost:5432/uu_django
+export REDIS_URL=redis://localhost:6379/0
+export DJANGO_SETTINGS_MODULE=uu_backend.django_project.settings.local
+
+uv run celery -A uu_backend.django_project.celery_app worker -l info
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm ci
+PORT=3000 VITE_API_URL=http://localhost:8000 npm run dev
+```
+
+If you run the frontend on an origin other than `http://localhost:3000`, update backend CORS settings in `backend/settings.yml` or via `CORS_ORIGINS`.
+
+## Important Behaviour Notes
+
+- Extraction is driven by document type schema. Uploading a document alone is not enough.
+- Contextual retrieval indexing is queued during ingest and must complete before the main extraction path is usable.
+- Table extraction is a first-class use case. Arrays of objects are used to represent table rows.
+- Extraction aims to preserve raw source values exactly rather than normalizing them.
+- Evaluation is grounded in stored ground-truth annotations, not just ad hoc comparison.
+- Deployment versions are immutable snapshots of schema, prompts, and model settings for a given workspace.
+- The frontend "project" concept is currently a UI workspace record. The backend persists documents, schemas, labels, evaluations, and deployment versions, but not a standalone `projects` table.
+
+## Key Endpoints
+
+### Platform
+
+- `GET /health`
+- `GET /api/docs/`
+- `GET /redoc`
+
+### Ingestion and documents
+
+- `POST /api/v1/ingest`
+- `GET /api/v1/ingest/status`
+- `GET /api/v1/documents`
+- `GET /api/v1/documents/{document_id}`
+- `GET /api/v1/documents/{document_id}/file`
+- `POST /api/v1/documents/{document_id}/reindex-retrieval`
+
+### Taxonomy and extraction
+
+- `GET /api/v1/taxonomy/types`
+- `POST /api/v1/taxonomy/types`
+- `POST /api/v1/taxonomy/field-assistant`
+- `POST /api/v1/taxonomy/analyze-image`
+- `POST /api/v1/documents/{document_id}/classify`
+- `POST /api/v1/documents/{document_id}/auto-classify`
+- `POST /api/v1/documents/{document_id}/extract`
+- `GET /api/v1/documents/{document_id}/extraction`
+
+### Ground truth and evaluation
+
+- `GET /api/v1/documents/{document_id}/ground-truth`
+- `POST /api/v1/documents/{document_id}/ground-truth`
+- `POST /api/v1/documents/{document_id}/suggest-annotations`
+- `POST /api/v1/annotations/{annotation_id}/approve`
+- `POST /api/v1/evaluation/run`
+- `GET /api/v1/evaluation/results`
+- `GET /api/v1/evaluation/summary`
+
+### Retrieval and deployment
+
+- `GET /api/v1/search?q=...`
+- `POST /api/v1/deployments/versions`
+- `GET /api/v1/deployments/projects/{project_id}/versions`
+- `POST /api/v1/deployments/projects/{project_id}/versions/{version_id}/activate`
+- `POST /api/v1/deployments/projects/{project_id}/extract`
+- `POST /api/v1/deployments/projects/{project_id}/v/{version}/extract`
+
+## Example Deployment Flow
+
+1. Create a workspace in the UI.
+2. Upload and classify a set of documents.
+3. Finalize the document type schema and prompts.
+4. Approve labels and verify evaluation quality.
+5. Click `Save as New Version` in the workspace.
+6. Call the active extraction endpoint:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/deployments/projects/<project_id>/extract \
+  -F "file=@invoice.pdf"
+```
+
+## Repository Layout
+
+```text
+backend/   Django API, models, services, Celery tasks, tests
+frontend/  React application, frontend shell server, styling
+docs/      supporting notes, guides, and implementation docs
+data/      local runtime data such as Chroma persistence
+```
 
 ## Testing
 
-### Run Tests
+### Backend
+
 ```bash
-# Run all tests
-uv run pytest
-
-# Run unit tests only
-uv run pytest tests/unit/ -v
-
-# Run integration tests only
-uv run pytest tests/integration/ -v
+cd backend
+uv run pytest tests/
 ```
 
-## License
-This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+### Frontend type check
 
-AGPL-3.0 Compliance Requirements
+```bash
+cd frontend
+npm run check
+```
 
-If you distribute or deploy this software (including as a network service), you must:
+## Current Positioning
 
-Provide Source Code Access: Make the complete source code (including all modifications) available to users
-Preserve License Notices: Keep all copyright notices, license statements, and disclaimers intact
-Share Modifications: Any modifications or derivative works must also be licensed under AGPL-3.0
-Network Use Disclosure: If you run a modified version on a server accessible to users over a network, you must make the modified source code available to those users
-Document Changes: Clearly document what changes were made and when
-Key principle: The AGPL's "network copyleft" provision ensures that users who interact with the software over a network have the same rights to the source code as those who receive it directly.
+The clearest way to think about this repository is:
 
-These actions would trigger additional compliance obligations or incompatibility:
+`schema-driven document extraction studio with labelling, evaluation, and deployment`
 
-❌ Combining with proprietary/closed-source code: Cannot integrate this code into proprietary software without making the entire combined work AGPL-3.0
-❌ Hosting without source code access: Cannot deploy as a web service/API without providing source code to users
-❌ Removing license notices: Cannot strip out copyright notices or license information
-❌ Re-licensing under incompatible licenses: Cannot change to licenses like MIT, Apache 2.0, or proprietary licenses
-❌ SaaS without disclosure: Cannot offer this as a service (SaaS) while keeping modifications private
-❌ Mixing with GPL-2.0-only code: AGPL-3.0 is not compatible with GPL-2.0-only (GPL-3.0+ is compatible)
-❌ Commercial use without compliance: You can use commercially, but must still provide source code to all users
-What You CAN Do
-✅ Use the software for any purpose (personal, commercial, internal)
-✅ Modify the code for your own use
-✅ Distribute the software to others
-✅ Charge for the software or services
-✅ Use it internally without disclosing source code (if not deployed as a network service accessible to external users)
-Important Note
-If you're offering this application as an interactive service over a network (web app, API, etc.), the AGPL requires you to provide a prominent way for users to access the source code. This is the key difference from the standard GPL.
-
-For the full license text, see the LICENSE file in this repository.
-
-For questions about licensing or compliance, consult with a legal professional familiar with open source licenses.
+That matches the code more closely than "data labeller" on its own.
