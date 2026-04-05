@@ -43,3 +43,10 @@ class SearchResult:
     context: str
     score: float
     metadata: dict[str, Any] = field(default_factory=dict)
+    chunk_id: str | None = None
+    page_number: int | None = None
+    asset_type: str | None = None
+    asset_label: str | None = None
+    citation_id: str | None = None
+    citation_regions: list[dict[str, Any]] = field(default_factory=list)
+    preview_artifact_id: str | None = None

@@ -295,18 +295,6 @@ export function Shell({
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-[var(--border-subtle)] backdrop-blur-xl bg-background/92">
-        <div className="hidden md:flex items-center justify-between h-9 px-6 text-xs border-b border-[var(--border-subtle)] text-[var(--text-tertiary)]">
-          <div className="flex items-center gap-3">
-            <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-            System healthy
-          </div>
-          <div className="flex items-center gap-4 whitespace-nowrap">
-            <span>US region</span>
-            <span>Claims ops</span>
-            <span>Support</span>
-          </div>
-        </div>
-
         <div className="h-14 px-4 md:px-6 flex items-center gap-3 md:gap-6">
           {showProjectRail && (
             <Button
@@ -393,7 +381,7 @@ export function Shell({
         {showProjectRail && desktopRailMode !== "hidden" && (
           <aside
             className={cn(
-              "hidden lg:block shrink-0 sticky top-[5.75rem] h-[calc(100vh-5.75rem)] transition-[width] duration-200 ease-out",
+              "hidden lg:block shrink-0 sticky top-14 h-[calc(100vh-3.5rem)] transition-[width] duration-200 ease-out",
               isDesktopRailCompact ? "w-20" : "w-72",
             )}
           >
@@ -408,22 +396,15 @@ export function Shell({
 
         <div className="flex-1 min-w-0">
           {(pageTitle || primaryAction || secondaryActions) && (
-            <div className="px-4 md:px-8 py-6 border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]">
+            <div className="px-4 md:px-8 py-3 border-b border-[var(--border-subtle)] bg-[var(--surface-elevated)]">
               <div className="w-full lg:max-w-[80vw] mx-auto">
-                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    {pageTitle && (
-                      <h1 className="text-2xl md:text-3xl text-primary font-semibold tracking-tight">
-                        {pageTitle}
-                      </h1>
-                    )}
-                    {pageDescription && (
-                      <p className="mt-1 text-sm md:text-base text-[var(--text-secondary)]">
-                        {pageDescription}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                <div className="flex items-center justify-between gap-4">
+                  {pageTitle && (
+                    <h1 className="text-lg font-semibold text-primary tracking-tight truncate">
+                      {pageTitle}
+                    </h1>
+                  )}
+                  <div className="flex items-center gap-2 shrink-0">
                     {secondaryActions}
                     {primaryAction}
                   </div>

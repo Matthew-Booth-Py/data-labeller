@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -48,8 +49,14 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   api,
   DocumentType,
+  ExtractionMethod,
   SchemaField,
   FieldType,
   FieldAssistantResponse,
@@ -558,6 +565,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   const [systemPrompt, setSystemPrompt] = useState("");
   const [postProcessing, setPostProcessing] = useState("");
   const [ocrEngine, setOcrEngine] = useState("native-text");
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [postProcOpen, setPostProcOpen] = useState(false);
 
   // State for adding field
   const [isAddingField, setIsAddingField] = useState(false);
@@ -575,6 +584,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   >([]);
   const [aiFieldInput, setAiFieldInput] = useState("");
   const [aiScreenshot, setAiScreenshot] = useState<string | null>(null);
+  const [extractionMethod, setExtractionMethod] = useState<ExtractionMethod>("llm");
+  const [retrievalQuery, setRetrievalQuery] = useState("");
 
   // Visual analysis state
   const [visualAnalysis, setVisualAnalysis] =
@@ -890,6 +901,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     setAiFieldInput("");
     setAiScreenshot(null);
     setVisualAnalysis(null);
+    setExtractionMethod("llm");
+    setRetrievalQuery("");
   };
 
   const openNewFieldDialog = () => {
@@ -920,6 +933,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     setAiFieldInput("");
     setAiScreenshot(null);
     setVisualAnalysis(null);
+    setExtractionMethod((field.extraction_method as ExtractionMethod) || "llm");
+    setRetrievalQuery(field.retrieval_query || "");
 
     if (field.type === "object" && field.properties) {
       setNewFieldObjectProperties(
@@ -965,11 +980,16 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       return;
     }
 
+    const isRetrievalTable =
+      newFieldType === "array" && extractionMethod === "retrieval_table";
+
     const newField: SchemaField = {
       name: normalizedFieldName,
       type: newFieldType,
       description: newFieldDescription || undefined,
-      extraction_prompt: newFieldPrompt.trim() || undefined,
+      extraction_prompt: isRetrievalTable ? undefined : newFieldPrompt.trim() || undefined,
+      extraction_method: isRetrievalTable ? "retrieval_table" : undefined,
+      retrieval_query: isRetrievalTable ? retrievalQuery.trim() || undefined : undefined,
       visual_content_type: visualAnalysis?.visual_content_type,
       visual_guidance: visualAnalysis?.extraction_guidance,
       visual_features: visualAnalysis?.distinguishing_features,
@@ -1212,14 +1232,14 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     : [];
 
   return (
-    <div className="h-full">
-      <Tabs defaultValue="document-types" className="h-full">
-        <div className="mb-2">
+    <div className="h-full flex flex-col min-h-0">
+      <Tabs defaultValue="document-types" className="flex-1 flex flex-col min-h-0">
+        <div className="mb-2 shrink-0">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
             Schema Workspace
           </p>
         </div>
-        <TabsList className="mb-4">
+        <TabsList className="mb-4 shrink-0">
           <TabsTrigger value="document-types" className="gap-2 h-9 px-4">
             <Code className="h-4 w-4" />
             Document Types
@@ -1230,519 +1250,242 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="document-types" className="h-[calc(100%-3rem)]">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
-            {/* Visual Schema Builder - Left Side */}
-            <div className="space-y-6">
-              <Card className="h-full bg-[var(--surface-panel)]">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-lg text-primary">
-                        Schema Configuration
-                      </CardTitle>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Define extraction logic and post-processing.
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      {selectedType && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="gap-2"
-                          onClick={saveSchema}
-                          disabled={updateTypeMutation.isPending}
-                        >
-                          {updateTypeMutation.isPending ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Save className="h-3.5 w-3.5" />
-                          )}
-                          Save
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Document Type Selector */}
-                  <div className="space-y-3 p-4 rounded-lg bg-muted/20 border">
-                    <label className="text-xs font-bold uppercase tracking-wider text-primary">
-                      Document Type
-                    </label>
-                    <div className="flex gap-2">
-                      <Select
-                        value={selectedTypeId || ""}
-                        onValueChange={selectType}
-                      >
-                        <SelectTrigger className="flex-1 bg-background">
-                          <SelectValue placeholder="Select document type..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {typesData?.types.map((type) => (
-                            <SelectItem key={type.id} value={type.id}>
-                              {type.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => setIsCreating(true)}
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                      {selectedType && (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => {
-                              setEditTypeName(selectedType.name);
-                              setEditTypeDescription(
-                                selectedType.description || "",
-                              );
-                              setIsEditingType(true);
-                            }}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="text-destructive hover:bg-destructive/10"
-                            onClick={() =>
-                              deleteTypeMutation.mutate(selectedTypeId!)
-                            }
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
+        <TabsContent value="document-types" className="flex-1 min-h-0 data-[state=inactive]:hidden">
+          <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(200px,280px)_1fr] gap-4 h-full min-h-0">
+            {/* Col 1: Settings rail */}
+            <div className="flex flex-col gap-3 overflow-y-auto no-scrollbar min-w-0 min-h-0">
+              {/* Document Type */}
+              <div className="rounded-lg border bg-[var(--surface-panel)] p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-primary">
+                    Document Type
+                  </span>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setIsCreating(true)}>
+                      <Plus className="h-3.5 w-3.5" />
+                    </Button>
                     {selectedType && (
-                      <div className="pt-2 border-t border-border/50">
-                        <div className="flex items-start gap-2">
-                          <FileText className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-muted-foreground mb-1">
-                              Description
-                            </p>
-                            {selectedType.description ? (
-                              <p className="text-sm text-foreground">
-                                {selectedType.description}
-                              </p>
-                            ) : (
-                              <p className="text-sm text-muted-foreground/60 italic">
-                                No description provided. Click edit to add one.
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {selectedType ? (
-                    <>
-                      <div className="space-y-2 p-4 rounded-lg bg-muted/20 border">
-                        <label className="text-xs font-bold uppercase tracking-wider flex items-center gap-2 text-primary">
-                          <MessageSquare className="h-3.5 w-3.5" /> System
-                          Prompt
-                        </label>
-                        <Textarea
-                          placeholder="Enter system instructions..."
-                          className="bg-background text-sm min-h-[120px] border-muted focus-visible:ring-primary"
-                          value={systemPrompt}
-                          onChange={(e) => setSystemPrompt(e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-2 p-4 rounded-lg bg-muted/20 border">
-                        <label className="text-xs font-bold uppercase tracking-wider flex items-center gap-2 text-primary">
-                          <Code className="h-3.5 w-3.5" /> Post-Processing Logic
-                        </label>
-                        <Textarea
-                          placeholder="Enter JavaScript/Python for post-processing..."
-                          className="bg-background text-sm font-mono min-h-[120px] border-muted focus-visible:ring-primary"
-                          value={postProcessing}
-                          onChange={(e) => setPostProcessing(e.target.value)}
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    <div className="p-8 text-center text-muted-foreground border border-dashed rounded-lg">
-                      <p className="text-sm">
-                        Select or create a document type to configure its
-                        schema.
-                      </p>
-                    </div>
-                  )}
-
-                  <Card className="border-accent/20 bg-accent/5">
-                    <CardHeader className="py-4">
-                      <CardTitle className="text-sm flex items-center gap-2 text-primary">
-                        <Settings2 className="h-4 w-4" />
-                        Extraction Engine Settings
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] uppercase font-bold text-muted-foreground">
-                          OCR Engine
-                        </label>
-                        <Select value={ocrEngine} onValueChange={setOcrEngine}>
-                          <SelectTrigger className="h-8 text-xs bg-background">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="native-text">
-                              Native Text
-                            </SelectItem>
-                            <SelectItem value="aws-textract">
-                              AWS Textract
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Field List - Right Side */}
-            <div className="space-y-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-panel)] p-4">
-              <div className="flex items-center justify-between mb-4 mt-1">
-                <div className="space-y-1">
-                  <h3 className="text-sm font-bold uppercase tracking-widest text-primary">
-                    Fields Definition
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    {selectedType
-                      ? `${selectedType.schema_fields?.length || 0} fields defined`
-                      : "Select a document type first"}
-                  </p>
-                </div>
-
-                {selectedType && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="gap-2"
-                    onClick={openNewFieldDialog}
-                  >
-                    <Plus className="h-4 w-4" /> Add Field
-                  </Button>
-                )}
-              </div>
-
-              <div className="space-y-4 overflow-auto max-h-[calc(100vh-12rem)] pr-2">
-                {selectedType?.schema_fields?.map((field) => (
-                  <div
-                    key={field.name}
-                    className="flex flex-col rounded-lg border bg-card shadow-sm hover:shadow-md hover:border-accent/40 transition-all overflow-hidden group hover-elevate"
-                  >
-                    <div className="flex items-center gap-3 p-3 bg-card border-b">
-                      <div className="cursor-grab text-muted-foreground/30 hover:text-muted-foreground">
-                        <GripVertical className="h-4 w-4" />
-                      </div>
-                      <div className="flex-1 flex items-center gap-2 min-w-0">
-                        <span className="font-mono text-sm font-medium truncate text-primary">
-                          {field.name}
-                        </span>
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] h-4 px-1.5 font-mono text-muted-foreground uppercase"
-                        >
-                          {field.type}
-                        </Badge>
-                        <Badge
-                          variant="secondary"
-                          className="text-[10px] h-4 px-1.5 font-mono"
-                        >
-                          v{activeFieldVersionByName[field.name] || "0.0"}
-                        </Badge>
-                        {activeFieldVersionUpdatedAt[field.name] && (
-                          <span className="text-[10px] text-muted-foreground">
-                            updated{" "}
-                            {new Date(
-                              activeFieldVersionUpdatedAt[field.name],
-                            ).toLocaleString()}
-                          </span>
-                        )}
-                        {field.type === "array" && field.items && (
-                          <Badge
-                            variant="secondary"
-                            className="text-[10px] h-4 px-1.5 font-mono"
-                          >
-                            {field.items.type}[]
-                          </Badge>
-                        )}
-                        {field.required && (
-                          <Badge
-                            variant="secondary"
-                            className="text-[10px] h-4 px-1.5"
-                          >
-                            Required
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
+                      <>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/5"
-                          title="Edit Field"
-                          onClick={() => openFieldEditDialog(field)}
+                          className="h-6 w-6"
+                          onClick={() => {
+                            setEditTypeName(selectedType.name);
+                            setEditTypeDescription(selectedType.description || "");
+                            setIsEditingType(true);
+                          }}
                         >
-                          <Edit3 className="h-3.5 w-3.5" />
+                          <Edit className="h-3.5 w-3.5" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/5"
-                          title="Remove Field"
-                          onClick={() => removeField(field.name)}
+                          className="h-6 w-6 text-destructive/70 hover:text-destructive"
+                          onClick={() => deleteTypeMutation.mutate(selectedTypeId!)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
-                      </div>
-                    </div>
-
-                    <div className="p-3 bg-background">
-                      {field.description && (
-                        <p className="text-xs text-muted-foreground mb-2">
-                          {field.description}
-                        </p>
-                      )}
-
-                      {(field.type === "object" && field.properties) ||
-                      (field.type === "array" &&
-                        field.items?.type === "object" &&
-                        field.items.properties) ? (
-                        <div className="mb-3 p-2 bg-muted/30 rounded border text-xs space-y-1">
-                          <div className="font-medium text-muted-foreground mb-1">
-                            Object Properties:
-                          </div>
-                          {(() => {
-                            const sourceProps =
-                              field.type === "object"
-                                ? field.properties!
-                                : field.items!.properties!;
-                            const sortedEntries = Object.entries(
-                              sourceProps,
-                            ).sort(([, a], [, b]) => {
-                              const orderA = a.order ?? Number.MAX_SAFE_INTEGER;
-                              const orderB = b.order ?? Number.MAX_SAFE_INTEGER;
-                              return orderA - orderB;
-                            });
-                            return sortedEntries.map(
-                              ([propName, propSchema]) => (
-                                <div
-                                  key={propName}
-                                  className="flex items-center gap-2 pl-2"
-                                >
-                                  <span className="font-mono text-[10px]">
-                                    {propName}
-                                  </span>
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[9px] h-3 px-1 font-mono"
-                                  >
-                                    {propSchema.type}
-                                  </Badge>
-                                  {propSchema.description && (
-                                    <span className="text-[10px] text-muted-foreground">
-                                      - {propSchema.description}
-                                    </span>
-                                  )}
-                                </div>
-                              ),
-                            );
-                          })()}
-                        </div>
-                      ) : null}
-
-                      <div className="relative">
-                        <label className="absolute -top-2 left-2 bg-background px-1 text-[9px] font-bold text-muted-foreground uppercase tracking-wider">
-                          Extraction Prompt
-                        </label>
-                        <Textarea
-                          className="min-h-[120px] text-xs resize-none border-muted focus-visible:ring-accent bg-transparent"
-                          value={
-                            activeFieldPrompts[field.name] ||
-                            field.extraction_prompt ||
-                            `Extract the ${field.name.replace(/_/g, " ")} from the document.`
-                          }
-                          readOnly
-                        />
-                      </div>
-                    </div>
+                      </>
+                    )}
                   </div>
-                ))}
-
-                {selectedType && (
-                  <Button
-                    variant="outline"
-                    className="w-full border-dashed border-muted-foreground/20 text-muted-foreground hover:border-accent hover:text-accent h-12"
-                    onClick={openNewFieldDialog}
-                  >
-                    <Plus className="h-4 w-4 mr-2" /> Add Another Field
-                  </Button>
-                )}
-
-                {!selectedType && (
-                  <div className="p-8 text-center text-muted-foreground border border-dashed rounded-lg">
-                    <p className="text-sm">
-                      Select a document type to define extraction fields.
-                    </p>
-                    <p className="text-xs mt-1">
-                      Fields are specific to each document type (e.g.,
-                      invoice_number for Invoices).
-                    </p>
-                    <p className="text-xs mt-3">
-                      For annotation labels (Person, Date, etc.), use the{" "}
-                      <strong>Labels</strong> tab.
-                    </p>
-                  </div>
+                </div>
+                <Select value={selectedTypeId || ""} onValueChange={selectType}>
+                  <SelectTrigger className="bg-background">
+                    <SelectValue placeholder="Select document type…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {typesData?.types.map((type) => (
+                      <SelectItem key={type.id} value={type.id}>
+                        {type.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedType?.description && (
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {selectedType.description}
+                  </p>
                 )}
               </div>
+
+              {selectedType ? (
+                <>
+                  {/* OCR Engine — compact inline row */}
+                  <div className="rounded-lg border bg-[var(--surface-panel)] px-4 py-3 flex items-center justify-between gap-3">
+                    <span className="text-xs font-medium text-muted-foreground whitespace-nowrap flex items-center gap-1.5">
+                      <Settings2 className="h-3.5 w-3.5" /> OCR Engine
+                    </span>
+                    <Select value={ocrEngine} onValueChange={setOcrEngine}>
+                      <SelectTrigger className="h-7 text-xs bg-background w-36">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="native-text">Native Text</SelectItem>
+                        <SelectItem value="aws-textract">AWS Textract</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* System Prompt — collapsible */}
+                  <Collapsible open={promptOpen} onOpenChange={setPromptOpen} className="rounded-lg border bg-[var(--surface-panel)]">
+                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-xs font-bold uppercase tracking-wider text-primary hover:bg-muted/20 rounded-lg transition-colors">
+                      <span className="flex items-center gap-2">
+                        <MessageSquare className="h-3.5 w-3.5" /> System Prompt
+                        {systemPrompt && (
+                          <span className="text-[10px] font-normal normal-case text-muted-foreground">
+                            ({systemPrompt.trim().split(/\s+/).length} words)
+                          </span>
+                        )}
+                      </span>
+                      <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", promptOpen && "rotate-180")} />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="px-4 pb-4">
+                      <Textarea
+                        placeholder="Enter system instructions…"
+                        className="bg-background text-sm min-h-[120px] border-muted focus-visible:ring-primary mt-1"
+                        value={systemPrompt}
+                        onChange={(e) => setSystemPrompt(e.target.value)}
+                      />
+                    </CollapsibleContent>
+                  </Collapsible>
+
+                  {/* Post-Processing — collapsible */}
+                  <Collapsible open={postProcOpen} onOpenChange={setPostProcOpen} className="rounded-lg border bg-[var(--surface-panel)]">
+                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-xs font-bold uppercase tracking-wider text-primary hover:bg-muted/20 rounded-lg transition-colors">
+                      <span className="flex items-center gap-2">
+                        <Code className="h-3.5 w-3.5" /> Post-Processing
+                        {postProcessing && (
+                          <span className="text-[10px] font-normal normal-case text-muted-foreground">set</span>
+                        )}
+                      </span>
+                      <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", postProcOpen && "rotate-180")} />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="px-4 pb-4">
+                      <Textarea
+                        placeholder="Enter JavaScript/Python for post-processing…"
+                        className="bg-background text-sm font-mono min-h-[120px] border-muted focus-visible:ring-primary mt-1"
+                        value={postProcessing}
+                        onChange={(e) => setPostProcessing(e.target.value)}
+                      />
+                    </CollapsibleContent>
+                  </Collapsible>
+
+                  <Button
+                    className="w-full gap-2"
+                    onClick={saveSchema}
+                    disabled={updateTypeMutation.isPending}
+                  >
+                    {updateTypeMutation.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Save className="h-3.5 w-3.5" />
+                    )}
+                    Save Schema
+                  </Button>
+                </>
+              ) : (
+                <div className="p-8 text-center text-muted-foreground border border-dashed rounded-lg text-sm">
+                  Select or create a document type to begin.
+                </div>
+              )}
             </div>
 
-            <Dialog open={isCreating} onOpenChange={setIsCreating}>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Create Document Type</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Name</label>
-                    <Input
-                      placeholder="e.g., Invoice, Contract, Claim Form"
-                      value={newTypeName}
-                      onChange={(e) => setNewTypeName(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Description</label>
-                    <Textarea
-                      placeholder="Describe this document type..."
-                      value={newTypeDescription}
-                      onChange={(e) => setNewTypeDescription(e.target.value)}
-                      className="min-h-[100px]"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      This description will be used by the AI when classifying
-                      documents.
-                    </p>
-                  </div>
-                </div>
-                <DialogFooter>
+            {/* Col 2: Compact field list */}
+            <div className="flex flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-panel)] overflow-hidden min-w-0 min-h-0">
+              <div className="px-4 py-3 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0">
+                <span className="text-xs font-bold uppercase tracking-widest text-primary">
+                  Fields
+                </span>
+                {selectedType && (
+                  <span className="text-xs text-muted-foreground">
+                    {selectedType.schema_fields?.length || 0}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex-1 overflow-y-auto no-scrollbar">
+                {!selectedType && (
+                  <p className="p-4 text-xs text-muted-foreground text-center">
+                    Select a document type first.
+                  </p>
+                )}
+                {selectedType && !selectedType.schema_fields?.length && (
+                  <p className="p-4 text-xs text-muted-foreground text-center">
+                    No fields yet.
+                  </p>
+                )}
+                {selectedType?.schema_fields?.map((field) => (
+                  <button
+                    key={field.name}
+                    type="button"
+                    className={cn(
+                      "w-full flex items-center gap-2 px-3 py-2.5 text-left border-b border-[var(--border-subtle)] hover:bg-muted/40 transition-colors group/row",
+                      isAddingField && editingSchemaFieldName === field.name
+                        ? "bg-primary/5 border-l-2 border-l-primary"
+                        : "border-l-2 border-l-transparent",
+                    )}
+                    onClick={() => openFieldEditDialog(field)}
+                  >
+                    <GripVertical className="h-4 w-4 text-muted-foreground/25 shrink-0" />
+                    <span className="flex-1 font-mono text-sm text-primary min-w-0 break-all leading-snug">
+                      {field.name}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] h-4 px-1.5 font-mono uppercase shrink-0"
+                    >
+                      {field.type}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0 opacity-0 group-hover/row:opacity-100 text-muted-foreground/50 hover:text-destructive transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeField(field.name);
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </button>
+                ))}
+              </div>
+
+              {selectedType && (
+                <div className="p-3 border-t border-[var(--border-subtle)] shrink-0">
                   <Button
                     variant="outline"
-                    onClick={() => setIsCreating(false)}
+                    size="sm"
+                    className="w-full gap-2 border-dashed text-muted-foreground hover:text-primary"
+                    onClick={openNewFieldDialog}
                   >
-                    Cancel
+                    <Plus className="h-3.5 w-3.5" /> Add Field
                   </Button>
-                  <Button
-                    onClick={() =>
-                      createTypeMutation.mutate({
-                        name: newTypeName,
-                        description: newTypeDescription || undefined,
-                      })
-                    }
-                    disabled={
-                      !newTypeName.trim() || createTypeMutation.isPending
-                    }
-                  >
-                    {createTypeMutation.isPending && (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    )}
-                    Create
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-
-            <Dialog open={isEditingType} onOpenChange={setIsEditingType}>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Edit Document Type</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Name</label>
-                    <Input
-                      placeholder="e.g., Invoice, Contract, Claim Form"
-                      value={editTypeName}
-                      onChange={(e) => setEditTypeName(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Description</label>
-                    <Textarea
-                      placeholder="Describe this document type..."
-                      value={editTypeDescription}
-                      onChange={(e) => setEditTypeDescription(e.target.value)}
-                      className="min-h-[100px]"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      This description will be used by the AI when classifying
-                      documents.
-                    </p>
-                  </div>
                 </div>
-                <DialogFooter>
-                  <Button
-                    variant="outline"
-                    onClick={() => setIsEditingType(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      if (!selectedTypeId) return;
-                      updateTypeMutation.mutate({
-                        id: selectedTypeId,
-                        data: {
-                          name: editTypeName,
-                          description: editTypeDescription || undefined,
-                        },
-                      });
-                      setIsEditingType(false);
-                    }}
-                    disabled={
-                      !editTypeName.trim() || updateTypeMutation.isPending
-                    }
-                  >
-                    {updateTypeMutation.isPending && (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    )}
-                    Save
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+              )}
+            </div>
 
-            <Dialog
-              open={isAddingField}
-              onOpenChange={(open) => {
-                if (open) {
-                  setIsAddingField(true);
-                  return;
-                }
-                resetFieldEditorForm();
-              }}
-            >
-              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>
-                    {editingSchemaFieldName ? "Edit Field" : "Add Field"}
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
+            {/* Col 3: Inline field editor or empty state */}
+            {isAddingField ? (
+              <div className="flex flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-panel)] overflow-hidden min-w-0 min-h-0">
+                <div className="px-5 py-3.5 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0">
+                  <h3 className="text-sm font-semibold">
+                    {editingSchemaFieldName
+                      ? `Edit: ${editingSchemaFieldName}`
+                      : "Add Field"}
+                  </h3>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={resetFieldEditorForm}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-5 space-y-4">
                   <div className="space-y-3 p-3 border rounded-lg bg-muted/20">
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <Sparkles className="h-4 w-4 text-primary" />
@@ -1997,8 +1740,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                             Object Properties
                           </label>
                           <p className="text-xs text-muted-foreground">
-                            Properties can be nested up to 3 levels deep. Select
-                            "Object" as a type to add nested properties.
+                            Properties can be nested up to 3 levels deep.
+                            Select "Object" as a type to add nested properties.
                           </p>
                           <PropertyEditor
                             properties={newFieldObjectProperties}
@@ -2018,17 +1761,79 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                       onChange={(e) => setNewFieldDescription(e.target.value)}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">
-                      Extraction Prompt
-                    </label>
-                    <Textarea
-                      placeholder="Extract this field exactly as it appears in the document."
-                      value={newFieldPrompt}
-                      onChange={(e) => setNewFieldPrompt(e.target.value)}
-                      className="min-h-[100px]"
-                    />
-                  </div>
+                  {newFieldType === "array" && (
+                    <div className="space-y-3 p-3 border rounded-lg bg-muted/20">
+                      <label className="text-sm font-medium">
+                        Extraction Method
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setExtractionMethod("llm")}
+                          className={`flex-1 rounded-md border px-3 py-2 text-sm text-left transition-colors ${
+                            extractionMethod === "llm"
+                              ? "border-primary bg-primary/10 text-primary font-medium"
+                              : "border-[var(--border-subtle)] text-muted-foreground hover:border-primary/50"
+                          }`}
+                        >
+                          <div className="font-medium">LLM Extraction</div>
+                          <div className="text-xs opacity-70 mt-0.5">
+                            Schema-driven, uses vision model
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExtractionMethod("retrieval_table")
+                          }
+                          className={`flex-1 rounded-md border px-3 py-2 text-sm text-left transition-colors ${
+                            extractionMethod === "retrieval_table"
+                              ? "border-primary bg-primary/10 text-primary font-medium"
+                              : "border-[var(--border-subtle)] text-muted-foreground hover:border-primary/50"
+                          }`}
+                        >
+                          <div className="font-medium">Retrieval Table</div>
+                          <div className="text-xs opacity-70 mt-0.5">
+                            Deterministic — parses raw chunk
+                          </div>
+                        </button>
+                      </div>
+                      {extractionMethod === "retrieval_table" && (
+                        <div className="space-y-1.5 pt-1">
+                          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                            Retrieval Query
+                          </label>
+                          <Input
+                            placeholder="e.g. financial highlights table"
+                            value={retrievalQuery}
+                            onChange={(e) =>
+                              setRetrievalQuery(e.target.value)
+                            }
+                            className="text-sm"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Used to find the right chunk. Test it in the
+                            Extraction tab → Test Retrieval before saving.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {(newFieldType !== "array" ||
+                    extractionMethod === "llm") && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        Extraction Prompt
+                      </label>
+                      <Textarea
+                        placeholder="Extract this field exactly as it appears in the document."
+                        value={newFieldPrompt}
+                        onChange={(e) => setNewFieldPrompt(e.target.value)}
+                        className="min-h-[120px]"
+                      />
+                    </div>
+                  )}
 
                   {(newFieldType === "object" ||
                     (newFieldType === "array" &&
@@ -2054,7 +1859,8 @@ ${generateExampleOutput(newFieldObjectProperties, 3)}
                       </div>
                     )}
                 </div>
-                <DialogFooter>
+
+                <div className="px-5 py-4 border-t border-[var(--border-subtle)] flex justify-end gap-2 shrink-0">
                   <Button variant="outline" onClick={resetFieldEditorForm}>
                     Cancel
                   </Button>
@@ -2075,9 +1881,144 @@ ${generateExampleOutput(newFieldObjectProperties, 3)}
                     )}
                     {editingSchemaFieldName ? "Save Field" : "Add Field"}
                   </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground border border-dashed border-[var(--border-subtle)] rounded-xl">
+                <Edit3 className="h-8 w-8 opacity-20" />
+                <span className="text-sm">
+                  {selectedType
+                    ? "Select a field to edit"
+                    : "Select a document type first"}
+                </span>
+                {selectedType && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-1 gap-2"
+                    onClick={openNewFieldDialog}
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add Field
+                  </Button>
+                )}
+              </div>
+            )}
+
+            <Dialog open={isCreating} onOpenChange={setIsCreating}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create Document Type</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Name</label>
+                    <Input
+                      placeholder="e.g., Invoice, Contract, Claim Form"
+                      value={newTypeName}
+                      onChange={(e) => setNewTypeName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Description</label>
+                    <Textarea
+                      placeholder="Describe this document type..."
+                      value={newTypeDescription}
+                      onChange={(e) => setNewTypeDescription(e.target.value)}
+                      className="min-h-[100px]"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This description will be used by the AI when classifying
+                      documents.
+                    </p>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsCreating(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() =>
+                      createTypeMutation.mutate({
+                        name: newTypeName,
+                        description: newTypeDescription || undefined,
+                      })
+                    }
+                    disabled={
+                      !newTypeName.trim() || createTypeMutation.isPending
+                    }
+                  >
+                    {createTypeMutation.isPending && (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    )}
+                    Create
+                  </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+
+            <Dialog open={isEditingType} onOpenChange={setIsEditingType}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Edit Document Type</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Name</label>
+                    <Input
+                      placeholder="e.g., Invoice, Contract, Claim Form"
+                      value={editTypeName}
+                      onChange={(e) => setEditTypeName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Description</label>
+                    <Textarea
+                      placeholder="Describe this document type..."
+                      value={editTypeDescription}
+                      onChange={(e) => setEditTypeDescription(e.target.value)}
+                      className="min-h-[100px]"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This description will be used by the AI when classifying
+                      documents.
+                    </p>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsEditingType(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (!selectedTypeId) return;
+                      updateTypeMutation.mutate({
+                        id: selectedTypeId,
+                        data: {
+                          name: editTypeName,
+                          description: editTypeDescription || undefined,
+                        },
+                      });
+                      setIsEditingType(false);
+                    }}
+                    disabled={
+                      !editTypeName.trim() || updateTypeMutation.isPending
+                    }
+                  >
+                    {updateTypeMutation.isPending && (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    )}
+                    Save
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
 
             <Dialog
               open={!!editingField}

@@ -71,7 +71,9 @@ const ENTITY_COLORS = [
   "#86EFAC", // light green
 ];
 
-interface DataLabellerV2Props {}
+interface DataLabellerV2Props {
+  projectId?: string;
+}
 
 type SidebarTab = "context" | "schema" | "annotations" | "output";
 type OutputViewMode = "json" | "table";
@@ -107,13 +109,12 @@ const isLabellerSidebarMode = (
   value: string | null,
 ): value is LabellerSidebarMode => value === "expanded" || value === "hidden";
 
-export function DataLabellerV2({}: DataLabellerV2Props) {
+export function DataLabellerV2({ projectId: projectIdProp }: DataLabellerV2Props) {
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const [mounted, setMounted] = useState(false);
 
   // Initialize state with safe defaults
-  const [projectId, setProjectId] = useState<string>("all");
-  const [projects, setProjects] = useState<any[]>([]);
+  const [projectId, setProjectId] = useState<string>(projectIdProp || "all");
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [activeEntityTypeId, setActiveEntityTypeId] = useState<string | null>(
     null,
@@ -123,13 +124,9 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
   // Load from storage after mount
   useEffect(() => {
     try {
-      const storedProjectId = localStorage.getItem("selected-project") || "all";
+      const storedProjectId =
+        projectIdProp || localStorage.getItem("selected-project") || "all";
       setProjectId(storedProjectId);
-
-      const storedProjects = localStorage.getItem("uu-projects");
-      if (storedProjects) {
-        setProjects(JSON.parse(storedProjects));
-      }
 
       const storedDocId = sessionStorage.getItem(
         `labeller-selected-doc-${storedProjectId}`,
@@ -159,7 +156,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     }
 
     setMounted(true);
-  }, []);
+  }, [projectIdProp]);
 
   const [exportMenuVisible, setExportMenuVisible] = useState(false);
   const [suggestions, setSuggestions] = useState<AnnotationSuggestion[]>([]);
@@ -207,6 +204,12 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     queryFn: () => api.listDocuments(),
   });
 
+  const { data: projectData } = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api.getProject(projectId),
+    enabled: !!projectId && projectId !== "all",
+  });
+
   // Filter documents by project
   const documents = useMemo(() => {
     if (!documentsData?.documents || !projectId || projectId === "all") {
@@ -214,12 +217,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
     }
 
     try {
-      if (projects.length === 0) return [];
-
-      const project = projects.find((p: { id: string }) => p.id === projectId);
-      if (!project) return [];
-
-      const projectDocumentIds = project.documentIds || [];
+      const projectDocumentIds = projectData?.project?.document_ids || [];
       return documentsData.documents.filter((doc) =>
         projectDocumentIds.includes(doc.id),
       );
@@ -227,7 +225,7 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       console.error("Error filtering documents:", error);
       return [];
     }
-  }, [documentsData, projectId, projects]);
+  }, [documentsData, projectData, projectId]);
 
   // Persist selected document
   useEffect(() => {
@@ -260,23 +258,6 @@ export function DataLabellerV2({}: DataLabellerV2Props) {
       String(activeInstanceNum),
     );
   }, [activeInstanceNum, projectId]);
-
-  // Listen for localStorage changes
-  useEffect(() => {
-    const handleStorageChange = () => {
-      // Reload projects data when storage changes
-      try {
-        const storedProjects = localStorage.getItem("uu-projects");
-        if (storedProjects) {
-          setProjects(JSON.parse(storedProjects));
-        }
-      } catch {
-        // Ignore errors
-      }
-    };
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
-  }, []);
 
   // Get selected document
   const selectedDocument = documents.find((d) => d.id === selectedDocId);

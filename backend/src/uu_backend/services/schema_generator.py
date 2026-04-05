@@ -36,8 +36,16 @@ def generate_pydantic_schema(
     return create_model(model_name, **field_definitions)
 
 
-def _field_type_to_python_type(field: SchemaField) -> Any:
-    """Convert SchemaField to Python type annotation."""
+def _field_type_to_python_type(field: SchemaField, model_name_prefix: str | None = None) -> Any:
+    """Convert SchemaField to Python type annotation.
+
+    Args:
+        field: The schema field to convert.
+        model_name_prefix: Override the prefix used when naming dynamically created nested Pydantic
+            models. Used by the ARRAY branch to pass the parent field's name so that each
+            array-of-object field gets a unique model name in the JSON Schema ``$defs`` even when
+            all item schemas share the generic ``name: "item"``.
+    """
 
     if field.type == FieldType.STRING:
         return str
@@ -53,7 +61,13 @@ def _field_type_to_python_type(field: SchemaField) -> Any:
 
     elif field.type == FieldType.ARRAY:
         if field.items:
-            item_type_result = _field_type_to_python_type(field.items)
+            # Use the parent array field's name as the prefix so that two array-of-object fields
+            # whose item schemas both carry the generic name "item" produce distinct Pydantic model
+            # names (e.g. "QuarterlyFinancialHighlightsItem" vs "BusinessUnitRevenueTableItem")
+            # and therefore distinct $defs entries in the JSON Schema sent to OpenAI.
+            item_type_result = _field_type_to_python_type(
+                field.items, model_name_prefix=field.name
+            )
             return list[item_type_result]  # type: ignore
         return list[Any]
 
@@ -77,9 +91,11 @@ def _field_type_to_python_type(field: SchemaField) -> Any:
                 )
                 nested_fields[prop_name] = (prop_annotation, prop_field)
 
-            # Create nested model
+            # Use the caller-supplied prefix when available (e.g. parent array field name),
+            # falling back to the field's own name so standalone object fields still work.
+            prefix = model_name_prefix if model_name_prefix is not None else field.name
             nested_model = create_model(
-                f"{field.name.title().replace('_', '')}Object", **nested_fields
+                f"{prefix.title().replace('_', '')}Item", **nested_fields
             )
             return nested_model
         return dict[str, Any]

@@ -86,11 +86,11 @@ class EvaluationService:
 
             loop = asyncio.get_event_loop()
             with ThreadPoolExecutor() as executor:
-                # Use .extract_structured_with_retrieval_vision() to match UI extraction
-                # (use_llm=false, use_structured_output=true, use_retrieval=true)
+                # Use extract_auto to match the UI extraction path, including
+                # retrieval_table fields which bypass the LLM.
                 extraction = await loop.run_in_executor(
                     executor,
-                    self.extraction_service.extract_structured_with_retrieval_vision,
+                    self.extraction_service.extract_auto,
                     document_id,
                 )
         else:
@@ -176,9 +176,39 @@ class EvaluationService:
 
     async def _get_cached_extraction(self, document_id: str):
         """Get cached extraction result."""
-        return await sync_to_async(
-            self.extraction_service.extract_structured_with_retrieval_vision
-        )(document_id)
+        return await sync_to_async(self.extraction_service.extract_auto)(document_id)
+
+    def _expand_retrieval_table_gt(self, ground_truth: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        Expand whole-table GT annotations into per-field dotted annotations.
+
+        Retrieval-table fields are annotated as a single ground-truth entry whose
+        value is a list of row-dicts, e.g.:
+            {"field_name": "financial_highlights_table",
+             "value": [{"Revenue ($B)": "13.3", ...}, ...]}
+
+        The extraction side flattens those into dotted keys like
+        "financial_highlights_table.Revenue ($B)".  This method expands the GT
+        to the same dotted representation so the two sides are comparable.
+        """
+        expanded: list[dict[str, Any]] = []
+        for gt in ground_truth:
+            value = gt["value"]
+            if isinstance(value, list) and value and all(isinstance(r, dict) for r in value):
+                # Whole-table annotation — expand each row into dotted child fields.
+                for idx, row in enumerate(value):
+                    instance_num = idx + 1
+                    for col_key, col_val in row.items():
+                        expanded.append(
+                            {
+                                "field_name": f"{gt['field_name']}.{col_key}",
+                                "value": col_val,
+                                "instance_num": instance_num,
+                            }
+                        )
+            else:
+                expanded.append(gt)
+        return expanded
 
     def _build_comparison_schema(
         self, ground_truth: list[dict[str, Any]], extraction: Any
@@ -197,6 +227,10 @@ class EvaluationService:
                 }
             }
         """
+        # Expand whole-table GT annotations (retrieval_table fields) into dotted field entries
+        # so they align with how the extraction side is flattened.
+        ground_truth = self._expand_retrieval_table_gt(ground_truth)
+
         schema: dict[str, dict[str, Any]] = defaultdict(
             lambda: {"ground_truth": [], "predicted": []}
         )

@@ -43,16 +43,16 @@ export default function Dashboard() {
     staleTime: 30000,
   });
 
-  const projects = useMemo(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const stored = localStorage.getItem("uu-projects");
-      if (!stored) return [];
-      return JSON.parse(stored) as Array<{ id: string; name: string }>;
-    } catch {
-      return [];
-    }
-  }, []);
+  const { data: projectsData } = useQuery({
+    queryKey: ["projects"],
+    queryFn: () => api.listProjects(),
+    staleTime: 30000,
+  });
+
+  const projects = useMemo(
+    () => projectsData?.projects || [],
+    [projectsData],
+  );
 
   const totalDocs = ingestStatus?.documents || 0;
   const classifiedDocs = ingestStatus?.classified_documents || 0;

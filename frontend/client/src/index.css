@@ -1121,9 +1121,12 @@
   top: -22px;
   left: 0;
   border-radius: 6px;
-  padding: 2px 6px;
-  font-size: 9px;
+  padding: 3px 7px;
+  border: 1px solid rgba(56, 1, 64, 0.12);
+  box-shadow: 0 2px 8px rgba(56, 1, 64, 0.18);
+  font-size: 10px;
   font-weight: 700;
+  line-height: 1.2;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -1137,11 +1140,12 @@
   top: -2px;
   min-width: 20px;
   height: 18px;
+  padding: 0 4px;
   border-radius: 999px;
   border: 1px solid var(--dl-border);
-  background: #ffffff;
   font-size: 10px;
   font-weight: 700;
+  line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1181,6 +1185,157 @@
     calc(100% / 10) 100%,
     100% calc(100% / 14);
   opacity: 0.28;
+}
+
+.dl-table-hover-overlay {
+  position: absolute;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.dl-table-hover-overlay.active {
+  backdrop-filter: saturate(1.05);
+}
+
+.dl-table-hover-label {
+  position: absolute;
+  top: -28px;
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(340px, 80vw);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 6px 18px rgba(56, 1, 64, 0.18);
+  white-space: nowrap;
+}
+
+.dl-table-hover-label-meta {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.dl-table-preview {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: min(860px, calc(100vw - 120px));
+  max-width: calc(100% - 16px);
+  border: 1px solid rgba(79, 2, 89, 0.16);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 40px rgba(56, 1, 64, 0.24);
+  overflow: hidden;
+}
+
+.dl-table-preview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid rgba(79, 2, 89, 0.08);
+  background: linear-gradient(180deg, rgba(79, 2, 89, 0.04), rgba(255, 255, 255, 0.4));
+}
+
+.dl-table-preview-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--dl-text-subtle);
+}
+
+.dl-table-preview-subtitle {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--dl-text-primary);
+}
+
+.dl-table-preview-meta {
+  border-radius: 999px;
+  background: rgba(79, 2, 89, 0.08);
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--dl-text-secondary);
+}
+
+.dl-table-preview-scroll {
+  max-height: 380px;
+  overflow: auto;
+}
+
+.dl-table-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+  font-size: 12px;
+}
+
+.dl-table-preview-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(248, 244, 248, 0.98);
+  color: var(--dl-text-secondary);
+  text-align: left;
+  font-weight: 700;
+}
+
+.dl-table-preview-table th,
+.dl-table-preview-table td {
+  border-bottom: 1px solid rgba(79, 2, 89, 0.08);
+  padding: 8px 10px;
+  vertical-align: top;
+}
+
+.dl-table-preview-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.dl-table-preview-rownum {
+  width: 48px;
+  font-weight: 700;
+  color: var(--dl-text-secondary);
+  white-space: nowrap;
+}
+
+.dl-table-preview-col-section {
+  min-width: 92px;
+  font-weight: 700;
+  color: var(--dl-text-secondary);
+  white-space: nowrap;
+}
+
+.dl-table-preview-col-metric {
+  min-width: 220px;
+}
+
+.dl-table-preview-col-value {
+  min-width: 108px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dl-table-preview-footnote {
+  padding: 8px 12px 10px;
+  border-top: 1px solid rgba(79, 2, 89, 0.08);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--dl-text-muted);
 }
 
 .dl-page-nav-item {
@@ -1244,6 +1399,15 @@
   font-size: 12px;
   font-family: "JetBrains Mono", monospace;
   color: var(--dl-text-muted);
+}
+
+/* Hide scrollbar visually while keeping scroll functionality */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
 }
 
 /* Scrollbar styling for data labeller */

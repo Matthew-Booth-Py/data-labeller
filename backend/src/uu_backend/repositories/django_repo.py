@@ -18,6 +18,7 @@ if not apps.ready:
 from uu_backend.config import get_settings
 from uu_backend.django_data import models as orm
 from uu_backend.models.prompt import FieldPromptVersion, PromptVersion
+from uu_backend.models.project import Project, ProjectCreate, ProjectUpdate
 from uu_backend.models.taxonomy import (
     Classification,
     DocumentType,
@@ -107,6 +108,22 @@ class DjangoORMRepository:
             updated_at=model.updated_at,
         )
 
+    def _project_from_model(self, model: orm.ProjectModel) -> Project:
+        document_ids = list(
+            model.project_documents.order_by("created_at", "id").values_list("document_id", flat=True)
+        )
+        return Project(
+            id=model.id,
+            name=model.name,
+            description=model.description or "",
+            type=model.type or "Document Analysis",
+            model=model.model,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+            document_ids=document_ids,
+            doc_count=len(document_ids),
+        )
+
     def _prompt_version_from_model(self, model: orm.PromptVersionModel) -> PromptVersion:
         return PromptVersion(
             id=model.id,
@@ -170,6 +187,92 @@ class DjangoORMRepository:
             "status": "connected",
             "database": connection.vendor,
         }
+
+    @transaction.atomic
+    def create_project(self, data: ProjectCreate) -> Project:
+        now = timezone.now()
+        row = orm.ProjectModel.objects.create(
+            id=data.id,
+            name=data.name,
+            description=data.description,
+            type=data.type,
+            model=data.model,
+            created_at=now,
+            updated_at=now,
+        )
+        return self._project_from_model(row)
+
+    def get_project(self, project_id: str) -> Project | None:
+        row = orm.ProjectModel.objects.filter(id=project_id).first()
+        return self._project_from_model(row) if row else None
+
+    def list_projects(self) -> list[Project]:
+        rows = orm.ProjectModel.objects.order_by("name")
+        return [self._project_from_model(row) for row in rows]
+
+    @transaction.atomic
+    def update_project(self, project_id: str, data: ProjectUpdate) -> Project | None:
+        row = orm.ProjectModel.objects.filter(id=project_id).first()
+        if not row:
+            return None
+
+        changed_fields: list[str] = []
+        if data.name is not None:
+            row.name = data.name
+            changed_fields.append("name")
+        if data.description is not None:
+            row.description = data.description
+            changed_fields.append("description")
+        if data.type is not None:
+            row.type = data.type
+            changed_fields.append("type")
+        if data.model is not None:
+            row.model = data.model
+            changed_fields.append("model")
+
+        if changed_fields:
+            row.updated_at = timezone.now()
+            changed_fields.append("updated_at")
+            row.save(update_fields=changed_fields)
+
+        return self._project_from_model(row)
+
+    @transaction.atomic
+    def delete_project(self, project_id: str) -> bool:
+        deleted, _ = orm.ProjectModel.objects.filter(id=project_id).delete()
+        return deleted > 0
+
+    @transaction.atomic
+    def add_documents_to_project(self, project_id: str, document_ids: list[str]) -> Project | None:
+        row = orm.ProjectModel.objects.filter(id=project_id).first()
+        if not row:
+            return None
+
+        valid_document_ids = set(
+            orm.DocumentModel.objects.filter(id__in=document_ids).values_list("id", flat=True)
+        )
+        for document_id in document_ids:
+            if document_id not in valid_document_ids:
+                continue
+            orm.ProjectDocumentModel.objects.get_or_create(
+                project=row,
+                document_id=document_id,
+            )
+
+        row.updated_at = timezone.now()
+        row.save(update_fields=["updated_at"])
+        return self._project_from_model(row)
+
+    @transaction.atomic
+    def remove_document_from_project(self, project_id: str, document_id: str) -> Project | None:
+        row = orm.ProjectModel.objects.filter(id=project_id).first()
+        if not row:
+            return None
+
+        orm.ProjectDocumentModel.objects.filter(project=row, document_id=document_id).delete()
+        row.updated_at = timezone.now()
+        row.save(update_fields=["updated_at"])
+        return self._project_from_model(row)
 
     @transaction.atomic
     def create_document_type(self, data: DocumentTypeCreate) -> DocumentType:

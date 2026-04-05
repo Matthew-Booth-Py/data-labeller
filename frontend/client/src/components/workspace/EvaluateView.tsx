@@ -125,7 +125,7 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unexpected error";
 }
 
-export function EvaluateView() {
+export function EvaluateView({ projectId }: { projectId?: string }) {
   const queryClient = useQueryClient();
   const [selectedDocument, setSelectedDocument] = useState<string>("");
   const [selectedEvaluation, setSelectedEvaluation] = useState<string | null>(
@@ -133,21 +133,9 @@ export function EvaluateView() {
   );
   const [localStorageVersion, setLocalStorageVersion] = useState(0);
 
-  const projectId = localStorage.getItem("selected-project") || "all";
-
   useEffect(() => {
-    const handleStorageChange = () => {
-      setLocalStorageVersion((previous) => previous + 1);
-    };
-
-    window.addEventListener("storage", handleStorageChange);
-    window.addEventListener("localStorageUpdate", handleStorageChange);
-
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("localStorageUpdate", handleStorageChange);
-    };
-  }, []);
+    setLocalStorageVersion((previous) => previous + 1);
+  }, [projectId]);
 
   const {
     data: documentsData,
@@ -158,20 +146,19 @@ export function EvaluateView() {
     queryFn: () => api.listDocuments(),
   });
 
+  const { data: projectData } = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api.getProject(projectId || ""),
+    enabled: !!projectId && projectId !== "all",
+  });
+
   const documents = useMemo(() => {
     if (!documentsData?.documents || !projectId || projectId === "all") {
       return [];
     }
 
     try {
-      const stored = localStorage.getItem("uu-projects");
-      if (!stored) return [];
-
-      const projects = JSON.parse(stored);
-      const project = projects.find((p: { id: string }) => p.id === projectId);
-      if (!project) return [];
-
-      const projectDocumentIds = project.documentIds || [];
+      const projectDocumentIds = projectData?.project?.document_ids || [];
       return documentsData.documents.filter((doc) =>
         projectDocumentIds.includes(doc.id),
       );
@@ -179,7 +166,7 @@ export function EvaluateView() {
       console.error("Error filtering documents:", error);
       return [];
     }
-  }, [documentsData, projectId, localStorageVersion]);
+  }, [documentsData, localStorageVersion, projectData, projectId]);
 
   const documentNameById = useMemo(() => {
     return new Map(documents.map((doc) => [doc.id, doc.filename]));
@@ -360,26 +347,38 @@ export function EvaluateView() {
     );
   }, [evaluation]);
 
-  const matchTypeDistribution = useMemo(() => {
-    if (!summary) return [] as Array<[string, number]>;
+  // Aggregate sub-field metrics up to the top-level schema field name.
+  const schemaFieldMetrics = useMemo(() => {
+    if (!evaluation) return [];
 
-    return Object.entries(summary.match_type_distribution).sort(
-      (a, b) => b[1] - a[1],
-    );
-  }, [summary]);
+    const groups: Record<
+      string,
+      { correct: number; total: number; incorrect: number; missing: number }
+    > = {};
 
-  const totalMatchTypes = useMemo(() => {
-    return matchTypeDistribution.reduce((sum, [, count]) => sum + count, 0);
-  }, [matchTypeDistribution]);
+    for (const metric of Object.values(evaluation.result.metrics.field_metrics)) {
+      const leaf = metric.field_name.split(".").pop() || metric.field_name;
+      if (leaf.includes("_header")) continue;
+      const parent = metric.field_name.split(".")[0];
+      if (!groups[parent]) groups[parent] = { correct: 0, total: 0, incorrect: 0, missing: 0 };
+      groups[parent].correct += metric.correct_predictions;
+      groups[parent].total += metric.total_occurrences;
+      groups[parent].incorrect += metric.incorrect_predictions;
+      groups[parent].missing += metric.missing_predictions;
+    }
 
-  const weakestFields = useMemo(() => {
-    if (!summary) return [];
+    return Object.entries(groups)
+      .map(([name, g]) => ({
+        field_name: name,
+        accuracy: g.total > 0 ? g.correct / g.total : 0,
+        correct: g.correct,
+        total: g.total,
+        incorrect: g.incorrect,
+        missing: g.missing,
+      }))
+      .sort((a, b) => a.accuracy - b.accuracy);
+  }, [evaluation]);
 
-    return Object.values(summary.field_performance)
-      .filter((metric) => metric.total_occurrences > 0)
-      .sort((a, b) => a.accuracy - b.accuracy)
-      .slice(0, 5);
-  }, [summary]);
 
   const hasTopErrors =
     !!documentsError ||
@@ -713,96 +712,6 @@ export function EvaluateView() {
             </Card>
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  Match Type Distribution
-                </CardTitle>
-                <CardDescription>
-                  Breakdown of how extracted values align with ground truth.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {summaryLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading distribution...
-                  </div>
-                ) : matchTypeDistribution.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No match data yet.
-                  </p>
-                ) : (
-                  matchTypeDistribution.map(([matchType, count]) => {
-                    const percent =
-                      totalMatchTypes > 0 ? (count / totalMatchTypes) * 100 : 0;
-
-                    return (
-                      <div key={matchType} className="space-y-2">
-                        <div className="flex items-center justify-between gap-3">
-                          {getMatchTypeBadge(matchType)}
-                          <span className="text-xs text-[var(--text-secondary)]">
-                            {count} ({percent.toFixed(1)}%)
-                          </span>
-                        </div>
-                        <Progress
-                          value={percent}
-                          className="h-1.5 bg-muted/80"
-                        />
-                      </div>
-                    );
-                  })
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Fields to Improve</CardTitle>
-                <CardDescription>
-                  Lowest-performing fields based on aggregate project
-                  evaluations.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {weakestFields.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No field-level performance data available yet.
-                  </p>
-                ) : (
-                  weakestFields.map((metric) => (
-                    <div
-                      key={metric.field_name}
-                      className="rounded-lg border border-[var(--border-subtle)] p-3 space-y-2"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="font-mono text-xs text-[var(--text-primary)] break-all">
-                          {metric.field_name}
-                        </p>
-                        <span
-                          className={cn(
-                            "text-sm font-semibold",
-                            getScoreTextClass(metric.accuracy),
-                          )}
-                        >
-                          {formatPercentage(metric.accuracy)}
-                        </span>
-                      </div>
-                      <Progress
-                        value={metric.accuracy * 100}
-                        className="h-1.5 bg-muted/70"
-                      />
-                      <p className="text-[11px] text-[var(--text-secondary)]">
-                        {metric.total_occurrences} occurrences •{" "}
-                        {metric.correct_predictions} correct
-                      </p>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          </div>
         </>
       )}
 
@@ -838,19 +747,19 @@ export function EvaluateView() {
           </CardHeader>
 
           <CardContent className="pt-6">
-            <Tabs defaultValue="flattened" className="w-full">
+            <Tabs defaultValue="field" className="w-full">
               <TabsList className="w-full justify-start overflow-x-auto">
-                <TabsTrigger value="flattened" className="gap-2">
-                  <BarChart3 className="h-4 w-4" />
-                  Flattened
+                <TabsTrigger value="field" className="gap-2">
+                  <Target className="h-4 w-4" />
+                  Field Summary
                 </TabsTrigger>
                 <TabsTrigger value="instance" className="gap-2">
                   <ListChecks className="h-4 w-4" />
                   Instance
                 </TabsTrigger>
-                <TabsTrigger value="field" className="gap-2">
-                  <Target className="h-4 w-4" />
-                  Field Summary
+                <TabsTrigger value="flattened" className="gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  Flattened
                 </TabsTrigger>
               </TabsList>
 
@@ -1157,64 +1066,53 @@ export function EvaluateView() {
                   <Table>
                     <TableHeader sticky>
                       <TableRow className="bg-[var(--surface-elevated)]/70 hover:bg-[var(--surface-elevated)]/70">
-                        <TableHead>Field Name</TableHead>
-                        <TableHead className="w-[110px]">Occurrences</TableHead>
-                        <TableHead className="w-[120px]">Accuracy</TableHead>
-                        <TableHead className="w-[120px]">Precision</TableHead>
-                        <TableHead className="w-[120px]">Recall</TableHead>
-                        <TableHead className="w-[140px]">
-                          Avg Confidence
-                        </TableHead>
+                        <TableHead>Schema Field</TableHead>
+                        <TableHead className="w-[130px]">Correct</TableHead>
+                        <TableHead className="w-[130px]">Incorrect</TableHead>
+                        <TableHead className="w-[130px]">Missing</TableHead>
+                        <TableHead className="w-[130px]">Accuracy</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {fieldMetrics.length === 0 ? (
+                      {schemaFieldMetrics.length === 0 ? (
                         <TableRow>
                           <TableCell
-                            colSpan={6}
+                            colSpan={5}
                             className="py-10 text-center text-muted-foreground"
                           >
                             No field metrics available for this run.
                           </TableCell>
                         </TableRow>
                       ) : (
-                        fieldMetrics.map((metric) => (
+                        schemaFieldMetrics.map((metric) => (
                           <TableRow key={metric.field_name}>
-                            <TableCell className="font-mono text-xs text-[var(--text-primary)] break-all">
+                            <TableCell className="font-mono text-sm text-[var(--text-primary)]">
                               {metric.field_name}
                             </TableCell>
-                            <TableCell>{metric.total_occurrences}</TableCell>
-                            <TableCell
-                              className={cn(
-                                "font-medium",
-                                getScoreTextClass(metric.accuracy),
-                              )}
-                            >
-                              {formatPercentage(metric.accuracy)}
+                            <TableCell className="text-[var(--status-success)] font-medium">
+                              {metric.correct}
                             </TableCell>
-                            <TableCell
-                              className={cn(
-                                "font-medium",
-                                getScoreTextClass(metric.precision),
-                              )}
-                            >
-                              {formatPercentage(metric.precision)}
+                            <TableCell className="text-[var(--status-error)] font-medium">
+                              {metric.incorrect}
                             </TableCell>
-                            <TableCell
-                              className={cn(
-                                "font-medium",
-                                getScoreTextClass(metric.recall),
-                              )}
-                            >
-                              {formatPercentage(metric.recall)}
+                            <TableCell className="text-[var(--status-warn)] font-medium">
+                              {metric.missing}
                             </TableCell>
-                            <TableCell
-                              className={cn(
-                                "font-medium",
-                                getScoreTextClass(metric.avg_confidence),
-                              )}
-                            >
-                              {formatPercentage(metric.avg_confidence)}
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Progress
+                                  value={metric.accuracy * 100}
+                                  className="h-1.5 w-16 bg-muted/70"
+                                />
+                                <span
+                                  className={cn(
+                                    "font-medium text-sm",
+                                    getScoreTextClass(metric.accuracy),
+                                  )}
+                                >
+                                  {formatPercentage(metric.accuracy)}
+                                </span>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))

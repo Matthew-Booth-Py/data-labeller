@@ -115,6 +115,33 @@ export interface DeploymentVersion {
   created_at: string;
 }
 
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  description: string;
+  type: string;
+  model?: string | null;
+  created_at: string;
+  updated_at: string;
+  document_ids: string[];
+  doc_count: number;
+}
+
+export interface ProjectCreate {
+  id: string;
+  name: string;
+  description?: string;
+  type?: string;
+  model?: string | null;
+}
+
+export interface ProjectUpdate {
+  name?: string;
+  description?: string;
+  type?: string;
+  model?: string | null;
+}
+
 export interface DeploymentVersionCreate {
   project_id: string;
   document_type_id: string;
@@ -201,12 +228,16 @@ export type VisualContentType =
   | "mixed"
   | "unknown";
 
+export type ExtractionMethod = "llm" | "retrieval_table";
+
 export interface SchemaField {
   name: string;
   type: FieldType;
   description?: string;
   required?: boolean;
   extraction_prompt?: string;
+  extraction_method?: ExtractionMethod;
+  retrieval_query?: string;
   order?: number;
   properties?: Record<string, SchemaField>;
   items?: SchemaField;
@@ -355,6 +386,39 @@ export interface ExtractionRequestMetrics {
   created_at?: string;
 }
 
+export interface RetrievalSearchResult {
+  doc_id: string;
+  chunk_index: number;
+  text: string;
+  original_text: string;
+  context: string;
+  score: number;
+  chunk_id?: string | null;
+  page_number?: number | null;
+  asset_type?: string | null;
+  asset_label?: string | null;
+  citation_id?: string | null;
+  citation_regions?: unknown;
+  preview_artifact_id?: string | null;
+}
+
+export interface FieldCoverageInfo {
+  status: string;
+  scores: number[];
+  top_page_numbers: number[];
+  asset_labels: string[];
+  rounds: number;
+  queries_used: string[];
+}
+
+export interface ExtractionRequestMetadata {
+  strategy?: string;
+  source_page_numbers?: number[];
+  coverage_by_field?: Record<string, FieldCoverageInfo>;
+  retry_count?: number;
+  field_page_map?: Record<string, number[]>;
+}
+
 export interface ExtractionResult {
   document_id: string;
   document_type_id: string;
@@ -363,6 +427,7 @@ export interface ExtractionResult {
   schema_version_id?: string | null;
   prompt_version_id?: string | null;
   extracted_at: string;
+  request_metadata?: ExtractionRequestMetadata | null;
 }
 
 // ============================================================================
@@ -646,6 +711,63 @@ class ApiClient {
     return this.request(`${API_PREFIX}/documents`);
   }
 
+  async listProjects(): Promise<{ projects: ProjectSummary[]; total: number }> {
+    return this.request(`${API_PREFIX}/projects`);
+  }
+
+  async getProject(id: string): Promise<{ project: ProjectSummary }> {
+    return this.request(`${API_PREFIX}/projects/${id}`);
+  }
+
+  async createProject(
+    data: ProjectCreate,
+  ): Promise<{ project: ProjectSummary }> {
+    return this.request(`${API_PREFIX}/projects`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateProject(
+    id: string,
+    data: ProjectUpdate,
+  ): Promise<{ project: ProjectSummary }> {
+    return this.request(`${API_PREFIX}/projects/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteProject(
+    id: string,
+  ): Promise<{ status: string; project_id: string }> {
+    return this.request(`${API_PREFIX}/projects/${id}`, {
+      method: "DELETE",
+    });
+  }
+
+  async addProjectDocuments(
+    projectId: string,
+    documentIds: string[],
+  ): Promise<{ project: ProjectSummary }> {
+    return this.request(`${API_PREFIX}/projects/${projectId}/documents`, {
+      method: "POST",
+      body: JSON.stringify({ document_ids: documentIds }),
+    });
+  }
+
+  async removeProjectDocument(
+    projectId: string,
+    documentId: string,
+  ): Promise<{ project: ProjectSummary }> {
+    return this.request(
+      `${API_PREFIX}/projects/${projectId}/documents/${documentId}`,
+      {
+        method: "DELETE",
+      },
+    );
+  }
+
   async getDocument(id: string): Promise<{ document: Document }> {
     return this.request(`${API_PREFIX}/documents/${id}`);
   }
@@ -918,6 +1040,16 @@ class ApiClient {
 
   async getDocumentExtraction(documentId: string): Promise<ExtractionResult> {
     return this.request(`${API_PREFIX}/documents/${documentId}/extraction`);
+  }
+
+  async searchDocuments(
+    query: string,
+    documentId?: string,
+    topK: number = 8,
+  ): Promise<{ results: RetrievalSearchResult[]; total: number; query: string }> {
+    const params = new URLSearchParams({ q: query, top_k: String(topK) });
+    if (documentId) params.append("document_id", documentId);
+    return this.request(`${API_PREFIX}/search?${params.toString()}`);
   }
 
   async listFieldPromptVersions(

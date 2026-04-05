@@ -141,6 +141,7 @@ class DocumentRepository:
             retrieval_chunks_count=doc.retrieval_chunks_count,
             retrieval_index_progress=doc.retrieval_index_progress,
             retrieval_index_total=doc.retrieval_index_total,
+            retrieval_index_backend=doc.retrieval_index_backend,
         )
 
     def _model_to_summary(self, doc: DocumentModel) -> DocumentSummary:
@@ -155,6 +156,7 @@ class DocumentRepository:
             retrieval_chunks_count=doc.retrieval_chunks_count,
             retrieval_index_progress=doc.retrieval_index_progress,
             retrieval_index_total=doc.retrieval_index_total,
+            retrieval_index_backend=doc.retrieval_index_backend,
         )
 
     def update_ocr_status(

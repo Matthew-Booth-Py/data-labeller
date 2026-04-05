@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { api, type SchemaField } from "@/lib/api";
+import { api, type ProjectSummary, type SchemaField } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import {
   Cpu,
@@ -23,7 +23,6 @@ import { useRef, useState, type ChangeEvent } from "react";
 
 type SettingsTab = "llm" | "engines" | "workspace";
 
-const PROJECT_STORAGE_KEY = "uu-projects";
 const SELECTED_PROJECT_KEY = "selected-project";
 const WORKSPACE_BUNDLE_VERSION = 1;
 
@@ -93,16 +92,6 @@ function assertValid(condition: unknown, message: string): asserts condition {
 
 function normalizeName(name: string): string {
   return name.trim().toLowerCase();
-}
-
-function parseProjectsFromStorage(): ProjectRecord[] {
-  const raw = localStorage.getItem(PROJECT_STORAGE_KEY);
-  if (!raw) return [];
-  const parsed = JSON.parse(raw);
-  if (!Array.isArray(parsed)) {
-    throw new Error("Invalid local project storage format");
-  }
-  return parsed as ProjectRecord[];
 }
 
 function buildDownload(
@@ -313,7 +302,17 @@ export default function Settings() {
   const handleExportWorkspace = async () => {
     setIsExportingWorkspace(true);
     try {
-      const projects = parseProjectsFromStorage();
+      const projectResponse = await api.listProjects();
+      const projects = projectResponse.projects.map((project: ProjectSummary) => ({
+        id: project.id,
+        name: project.name,
+        description: project.description || "",
+        type: project.type || "",
+        docCount: project.doc_count || 0,
+        model: project.model || "",
+        createdAt: project.created_at,
+        documentIds: project.document_ids || [],
+      }));
       const selectedProjectId = localStorage.getItem(SELECTED_PROJECT_KEY);
       const selectedSchemaByProject: Record<string, string> = {};
       for (const project of projects) {
@@ -480,21 +479,35 @@ export default function Settings() {
         }
       }
 
-      const currentProjects = parseProjectsFromStorage();
-      const mergedProjects = new Map<string, ProjectRecord>();
-      for (const project of currentProjects) {
-        mergedProjects.set(project.id, project);
-      }
+      const existingProjects = await api.listProjects();
+      const existingProjectsById = new Map(
+        existingProjects.projects.map((project) => [project.id, project]),
+      );
+
       for (const project of bundle.projects) {
-        mergedProjects.set(project.id, project);
+        if (existingProjectsById.has(project.id)) {
+          await api.updateProject(project.id, {
+            name: project.name,
+            description: project.description,
+            type: project.type,
+            model: project.model,
+          });
+        } else {
+          await api.createProject({
+            id: project.id,
+            name: project.name,
+            description: project.description,
+            type: project.type,
+            model: project.model,
+          });
+        }
+
+        if (project.documentIds && project.documentIds.length > 0) {
+          await api.addProjectDocuments(project.id, project.documentIds);
+        }
       }
 
-      const finalProjects = Array.from(mergedProjects.values());
-      localStorage.setItem(PROJECT_STORAGE_KEY, JSON.stringify(finalProjects));
-      if (
-        bundle.selected_project_id &&
-        mergedProjects.has(bundle.selected_project_id)
-      ) {
+      if (bundle.selected_project_id) {
         localStorage.setItem(SELECTED_PROJECT_KEY, bundle.selected_project_id);
       }
       for (const [projectId, importedTypeId] of Object.entries(
@@ -504,8 +517,6 @@ export default function Settings() {
           importedTypeIdToResolvedId.get(importedTypeId) || importedTypeId;
         localStorage.setItem(`uu-schema-selected-type:${projectId}`, resolvedTypeId);
       }
-      window.dispatchEvent(new Event("localStorageUpdate"));
-
       toast({
         title: "Workspace imported",
         description: `Schemas: ${createdDocumentTypes} created, ${updatedDocumentTypes} updated. Global fields: ${createdGlobalFields} created, ${updatedGlobalFields} updated. Projects merged: ${bundle.projects.length}.`,
@@ -697,7 +708,7 @@ export default function Settings() {
                     <h3 className="font-medium">Import Workspace Bundle</h3>
                     <p className="text-sm text-muted-foreground mt-1">
                       Applies schemas and global fields to this backend, then
-                      merges projects into local storage.
+                      merges projects into the backend workspace store.
                     </p>
                     <Button
                       variant="outline"
@@ -726,11 +737,8 @@ export default function Settings() {
                     by name if ID is not found.
                   </p>
                   <p>
-                    Projects are merged by project ID into{" "}
-                    <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-                      localStorage[{`"${PROJECT_STORAGE_KEY}"`}]
-                    </code>
-                    .
+                    Projects are merged by project ID into the backend
+                    workspace store.
                   </p>
                 </div>
               </CardContent>

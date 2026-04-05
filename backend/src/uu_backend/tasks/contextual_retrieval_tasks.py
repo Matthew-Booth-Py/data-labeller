@@ -8,6 +8,7 @@ from celery import shared_task
 from uu_backend.config import get_settings
 from uu_backend.ingestion.converter import extract_pdf_with_tables, postprocess_markdown
 from uu_backend.repositories.document_repository import get_document_repository
+from uu_backend.services.pdf_retrieval import PDF_RETRIEVAL_BACKEND
 from uu_backend.services.contextual_retrieval import get_contextual_retrieval_service
 
 logger = logging.getLogger(__name__)
@@ -28,38 +29,23 @@ def _resolve_document_file_path(document) -> Path | None:
 
 
 def _load_document_content_for_retrieval(document) -> str:
-    """Load the layout-preserving content used to build the retrieval index."""
-    if document.file_type.lower() == "pdf":
+    """Compatibility helper used by tests and legacy debug tooling."""
+    file_type = (document.file_type or "").lower()
+    if file_type == "pdf":
         file_path = _resolve_document_file_path(document)
         if file_path:
-            logger.info(
-                "Extracting retrieval content from PDF with layout-preserving converter: %s",
-                file_path,
-            )
             content, _ = extract_pdf_with_tables(str(file_path))
             content = postprocess_markdown(content)
             if content.strip():
                 return content
-            logger.warning(
-                "Layout-preserving PDF extraction returned no content for %s; "
-                "falling back to stored document content",
-                document.id,
-            )
-
     return document.content or ""
-
 
 @shared_task(bind=True, max_retries=3)
 def index_document_for_retrieval(self, document_id: str):
     """
     Index a document for contextual retrieval.
 
-    This task:
-    1. Loads the document content from the database
-    2. Chunks the document
-    3. Generates context for each chunk using LLM
-    4. Generates embeddings
-    5. Stores in vector DB and BM25 index
+    This task builds the PDF-only intelligent retrieval index.
 
     Args:
         document_id: Document ID to index
@@ -69,11 +55,11 @@ def index_document_for_retrieval(self, document_id: str):
     try:
         logger.info(f"Starting contextual retrieval indexing for document {document_id}")
 
-        # Update status to processing and reset progress
         doc_model = DocumentModel.objects.get(id=document_id)
         doc_model.retrieval_index_status = "processing"
         doc_model.retrieval_index_progress = 0
         doc_model.retrieval_index_total = None
+        doc_model.retrieval_index_backend = None
         doc_model.save()
 
         doc_repo = get_document_repository()
@@ -85,32 +71,32 @@ def index_document_for_retrieval(self, document_id: str):
             doc_model.save()
             return {"status": "error", "message": "Document not found"}
 
-        content = _load_document_content_for_retrieval(document)
-        if content:
-            logger.info(
-                "Loaded %s chars of retrieval content for %s",
-                len(content),
-                document_id,
-            )
+        if (document.file_type or "").lower() != "pdf":
+            message = "PDF-only retrieval is supported. Reindexing requires a PDF document."
+            logger.warning("%s: %s", document_id, message)
+            doc_model.retrieval_index_status = "failed"
+            doc_model.retrieval_index_backend = None
+            doc_model.save(update_fields=["retrieval_index_status", "retrieval_index_backend"])
+            return {"status": "error", "message": message}
 
-        if not content or not content.strip():
-            logger.warning(f"Document {document_id} has no content to index")
-            doc_model.retrieval_index_status = "completed"
-            doc_model.retrieval_chunks_count = 0
-            doc_model.save()
-            return {"status": "skipped", "message": "No content to index"}
+        file_path = _resolve_document_file_path(document)
+        if not file_path:
+            message = "Stored PDF file could not be resolved for retrieval indexing."
+            logger.warning("%s: %s", document_id, message)
+            doc_model.retrieval_index_status = "failed"
+            doc_model.retrieval_index_backend = None
+            doc_model.save(update_fields=["retrieval_index_status", "retrieval_index_backend"])
+            return {"status": "error", "message": message}
 
         service = get_contextual_retrieval_service()
 
-        # Delete any existing index for this document before re-indexing
         try:
             deleted = service.delete_document(document_id)
-            if deleted.get("vector_store", 0) > 0 or deleted.get("bm25_index", 0) > 0:
+            if deleted.get("vector_store", 0) > 0 or deleted.get("artifacts", 0) > 0:
                 logger.info(f"Cleaned up existing index for {document_id}: {deleted}")
         except Exception as e:
             logger.warning(f"Failed to clean up existing index for {document_id}: {e}")
 
-        # Track last saved progress to avoid too many DB writes
         last_saved_progress = {"current": -1}
 
         def _update_progress_in_db(current: int, total: int) -> None:
@@ -126,32 +112,33 @@ def index_document_for_retrieval(self, document_id: str):
 
         def progress_callback(stage: str, current: int, total: int) -> None:
             logger.info(f"Indexing {document_id}: {stage} {current}/{total}")
-            # Update progress in database - only save periodically to reduce DB load
             if current == total or current - last_saved_progress["current"] >= max(1, total // 10):
                 try:
                     import threading
 
                     thread = threading.Thread(target=_update_progress_in_db, args=(current, total))
                     thread.start()
-                    # Don't wait for it - fire and forget
                     last_saved_progress["current"] = current
                 except Exception as e:
                     logger.warning(f"Failed to start progress update thread: {e}")
 
         chunks_indexed = service.index_document(
             document_id=document_id,
-            content=content,
-            metadata={
-                "filename": document.filename,
-                "file_type": document.file_type,
-            },
+            content=None,
+            metadata=None,
             progress_callback=progress_callback,
         )
 
-        # Update status to completed
         doc_model.retrieval_index_status = "completed"
         doc_model.retrieval_chunks_count = chunks_indexed
-        doc_model.save()
+        doc_model.retrieval_index_backend = PDF_RETRIEVAL_BACKEND
+        doc_model.save(
+            update_fields=[
+                "retrieval_index_status",
+                "retrieval_chunks_count",
+                "retrieval_index_backend",
+            ]
+        )
 
         logger.info(
             f"Contextual retrieval indexing complete for {document_id}: "
@@ -162,6 +149,7 @@ def index_document_for_retrieval(self, document_id: str):
             "status": "completed",
             "document_id": document_id,
             "chunks_indexed": chunks_indexed,
+            "retrieval_index_backend": PDF_RETRIEVAL_BACKEND,
         }
 
     except Exception as e:
@@ -174,7 +162,8 @@ def index_document_for_retrieval(self, document_id: str):
         try:
             doc_model = DocumentModel.objects.get(id=document_id)
             doc_model.retrieval_index_status = "failed"
-            doc_model.save()
+            doc_model.retrieval_index_backend = None
+            doc_model.save(update_fields=["retrieval_index_status", "retrieval_index_backend"])
         except Exception:  # nosec B110
             pass
 

@@ -73,7 +73,6 @@ interface DocumentPoolProps {
 export function DocumentPool({ projectId }: DocumentPoolProps) {
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [searchQuery, setSearchQuery] = useState("");
-  const [localStorageVersion, setLocalStorageVersion] = useState(0);
   const [classifying, setClassifying] = useState(false);
   const [classifyingDocs, setClassifyingDocs] = useState<Set<string>>(
     new Set(),
@@ -123,6 +122,12 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
     queryFn: () => api.listDocumentTypes(),
   });
 
+  const { data: projectData } = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api.getProject(projectId || ""),
+    enabled: !!projectId,
+  });
+
   const documentTypes = Array.isArray(documentTypesData?.types)
     ? documentTypesData.types
     : [];
@@ -136,20 +141,7 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
       return { ...data, documents: [], total: 0 };
     }
 
-    // Get document IDs for this specific project from localStorage
-    let projectDocumentIds: string[] = [];
-    try {
-      const stored = localStorage.getItem("uu-projects");
-      if (stored) {
-        const projects = JSON.parse(stored);
-        const project = projects.find(
-          (p: { id: string }) => p.id === projectId,
-        );
-        projectDocumentIds = project?.documentIds || [];
-      }
-    } catch {
-      projectDocumentIds = [];
-    }
+    const projectDocumentIds = projectData?.project?.document_ids || [];
 
     // Filter to only documents that belong to this project
     const projectDocs = data.documents.filter((doc) =>
@@ -161,85 +153,22 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
       documents: projectDocs,
       total: projectDocs.length,
     };
-  }, [data, projectId, localStorageVersion]);
-
-  // Sync localStorage document IDs with actual documents from API
-  // This removes stale IDs that no longer exist in the database
-  // Skip sync during indexing to avoid race conditions
-  useEffect(() => {
-    if (!data || !projectId) return;
-
-    try {
-      const stored = localStorage.getItem("uu-projects");
-      if (!stored) return;
-
-      const projects = JSON.parse(stored);
-      const projectIndex = projects.findIndex(
-        (p: { id: string }) => p.id === projectId,
-      );
-      if (projectIndex < 0) return;
-
-      const storedDocIds: string[] = projects[projectIndex].documentIds || [];
-      if (storedDocIds.length === 0) return;
-
-      // Get all document IDs that actually exist in the API
-      const existingDocIds = new Set(data.documents.map((doc) => doc.id));
-
-      // Filter to only IDs that exist in the API
-      const validDocIds = storedDocIds.filter((id) => existingDocIds.has(id));
-
-      // Only update if there are stale IDs to remove
-      if (validDocIds.length < storedDocIds.length) {
-        console.log(
-          `Syncing localStorage: removed ${storedDocIds.length - validDocIds.length} stale document IDs`,
-        );
-        projects[projectIndex].documentIds = validDocIds;
-        projects[projectIndex].docCount = validDocIds.length;
-        localStorage.setItem("uu-projects", JSON.stringify(projects));
-        setLocalStorageVersion((v) => v + 1); // Trigger re-render
-      }
-    } catch (err) {
-      console.error("Failed to sync localStorage document IDs:", err);
-    }
-  }, [data, projectId]);
-
-  // Helper to save document IDs to project in localStorage
-  const saveDocumentIdsToProject = (docIds: string[]) => {
-    if (!projectId || docIds.length === 0) return;
-
-    try {
-      const stored = localStorage.getItem("uu-projects");
-      if (stored) {
-        const projects = JSON.parse(stored);
-        const projectIndex = projects.findIndex(
-          (p: { id: string }) => p.id === projectId,
-        );
-        if (projectIndex >= 0) {
-          const existingIds = projects[projectIndex].documentIds || [];
-          projects[projectIndex].documentIds = [...existingIds, ...docIds];
-          projects[projectIndex].docCount =
-            projects[projectIndex].documentIds.length;
-          localStorage.setItem("uu-projects", JSON.stringify(projects));
-          setLocalStorageVersion((v) => v + 1); // Trigger re-render
-        }
-      }
-    } catch (err) {
-      console.error("Failed to save document IDs to project:", err);
-    }
-  };
+  }, [data, projectData, projectId]);
 
   // Upload mutation
   const uploadMutation = useMutation({
     mutationFn: (files: File[]) => api.ingestDocuments(files),
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       toast({
         title: "Documents uploaded",
         description: `Processed ${result.documents_processed} document(s) in ${result.processing_time_seconds}s`,
       });
 
       // Save new document IDs to the project
-      if (result.document_ids && result.document_ids.length > 0) {
-        saveDocumentIdsToProject(result.document_ids);
+      if (projectId && result.document_ids && result.document_ids.length > 0) {
+        await api.addProjectDocuments(projectId, result.document_ids);
+        await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+        await queryClient.invalidateQueries({ queryKey: ["projects"] });
       }
 
       queryClient.invalidateQueries({ queryKey: ["documents"] });
@@ -350,32 +279,6 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
     }
   };
 
-  // Helper to remove document ID from project in localStorage
-  const removeDocumentIdFromProject = (docId: string) => {
-    if (!projectId) return;
-    try {
-      const stored = localStorage.getItem("uu-projects");
-      if (stored) {
-        const projects = JSON.parse(stored);
-        const projectIndex = projects.findIndex(
-          (p: { id: string }) => p.id === projectId,
-        );
-        if (projectIndex >= 0) {
-          const existingIds = projects[projectIndex].documentIds || [];
-          projects[projectIndex].documentIds = existingIds.filter(
-            (id: string) => id !== docId,
-          );
-          projects[projectIndex].docCount =
-            projects[projectIndex].documentIds.length;
-          localStorage.setItem("uu-projects", JSON.stringify(projects));
-          setLocalStorageVersion((v) => v + 1); // Trigger re-render
-        }
-      }
-    } catch (err) {
-      console.error("Failed to remove document ID from project:", err);
-    }
-  };
-
   // Delete mutation for single or multiple documents
   const deleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
@@ -390,13 +293,13 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
         title: "Documents deleted",
         description: `${deletedIds.length} document(s) have been removed.`,
       });
-      // Remove from project
-      deletedIds.forEach((id) => removeDocumentIdFromProject(id));
       // Clear selection
       setSelectedDocs(new Set());
       // Invalidate queries
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["ingest-status"] });
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
     onError: (error: Error) => {
       toast({

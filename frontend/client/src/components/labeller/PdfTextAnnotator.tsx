@@ -12,7 +12,9 @@ import type {
   BoundingBoxData,
   AnnotationSuggestion,
 } from "@/lib/api";
+import { formatAnnotationValue } from "@/lib/utils";
 import { BEAZLEY_PALETTE } from "@/theme/design-tokens";
+import { alphaColor, getReadableTextColor } from "./annotationColors";
 import type { EntityType } from "./TextSpanAnnotator";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -67,6 +69,169 @@ interface SelectionSnapshot extends SelectionExtraction {
   capturedAt: number;
 }
 
+interface TablePreviewRow {
+  rowNumber: number;
+  values: Record<string, unknown>;
+}
+
+interface TablePreviewColumn {
+  key: string;
+  label: string;
+  align?: "left" | "right";
+}
+
+interface TableOverlay {
+  id: string;
+  pageNum: number;
+  groupName: string;
+  label: string;
+  color: string;
+  leftPct: number;
+  topPct: number;
+  widthPct: number;
+  heightPct: number;
+  rows: TablePreviewRow[];
+  columns: string[];
+  totalRows: number;
+  totalColumns: number;
+}
+
+const MAX_TABLE_PREVIEW_COLUMNS = 10;
+
+function formatTableCellValue(value: unknown): string {
+  const formatted = formatAnnotationValue(value, 0);
+  return formatted || "—";
+}
+
+function prettifyTableColumnLabel(key: string): string {
+  return key
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function parseHierarchyPath(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item).trim())
+      .filter(Boolean);
+  }
+
+  return String(value ?? "")
+    .split(">")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function buildSpreadsheetPreview(overlay: TableOverlay): {
+  columns: TablePreviewColumn[];
+  rows: Array<Record<string, string | number>>;
+  hiddenColumnCount: number;
+} {
+  const columns: TablePreviewColumn[] = [];
+  const consumedKeys = new Set<string>();
+
+  if (overlay.columns.includes("hierarchy_path")) {
+    columns.push({ key: "__section", label: "Section" });
+    columns.push({ key: "__metric", label: "Metric" });
+    consumedKeys.add("hierarchy_path");
+  }
+
+  for (const key of overlay.columns) {
+    if (consumedKeys.has(key) || !key.endsWith("_value")) {
+      continue;
+    }
+
+    const headerKey = key.replace(/_value$/, "_header");
+    const headerLabel = overlay.rows
+      .map((row) => row.values[headerKey])
+      .find((value) => value !== null && value !== undefined && String(value).trim() !== "");
+
+    columns.push({
+      key,
+      label: headerLabel ? String(headerLabel) : prettifyTableColumnLabel(key),
+      align: "right",
+    });
+    consumedKeys.add(key);
+    consumedKeys.add(headerKey);
+  }
+
+  for (const key of overlay.columns) {
+    if (consumedKeys.has(key)) {
+      continue;
+    }
+
+    columns.push({
+      key,
+      label: prettifyTableColumnLabel(key),
+      align: key.includes("value") ? "right" : "left",
+    });
+  }
+
+  const visibleColumns = columns.slice(0, MAX_TABLE_PREVIEW_COLUMNS);
+  const rows = overlay.rows.map((row) => {
+    const rowValues: Record<string, string | number> = {
+      __row: row.rowNumber,
+    };
+    const hierarchyPath = parseHierarchyPath(row.values.hierarchy_path);
+
+    if (visibleColumns.some((column) => column.key === "__section")) {
+      rowValues.__section = hierarchyPath[0] ?? "—";
+    }
+    if (visibleColumns.some((column) => column.key === "__metric")) {
+      rowValues.__metric =
+        hierarchyPath.length > 1
+          ? hierarchyPath.slice(1).join(" > ")
+          : hierarchyPath[0] ?? "—";
+    }
+
+    for (const column of visibleColumns) {
+      if (column.key.startsWith("__")) {
+        continue;
+      }
+      rowValues[column.key] = formatTableCellValue(row.values[column.key]);
+    }
+
+    return rowValues;
+  });
+
+  return {
+    columns: visibleColumns,
+    rows,
+    hiddenColumnCount: Math.max(columns.length - visibleColumns.length, 0),
+  };
+}
+
+function getFieldGroupName(fieldName: string): string {
+  const [groupName] = fieldName.split(".");
+  return groupName || fieldName;
+}
+
+function getFieldLeafName(fieldName: string): string {
+  const parts = fieldName.split(".");
+  return parts[parts.length - 1] || fieldName;
+}
+
+function formatGroupLabel(groupName: string): string {
+  return groupName
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function getAnnotationInstanceNumber(
+  annotation: GroundTruthAnnotation,
+): number | null {
+  const rawInstance = (
+    annotation.annotation_data as { instance_num?: number | string }
+  ).instance_num;
+  const parsed =
+    typeof rawInstance === "number" ? rawInstance : Number(rawInstance);
+  return Number.isFinite(parsed) && parsed >= 1 ? parsed : null;
+}
+
 export function PdfTextAnnotator({
   documentId,
   pdfUrl,
@@ -89,6 +254,9 @@ export function PdfTextAnnotator({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [hoveredTableOverlayId, setHoveredTableOverlayId] = useState<
+    string | null
+  >(null);
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelection | null>(null);
   const [popupPosition, setPopupPosition] = useState<{
@@ -201,6 +369,126 @@ export function PdfTextAnnotator({
     const values = Object.values(annotationCountsByPage);
     return values.length > 0 ? Math.max(...values) : 0;
   }, [annotationCountsByPage]);
+
+  const tableOverlaysByPage = useMemo(() => {
+    const groupRows = new Map<
+      string,
+      {
+        columns: string[];
+        rows: Map<number, Record<string, unknown>>;
+      }
+    >();
+    const pageOverlays = new Map<
+      string,
+      {
+        pageNum: number;
+        groupName: string;
+        color: string;
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+      }
+    >();
+
+    annotations.forEach((annotation) => {
+      if (annotation.annotation_type !== "bbox") return;
+      if (!annotation.field_name.includes(".")) return;
+
+      const bboxData = annotation.annotation_data as BoundingBoxData;
+      const bbox = normalizeBBox(bboxData);
+      const pageNum = getAnnotationPage(annotation);
+      const instanceNum = Number(
+        (bboxData as { instance_num?: number | string }).instance_num,
+      );
+
+      if (!bbox || !pageNum || !Number.isFinite(instanceNum) || instanceNum < 1) {
+        return;
+      }
+
+      const groupName = getFieldGroupName(annotation.field_name);
+      const leafName = getFieldLeafName(annotation.field_name);
+      const groupState = groupRows.get(groupName) ?? {
+        columns: [],
+        rows: new Map<number, Record<string, unknown>>(),
+      };
+      if (!groupState.columns.includes(leafName)) {
+        groupState.columns.push(leafName);
+      }
+      groupState.rows.set(instanceNum, {
+        ...(groupState.rows.get(instanceNum) ?? {}),
+        [leafName]: annotation.value,
+      });
+      groupRows.set(groupName, groupState);
+
+      const overlayKey = `${pageNum}:${groupName}`;
+      const existingOverlay = pageOverlays.get(overlayKey);
+      const nextBounds = {
+        pageNum,
+        groupName,
+        color: getEntityColor(annotation.field_name),
+        minX: existingOverlay ? Math.min(existingOverlay.minX, bbox.x) : bbox.x,
+        minY: existingOverlay ? Math.min(existingOverlay.minY, bbox.y) : bbox.y,
+        maxX: existingOverlay
+          ? Math.max(existingOverlay.maxX, bbox.x + bbox.width)
+          : bbox.x + bbox.width,
+        maxY: existingOverlay
+          ? Math.max(existingOverlay.maxY, bbox.y + bbox.height)
+          : bbox.y + bbox.height,
+      };
+      pageOverlays.set(overlayKey, nextBounds);
+    });
+
+    const overlaysByPage: Record<number, TableOverlay[]> = {};
+    pageOverlays.forEach((overlayState, overlayKey) => {
+      const previewState = groupRows.get(overlayState.groupName);
+      if (!previewState) return;
+
+      const orderedColumns = previewState.columns;
+      const sortedRows = Array.from(previewState.rows.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([rowNumber, values]) => ({ rowNumber, values }));
+
+      if (orderedColumns.length === 0 || sortedRows.length === 0) {
+        return;
+      }
+
+      const overlay: TableOverlay = {
+        id: overlayKey,
+        pageNum: overlayState.pageNum,
+        groupName: overlayState.groupName,
+        label: formatGroupLabel(overlayState.groupName),
+        color: overlayState.color,
+        leftPct: overlayState.minX,
+        topPct: overlayState.minY,
+        widthPct: Math.max(overlayState.maxX - overlayState.minX, 1.2),
+        heightPct: Math.max(overlayState.maxY - overlayState.minY, 1.2),
+        rows: sortedRows,
+        columns: orderedColumns,
+        totalRows: sortedRows.length,
+        totalColumns: orderedColumns.length,
+      };
+
+      if (!overlaysByPage[overlay.pageNum]) {
+        overlaysByPage[overlay.pageNum] = [];
+      }
+      overlaysByPage[overlay.pageNum]?.push(overlay);
+    });
+
+    Object.values(overlaysByPage).forEach((overlays) => {
+      overlays.sort((a, b) => {
+        const areaA = a.widthPct * a.heightPct;
+        const areaB = b.widthPct * b.heightPct;
+        return areaA - areaB;
+      });
+    });
+
+    return overlaysByPage;
+  }, [annotations, getAnnotationPage, getEntityColor, normalizeBBox]);
+
+  useEffect(() => {
+    setHoveredTableOverlayId(null);
+  }, [documentId, annotations]);
 
   useEffect(() => {
     hasAutoScrolledToAnnotationRef.current = false;
@@ -580,7 +868,13 @@ export function PdfTextAnnotator({
   // Render annotation highlights on a page
   const renderAnnotationHighlights = (pageNum: number) => {
     const pageAnnotations = annotations.filter(
-      (a) => a.annotation_type === "bbox" && getAnnotationPage(a) === pageNum,
+      (a) =>
+        a.annotation_type === "bbox" &&
+        getAnnotationPage(a) === pageNum &&
+        !(
+          a.field_name.includes(".") &&
+          getAnnotationInstanceNumber(a) !== null
+        ),
     );
 
     return pageAnnotations.map((ann) => {
@@ -588,13 +882,16 @@ export function PdfTextAnnotator({
       const bbox = normalizeBBox(bboxData);
       if (!bbox) return null;
       const color = getEntityColor(ann.field_name);
+      const labelTextColor = getReadableTextColor(color);
+      const inactiveBadgeBackground = alphaColor(color, 0.18);
+      const inactiveBadgeTextColor = getReadableTextColor(
+        inactiveBadgeBackground,
+      );
       const label = ann.field_name.split(".").pop() || ann.field_name;
 
       // Build tooltip with row number if available
-      const instanceNum = Number(
-        (bboxData as { instance_num?: number | string }).instance_num,
-      );
-      const hasRow = Number.isFinite(instanceNum);
+      const instanceNum = getAnnotationInstanceNumber(ann);
+      const hasRow = instanceNum !== null;
       const isActiveRow = hasRow && instanceNum === activeRowNumber;
       const tooltipText = hasRow
         ? `Row ${instanceNum} | Field ${ann.field_name} | "${bboxData.text || ann.value}"\nClick to delete`
@@ -623,8 +920,8 @@ export function PdfTextAnnotator({
               className={`dl-row-margin-badge ${isActiveRow ? "active" : ""}`}
               style={{
                 borderColor: color,
-                color: isActiveRow ? BEAZLEY_PALETTE.dark : color,
-                background: isActiveRow ? color : "#ffffff",
+                color: isActiveRow ? labelTextColor : inactiveBadgeTextColor,
+                background: isActiveRow ? color : inactiveBadgeBackground,
               }}
             >
               {instanceNum}
@@ -632,7 +929,11 @@ export function PdfTextAnnotator({
           )}
           <div
             className="dl-overlay-label"
-            style={{ background: color, color: BEAZLEY_PALETTE.dark }}
+            style={{
+              background: color,
+              color: labelTextColor,
+              borderColor: alphaColor(color, 0.5),
+            }}
           >
             {label}
             {hasRow ? ` #${instanceNum}` : ""}
@@ -641,6 +942,173 @@ export function PdfTextAnnotator({
       );
     });
   };
+
+  const renderTableOverlays = (pageNum: number) => {
+    const overlays = tableOverlaysByPage[pageNum] ?? [];
+
+    return overlays.map((overlay) => {
+      const isHovered = hoveredTableOverlayId === overlay.id;
+      const labelTextColor = getReadableTextColor(overlay.color);
+      const preview = buildSpreadsheetPreview(overlay);
+      const hiddenRowCount = 0;
+      const hiddenColumnCount = preview.hiddenColumnCount;
+
+      return (
+        <div
+          key={overlay.id}
+          className={`dl-table-hover-overlay ${isHovered ? "active" : ""}`}
+          style={{
+            left: `${overlay.leftPct}%`,
+            top: `${overlay.topPct}%`,
+            width: `${overlay.widthPct}%`,
+            height: `${overlay.heightPct}%`,
+            backgroundColor: alphaColor(overlay.color, isHovered ? 0.22 : 0.12),
+            borderColor: alphaColor(overlay.color, isHovered ? 0.88 : 0.6),
+            boxShadow: isHovered
+              ? `0 0 0 2px ${alphaColor(overlay.color, 0.2)}`
+              : undefined,
+          }}
+        >
+          <div
+            className="dl-table-hover-label"
+            style={{ background: overlay.color, color: labelTextColor }}
+          >
+            {overlay.label}
+            <span className="dl-table-hover-label-meta">
+              {overlay.totalRows} row{overlay.totalRows === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          {isHovered && (
+            <div className="dl-table-preview">
+              <div className="dl-table-preview-header">
+                <div>
+                  <div className="dl-table-preview-title">
+                    Extracted table
+                  </div>
+                  <div className="dl-table-preview-subtitle">
+                    {overlay.label}
+                  </div>
+                </div>
+                <div className="dl-table-preview-meta">
+                  Page {overlay.pageNum}
+                </div>
+              </div>
+
+              <div className="dl-table-preview-scroll">
+                <table className="dl-table-preview-table">
+                  <thead>
+                    <tr>
+                      <th>Row</th>
+                      {preview.columns.map((column) => (
+                        <th
+                          key={`${overlay.id}-${column.key}`}
+                          className={
+                            column.key === "__section"
+                              ? "dl-table-preview-col-section"
+                              : column.key === "__metric"
+                                ? "dl-table-preview-col-metric"
+                                : column.align === "right"
+                                  ? "dl-table-preview-col-value"
+                                  : undefined
+                          }
+                        >
+                          {column.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.rows.map((row: any) => (
+                      <tr key={`${overlay.id}-row-${row.__row}`}>
+                        <td className="dl-table-preview-rownum">{row.__row}</td>
+                        {false && preview.columns.map((column: any) => (
+                          <td
+                            key={`${overlay.id}-${row.__row}-${column.key}`}
+                            className={
+                              column.key === "__section"
+                                ? "dl-table-preview-col-section"
+                                : column.key === "__metric"
+                                  ? "dl-table-preview-col-metric"
+                                  : column.align === "right"
+                                    ? "dl-table-preview-col-value"
+                                    : undefined
+                            }
+                          >
+                            {row.values[column] || "—"}
+                          </td>
+                        ))}
+                        {preview.columns.map((column) => (
+                          <td
+                            key={`${overlay.id}-${row.__row}-${column.key}-preview`}
+                            className={
+                              column.key === "__section"
+                                ? "dl-table-preview-col-section"
+                                : column.key === "__metric"
+                                  ? "dl-table-preview-col-metric"
+                                  : column.align === "right"
+                                    ? "dl-table-preview-col-value"
+                                    : undefined
+                            }
+                          >
+                            {String(row[column.key] ?? "—")}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {hiddenColumnCount > 0 && (
+                <div className="dl-table-preview-footnote">
+                  {`+${hiddenColumnCount} more column${hiddenColumnCount === 1 ? "" : "s"}`}
+                  {hiddenRowCount > 0 && hiddenColumnCount > 0 ? " • " : null}
+                  {hiddenColumnCount > 0
+                    ? `+${hiddenColumnCount} more column${hiddenColumnCount === 1 ? "" : "s"}`
+                    : null}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    });
+  };
+
+  const handlePageMouseMove = useCallback(
+    (pageNum: number, event: React.MouseEvent<HTMLDivElement>) => {
+      const overlays = tableOverlaysByPage[pageNum] ?? [];
+      if (overlays.length === 0) {
+        if (hoveredTableOverlayId !== null) {
+          setHoveredTableOverlayId(null);
+        }
+        return;
+      }
+
+      const pageRect = event.currentTarget.getBoundingClientRect();
+      if (pageRect.width === 0 || pageRect.height === 0) {
+        return;
+      }
+
+      const xPct = ((event.clientX - pageRect.left) / pageRect.width) * 100;
+      const yPct = ((event.clientY - pageRect.top) / pageRect.height) * 100;
+      const hoveredOverlay =
+        overlays.find(
+          (overlay) =>
+            xPct >= overlay.leftPct &&
+            xPct <= overlay.leftPct + overlay.widthPct &&
+            yPct >= overlay.topPct &&
+            yPct <= overlay.topPct + overlay.heightPct,
+        ) ?? null;
+
+      const nextId = hoveredOverlay?.id ?? null;
+      if (nextId !== hoveredTableOverlayId) {
+        setHoveredTableOverlayId(nextId);
+      }
+    },
+    [hoveredTableOverlayId, tableOverlaysByPage],
+  );
 
   // Render suggestion overlays on a page
   const renderSuggestionOverlays = (pageNum: number) => {
@@ -843,6 +1311,8 @@ export function PdfTextAnnotator({
                 <div
                   key={`page_${index + 1}`}
                   className="relative dl-viewer-surface"
+                  onMouseMove={(event) => handlePageMouseMove(index + 1, event)}
+                  onMouseLeave={() => setHoveredTableOverlayId(null)}
                 >
                   <Page
                     pageNumber={index + 1}
@@ -854,6 +1324,10 @@ export function PdfTextAnnotator({
                   {showTableGrid && (
                     <div className="dl-table-grid-overlay absolute inset-0 z-[9] pointer-events-none" />
                   )}
+
+                  <div className="absolute inset-0 z-[9] pointer-events-none overflow-visible">
+                    {renderTableOverlays(index + 1)}
+                  </div>
 
                   {/* Annotation overlay */}
                   <div className="absolute inset-0 z-10 pointer-events-none overflow-visible">

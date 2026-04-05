@@ -78,19 +78,24 @@ class IngestView(APIView):
                     errors.append(f"{filename}: Failed to store: {store_error}")
                     continue
 
-                # Queue contextual retrieval indexing for uploaded documents.
-                try:
-                    from uu_backend.tasks.contextual_retrieval_tasks import (
-                        index_document_for_retrieval,
-                    )
+                if result.metadata.file_type.lower() == "pdf":
+                    try:
+                        from uu_backend.tasks.contextual_retrieval_tasks import (
+                            index_document_for_retrieval,
+                        )
 
-                    index_document_for_retrieval.delay(doc_id)
-                    logger.info(f"Queued retrieval indexing for {filename}")
-                except Exception as index_error:
-                    logger.error(
-                        f"Failed to queue retrieval indexing for {filename}: {index_error}"
+                        index_document_for_retrieval.delay(doc_id)
+                        logger.info(f"Queued retrieval indexing for {filename}")
+                    except Exception as index_error:
+                        logger.error(
+                            f"Failed to queue retrieval indexing for {filename}: {index_error}"
+                        )
+                else:
+                    logger.info(
+                        "Skipping retrieval indexing for non-PDF upload %s (%s)",
+                        filename,
+                        result.metadata.file_type,
                     )
-                    # Don't fail the upload, just log the error
 
                 documents_processed += 1
                 document_ids.append(doc_id)

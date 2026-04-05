@@ -13,12 +13,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, FolderPlus } from "lucide-react";
 import { useLocation } from "wouter";
 import { useState } from "react";
+import { api } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 
 export default function CreateProject() {
   const [_, setLocation] = useLocation();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const { toast } = useToast();
 
   const handleCreate = async () => {
     if (!name.trim()) return;
@@ -31,27 +34,24 @@ export default function CreateProject() {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "");
 
-    // Store project in localStorage for persistence
-    const existingProjects = JSON.parse(
-      localStorage.getItem("uu-projects") || "[]",
-    );
-    const newProject = {
-      id,
-      name: name.trim(),
-      description: description.trim(),
-      type: "Document Analysis",
-      coverage: 0,
-      lastEval: "Never",
-      driftRisk: "Low",
-      docCount: 0,
-      createdAt: new Date().toISOString(),
-    };
-
-    existingProjects.push(newProject);
-    localStorage.setItem("uu-projects", JSON.stringify(existingProjects));
-
-    // Navigate to the new project workspace
-    setLocation(`/project/${id}`);
+    try {
+      await api.createProject({
+        id,
+        name: name.trim(),
+        description: description.trim(),
+        type: "Document Analysis",
+      });
+      localStorage.setItem("selected-project", id);
+      setLocation(`/project/${id}`);
+    } catch (error: any) {
+      toast({
+        title: "Project creation failed",
+        description: error.message || "Could not create project",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   return (

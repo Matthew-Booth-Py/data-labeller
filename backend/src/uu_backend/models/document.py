@@ -32,6 +32,7 @@ class Document(BaseModel):
     retrieval_chunks_count: int | None = None
     retrieval_index_progress: int | None = None  # Current chunk being processed
     retrieval_index_total: int | None = None  # Total chunks to process
+    retrieval_index_backend: str | None = None
 
 
 class DocumentSummary(BaseModel):
@@ -48,6 +49,7 @@ class DocumentSummary(BaseModel):
     retrieval_chunks_count: int | None = None
     retrieval_index_progress: int | None = None  # Current chunk being processed
     retrieval_index_total: int | None = None  # Total chunks to process
+    retrieval_index_backend: str | None = None
 
 
 class IngestResponse(BaseModel):

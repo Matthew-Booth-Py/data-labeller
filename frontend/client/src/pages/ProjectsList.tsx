@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
 import {
   Card,
@@ -19,22 +20,14 @@ import {
   Loader2,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import { api } from "@/lib/api";
+import { api, type ProjectSummary } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
-interface Project {
-  id: string;
-  name: string;
-  description: string;
-  type: string;
-  coverage: number;
-  lastEval: string;
-  driftRisk: "Low" | "Medium" | "High";
-  docCount: number;
-  model?: string;
-  createdAt?: string;
-  documentIds?: string[]; // Track uploaded document IDs
-}
+type Project = ProjectSummary & {
+  coverage?: number;
+  lastEval?: string;
+  driftRisk?: "Low" | "Medium" | "High";
+};
 
 type DriftRisk = "Low" | "Medium" | "High" | "Unknown";
 
@@ -55,24 +48,18 @@ const getProjectDisplayMetrics = (
 
 export default function ProjectsList() {
   const [_, setLocation] = useLocation();
-  const [projects, setProjects] = useState<Project[]>([]);
   const [projectMetrics, setProjectMetrics] = useState<
     Record<string, ProjectLiveMetrics>
   >({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  // Load projects from localStorage
-  useEffect(() => {
-    const stored = localStorage.getItem("uu-projects");
-    if (stored) {
-      try {
-        setProjects(JSON.parse(stored));
-      } catch {
-        setProjects([]);
-      }
-    }
-  }, []);
+  const { data: projectsData } = useQuery({
+    queryKey: ["projects"],
+    queryFn: () => api.listProjects(),
+  });
+  const projects = (projectsData?.projects || []) as Project[];
 
   useEffect(() => {
     const computeMetrics = async () => {
@@ -87,8 +74,8 @@ export default function ProjectsList() {
 
         for (const project of projects) {
           try {
-            const documentIds = project.documentIds || [];
-            const docCount = documentIds.length || project.docCount || 0;
+            const documentIds = project.document_ids || [];
+            const docCount = documentIds.length || project.doc_count || 0;
             if (docCount === 0) {
               next[project.id] = {
                 coverage: 0,
@@ -163,27 +150,12 @@ export default function ProjectsList() {
 
     computeMetrics();
 
-    const onStorage = (event: StorageEvent) => {
-      if (!event.key || event.key === "uu-projects") {
-        const stored = localStorage.getItem("uu-projects");
-        if (stored) {
-          try {
-            setProjects(JSON.parse(stored));
-          } catch {
-            // ignore parse errors
-          }
-        }
-      }
-    };
-
     const onFocus = () => {
       computeMetrics();
     };
 
-    window.addEventListener("storage", onStorage);
     window.addEventListener("focus", onFocus);
     return () => {
-      window.removeEventListener("storage", onStorage);
       window.removeEventListener("focus", onFocus);
     };
   }, [projects]);
@@ -195,10 +167,9 @@ export default function ProjectsList() {
     const project = projects.find((p) => p.id === id);
     if (!project) return;
 
-    // Confirm deletion if project has documents
-    if (project.documentIds && project.documentIds.length > 0) {
+    if (project.document_ids && project.document_ids.length > 0) {
       const confirmed = window.confirm(
-        `This will delete the project and ${project.documentIds.length} uploaded document(s). Continue?`,
+        `This will remove the project workspace. ${project.document_ids.length} document(s) will remain in the system. Continue?`,
       );
       if (!confirmed) return;
     }
@@ -206,34 +177,20 @@ export default function ProjectsList() {
     setDeletingId(id);
 
     try {
-      // Note: Individual document deletion disabled - documents remain in system
-      // Use database clear operation to remove all documents
-      // if (project.documentIds && project.documentIds.length > 0) {
-      //   const deletePromises = project.documentIds.map(docId =>
-      //     api.deleteDocument(docId).catch(err => {
-      //       console.warn(`Failed to delete document ${docId}:`, err);
-      //       return null; // Continue even if one fails
-      //     })
-      //   );
-      //   await Promise.all(deletePromises);
-      // }
-
-      // Remove project from localStorage
-      const updated = projects.filter((p) => p.id !== id);
-      setProjects(updated);
-      localStorage.setItem("uu-projects", JSON.stringify(updated));
+      await api.deleteProject(id);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
 
       toast({
         title: "Project deleted",
-        description: project.documentIds?.length
-          ? `Deleted project and ${project.documentIds.length} document(s)`
+        description: project.document_ids?.length
+          ? `Removed project workspace. ${project.document_ids.length} document(s) remain available in the system.`
           : "Project removed successfully",
       });
     } catch (error) {
       console.error("Error deleting project:", error);
       toast({
         title: "Delete failed",
-        description: "Failed to delete some documents",
+        description: "Failed to delete project",
         variant: "destructive",
       });
     } finally {
@@ -331,10 +288,10 @@ export default function ProjectsList() {
                           <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
                             Docs
                           </p>
-                          <div className="flex items-center gap-2 font-mono text-sm font-medium">
-                            <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                            {(project.docCount || 0).toLocaleString()}
-                          </div>
+                            <div className="flex items-center gap-2 font-mono text-sm font-medium">
+                              <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                              {(project.doc_count || 0).toLocaleString()}
+                            </div>
                         </div>
                         <div className="space-y-1">
                           <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
@@ -351,7 +308,7 @@ export default function ProjectsList() {
                           </p>
                           <div
                             className="flex items-center gap-2 font-mono text-sm font-medium truncate"
-                            title={project.model}
+                            title={project.model || undefined}
                           >
                             {(project.model || "OPENAI_MODEL").split(" ")[0]}
                           </div>
@@ -360,12 +317,12 @@ export default function ProjectsList() {
                     </CardContent>
 
                     <CardFooter className="pt-3 pb-3 bg-muted/5 flex justify-between items-center text-xs text-muted-foreground border-t border-muted">
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="h-3.5 w-3.5" />
-                        {project.createdAt
-                          ? `Created: ${new Date(project.createdAt).toLocaleDateString()}`
-                          : `Last eval: ${display.lastEval}`}
-                      </div>
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="h-3.5 w-3.5" />
+                          {project.created_at
+                            ? `Created: ${new Date(project.created_at).toLocaleDateString()}`
+                            : `Last eval: ${display.lastEval}`}
+                        </div>
 
                       <Button
                         size="sm"

@@ -25,6 +25,7 @@ class DocumentModel(models.Model):
         blank=True, null=True
     )  # Current chunk being processed
     retrieval_index_total = models.IntegerField(blank=True, null=True)  # Total chunks to process
+    retrieval_index_backend = models.CharField(max_length=64, blank=True, null=True)
 
     # Metadata fields
     page_count = models.IntegerField(blank=True, null=True)
@@ -139,6 +140,54 @@ class SchemaVersionModel(models.Model):
 
     class Meta:
         db_table = "schema_versions"
+
+
+class ProjectModel(models.Model):
+    id = models.CharField(primary_key=True, max_length=64)
+    name = models.CharField(max_length=255, unique=True, db_index=True)
+    description = models.TextField(blank=True, null=True)
+    type = models.CharField(max_length=100, blank=True, null=True)
+    model = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "projects"
+        ordering = ["name"]
+        indexes = [
+            models.Index(fields=["name"], name="idx_projects_name"),
+            models.Index(fields=["created_at"], name="idx_projects_created"),
+        ]
+
+
+class ProjectDocumentModel(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    project = models.ForeignKey(
+        ProjectModel,
+        db_column="project_id",
+        on_delete=models.CASCADE,
+        related_name="project_documents",
+    )
+    document = models.ForeignKey(
+        DocumentModel,
+        db_column="document_id",
+        on_delete=models.CASCADE,
+        related_name="document_projects",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "project_documents"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "document"],
+                name="uq_project_documents_project_document",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["project", "created_at"], name="idx_project_docs_project"),
+            models.Index(fields=["document"], name="idx_project_docs_document"),
+        ]
 
 
 class DeploymentVersionModel(models.Model):
@@ -268,4 +317,181 @@ class EvaluationRunModel(models.Model):
             models.Index(fields=["document_id", "-evaluated_at"]),
             models.Index(fields=["project_id", "-evaluated_at"]),
             models.Index(fields=["-evaluated_at"]),
+        ]
+
+
+class RetrievalArtifactModel(models.Model):
+    id = models.CharField(primary_key=True, max_length=64)
+    document = models.ForeignKey(
+        DocumentModel,
+        db_column="document_id",
+        on_delete=models.CASCADE,
+        related_name="retrieval_artifacts",
+    )
+    media_type = models.CharField(max_length=128)
+    relative_path = models.CharField(max_length=512, unique=True)
+    byte_size = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "retrieval_artifacts"
+        indexes = [
+            models.Index(fields=["document", "created_at"], name="idx_retrieval_artifact_doc"),
+        ]
+
+
+class RetrievalPageModel(models.Model):
+    id = models.CharField(primary_key=True, max_length=64)
+    document = models.ForeignKey(
+        DocumentModel,
+        db_column="document_id",
+        on_delete=models.CASCADE,
+        related_name="retrieval_pages",
+    )
+    page_number = models.IntegerField()
+    width = models.FloatField()
+    height = models.FloatField()
+    source_width = models.FloatField(default=0.0)
+    source_height = models.FloatField(default=0.0)
+    rotation = models.IntegerField(default=0)
+    text = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "retrieval_pages"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["document", "page_number"],
+                name="uq_retrieval_pages_document_page",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["document", "page_number"], name="idx_retrieval_page_doc_num"),
+        ]
+
+
+class RetrievalAssetModel(models.Model):
+    id = models.CharField(primary_key=True, max_length=64)
+    document = models.ForeignKey(
+        DocumentModel,
+        db_column="document_id",
+        on_delete=models.CASCADE,
+        related_name="retrieval_assets",
+    )
+    page = models.ForeignKey(
+        RetrievalPageModel,
+        db_column="page_id",
+        on_delete=models.CASCADE,
+        related_name="assets",
+    )
+    asset_type = models.CharField(max_length=32)
+    label = models.TextField()
+    bbox = models.JSONField(default=list)
+    text_content = models.TextField(blank=True, default="")
+    preview_artifact = models.ForeignKey(
+        RetrievalArtifactModel,
+        db_column="preview_artifact_id",
+        on_delete=models.SET_NULL,
+        related_name="preview_assets",
+        blank=True,
+        null=True,
+    )
+    metadata = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "retrieval_assets"
+        indexes = [
+            models.Index(fields=["document", "asset_type"], name="idx_retrieval_asset_doc_type"),
+            models.Index(fields=["page", "asset_type"], name="idx_retrieval_asset_page_type"),
+        ]
+
+
+class RetrievalChunkModel(models.Model):
+    id = models.CharField(primary_key=True, max_length=64)
+    document = models.ForeignKey(
+        DocumentModel,
+        db_column="document_id",
+        on_delete=models.CASCADE,
+        related_name="retrieval_chunks",
+    )
+    page = models.ForeignKey(
+        RetrievalPageModel,
+        db_column="page_id",
+        on_delete=models.CASCADE,
+        related_name="chunks",
+    )
+    asset = models.ForeignKey(
+        RetrievalAssetModel,
+        db_column="asset_id",
+        on_delete=models.SET_NULL,
+        related_name="chunks",
+        blank=True,
+        null=True,
+    )
+    chunk_index = models.IntegerField()
+    chunk_type = models.CharField(max_length=32)
+    content = models.TextField()
+    metadata = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "retrieval_chunks"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["document", "chunk_index"],
+                name="uq_retrieval_chunks_document_index",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["document", "chunk_index"], name="idx_retrieval_chunk_doc_idx"),
+            models.Index(fields=["page"], name="idx_retrieval_chunk_page"),
+        ]
+
+
+class RetrievalCitationModel(models.Model):
+    id = models.CharField(primary_key=True, max_length=64)
+    document = models.ForeignKey(
+        DocumentModel,
+        db_column="document_id",
+        on_delete=models.CASCADE,
+        related_name="retrieval_citations",
+    )
+    page = models.ForeignKey(
+        RetrievalPageModel,
+        db_column="page_id",
+        on_delete=models.CASCADE,
+        related_name="citations",
+    )
+    chunk = models.OneToOneField(
+        RetrievalChunkModel,
+        db_column="chunk_id",
+        on_delete=models.CASCADE,
+        related_name="citation",
+    )
+    asset = models.ForeignKey(
+        RetrievalAssetModel,
+        db_column="asset_id",
+        on_delete=models.SET_NULL,
+        related_name="citations",
+        blank=True,
+        null=True,
+    )
+    preview_artifact = models.ForeignKey(
+        RetrievalArtifactModel,
+        db_column="preview_artifact_id",
+        on_delete=models.SET_NULL,
+        related_name="preview_citations",
+        blank=True,
+        null=True,
+    )
+    label = models.TextField(blank=True, default="")
+    bbox = models.JSONField(default=list)
+    regions = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "retrieval_citations"
+        indexes = [
+            models.Index(fields=["document", "page"], name="idx_ret_cite_doc_page"),
         ]

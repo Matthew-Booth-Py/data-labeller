@@ -11,6 +11,7 @@ import type {
   AnnotationSuggestion,
 } from "@/lib/api";
 import { BEAZLEY_PALETTE } from "@/theme/design-tokens";
+import { alphaColor, getReadableTextColor } from "./annotationColors";
 import type { EntityType } from "./TextSpanAnnotator";
 
 interface ImageBboxAnnotatorProps {
@@ -317,6 +318,7 @@ export function ImageBboxAnnotator({
     return bboxAnnotations.map((annotation) => {
       const bbox = annotation.annotation_data as BoundingBoxData;
       const color = getAnnotationColor(annotation.field_name);
+      const labelTextColor = getReadableTextColor(color);
       const isEditing = editingAnnotationId === annotation.id;
 
       // Build tooltip with row number if available
@@ -350,7 +352,11 @@ export function ImageBboxAnnotator({
           {/* Label */}
           <div
             className="dl-overlay-label text-xs opacity-0 transition-opacity group-hover:opacity-100"
-            style={{ backgroundColor: color, color: BEAZLEY_PALETTE.dark }}
+            style={{
+              backgroundColor: color,
+              color: labelTextColor,
+              borderColor: alphaColor(color, 0.5),
+            }}
           >
             {annotation.field_name}
           </div>
@@ -455,8 +461,8 @@ export function ImageBboxAnnotator({
                   type="button"
                   className="dl-overlay-chip cursor-pointer hover:opacity-70"
                   style={{
-                    background: `${color}20`,
-                    borderColor: `${color}66`,
+                    background: alphaColor(color, 0.18),
+                    borderColor: alphaColor(color, 0.4),
                   }}
                   onClick={() => onAnnotationDelete(annotation.id)}
                   title="Click to delete"
@@ -465,7 +471,9 @@ export function ImageBboxAnnotator({
                     className="h-2 w-2 rounded-full"
                     style={{ background: color }}
                   />
-                  <span style={{ color }}>{annotation.field_name}</span>
+                  <span style={{ color: "var(--dl-text-primary)" }}>
+                    {annotation.field_name}
+                  </span>
                   <span className="dl-overlay-chip-remove">×</span>
                 </button>
               );

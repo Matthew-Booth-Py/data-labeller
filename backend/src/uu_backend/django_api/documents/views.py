@@ -95,6 +95,15 @@ class DocumentDetailView(APIView):
         document = document_repo.get_document(document_id)
 
         if document:
+            try:
+                from uu_backend.services.contextual_retrieval import (
+                    get_contextual_retrieval_service,
+                )
+
+                get_contextual_retrieval_service().delete_document(document_id)
+            except Exception as exc:
+                logger.warning("Failed to delete retrieval artifacts for %s: %s", document_id, exc)
+
             # Delete the file from storage if it exists
             file_path = get_original_file_path(document_id, document.file_type)
             if file_path:
@@ -199,7 +208,18 @@ class DocumentReindexRetrievalView(APIView):
         doc_model = DocumentModel.objects.get(id=document_id)
         doc_model.retrieval_index_status = "pending"
         doc_model.retrieval_chunks_count = None
-        doc_model.save()
+        doc_model.retrieval_index_progress = 0
+        doc_model.retrieval_index_total = None
+        doc_model.retrieval_index_backend = None
+        doc_model.save(
+            update_fields=[
+                "retrieval_index_status",
+                "retrieval_chunks_count",
+                "retrieval_index_progress",
+                "retrieval_index_total",
+                "retrieval_index_backend",
+            ]
+        )
 
         # Queue indexing
         try:

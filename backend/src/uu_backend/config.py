@@ -16,6 +16,9 @@ class Settings(BaseModel):
     api_prefix: str = "/api/v1"
     debug: bool = False
     file_storage_directory: str = "./data/files"
+    retrieval_artifact_directory: str = "./data/retrieval_artifacts"
+    qdrant_pdf_storage_directory: str = "./data/qdrant_pdf"
+    qdrant_url: str = ""
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
@@ -24,6 +27,8 @@ class Settings(BaseModel):
     openai_tagging_model: str = ""
     context_model: str = ""
     summary_model: str = ""
+    azure_di_endpoint: str = ""
+    azure_di_key: str = ""
     openai_reasoning_effort: str = "low"
     # Per-model pricing used to estimate request cost in telemetry.
     # Example:
@@ -54,6 +59,18 @@ class Settings(BaseModel):
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    @property
+    def retrieval_artifact_path(self) -> Path:
+        path = Path(self.retrieval_artifact_directory)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @property
+    def qdrant_pdf_storage_path(self) -> Path:
+        path = Path(self.qdrant_pdf_storage_directory)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
 
 _ENV_TO_FIELD = {
     "API_HOST": "api_host",
@@ -61,6 +78,9 @@ _ENV_TO_FIELD = {
     "API_PREFIX": "api_prefix",
     "DEBUG": "debug",
     "FILE_STORAGE_DIRECTORY": "file_storage_directory",
+    "RETRIEVAL_ARTIFACT_DIRECTORY": "retrieval_artifact_directory",
+    "QDRANT_PDF_STORAGE_DIRECTORY": "qdrant_pdf_storage_directory",
+    "QDRANT_URL": "qdrant_url",
     "CORS_ORIGINS": "cors_origins",
     "CELERY_BROKER_URL": "celery_broker_url",
     "CELERY_RESULT_BACKEND": "celery_result_backend",
@@ -69,6 +89,8 @@ _ENV_TO_FIELD = {
     "OPENAI_TAGGING_MODEL": "openai_tagging_model",
     "CONTEXT_MODEL": "context_model",
     "SUMMARY_MODEL": "summary_model",
+    "AZURE_DI_ENDPOINT": "azure_di_endpoint",
+    "AZURE_DI_KEY": "azure_di_key",
     "OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
     "OPENAI_MODEL_PRICING": "openai_model_pricing",
 }

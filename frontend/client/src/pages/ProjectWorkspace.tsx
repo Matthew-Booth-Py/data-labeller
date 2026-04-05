@@ -15,8 +15,9 @@ import {
   Waypoints,
 } from "lucide-react";
 import { useState, useMemo, useEffect, type ComponentType } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { api } from "@/lib/api";
+import { api, type ProjectSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   AlertDialog,
@@ -44,8 +45,8 @@ interface Project {
   name: string;
   description?: string;
   type?: string;
-  docCount?: number;
-  model?: string;
+  doc_count?: number;
+  model?: string | null;
 }
 
 type WorkspaceTabId =
@@ -124,27 +125,15 @@ export default function ProjectWorkspace() {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
-  const project = useMemo<Project>(() => {
-    if (typeof window === "undefined") {
-      return {
-        id: id || "unknown",
-        name: id
-          ? id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-          : "Project",
-        description: "",
-        docCount: 0,
-      };
-    }
+  const { data: projectData } = useQuery({
+    queryKey: ["project", id],
+    queryFn: () => api.getProject(id || ""),
+    enabled: !!id,
+  });
 
-    try {
-      const stored = localStorage.getItem("uu-projects");
-      if (stored) {
-        const projects: Project[] = JSON.parse(stored);
-        const found = projects.find((p) => p.id === id);
-        if (found) return found;
-      }
-    } catch {
-      // Ignore storage errors
+  const project = useMemo<Project>(() => {
+    if (projectData?.project) {
+      return projectData.project as ProjectSummary;
     }
 
     return {
@@ -153,9 +142,9 @@ export default function ProjectWorkspace() {
         ? id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
         : "Project",
       description: "",
-      docCount: 0,
+      doc_count: 0,
     };
-  }, [id]);
+  }, [id, projectData]);
 
   const handleCreateDeploymentVersion = async () => {
     if (!id) return;
@@ -239,7 +228,7 @@ export default function ProjectWorkspace() {
       contentClassName="py-0 px-0 md:px-0"
       contentFullWidth
     >
-      <div className="flex flex-col h-[calc(100vh-8rem)] min-h-[800px]">
+      <div className="flex flex-col h-[calc(100vh-7rem)] min-h-[600px]">
         <Tabs
           value={activeTab}
           onValueChange={handleTabChange}
@@ -279,7 +268,7 @@ export default function ProjectWorkspace() {
             <div className="flex-1 overflow-hidden bg-gradient-to-b from-[var(--surface-elevated)]/50 via-transparent to-transparent">
               <TabsContent
                 value="schema"
-                className="h-full m-0 overflow-auto p-4"
+                className="h-full m-0 overflow-hidden p-4"
               >
                 <SchemaViewer projectId={id} />
               </TabsContent>
@@ -300,20 +289,20 @@ export default function ProjectWorkspace() {
                 className="h-full m-0 p-0 overflow-hidden"
               >
                 <div className="h-full p-4 xl:px-5 overflow-hidden">
-                  <DataLabeller />
+                  <DataLabeller projectId={id} />
                 </div>
               </TabsContent>
               <TabsContent
                 value="labels"
                 className="h-full m-0 p-6 overflow-auto"
               >
-                <LabelsView />
+                <LabelsView projectId={id} />
               </TabsContent>
               <TabsContent
                 value="evaluate"
                 className="h-full m-0 p-6 overflow-auto"
               >
-                <EvaluateView />
+                <EvaluateView projectId={id} />
               </TabsContent>
               <TabsContent value="api" className="h-full m-0 p-6 overflow-auto">
                 <APIManagement />

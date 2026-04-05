@@ -36,6 +36,13 @@ class SearchResultSerializer(serializers.Serializer):
     original_text = serializers.CharField()
     context = serializers.CharField()  # type: ignore[assignment]
     score = serializers.FloatField()
+    chunk_id = serializers.CharField(required=False, allow_null=True)
+    page_number = serializers.IntegerField(required=False, allow_null=True)
+    asset_type = serializers.CharField(required=False, allow_null=True)
+    asset_label = serializers.CharField(required=False, allow_null=True)
+    citation_id = serializers.CharField(required=False, allow_null=True)
+    citation_regions = serializers.JSONField(required=False)
+    preview_artifact_id = serializers.CharField(required=False, allow_null=True)
 
 
 class SearchResponseSerializer(serializers.Serializer):

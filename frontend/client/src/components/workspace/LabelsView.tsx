@@ -32,18 +32,21 @@ import {
 } from "@/components/ui/table";
 import { Search, Download, Filter, FileText } from "lucide-react";
 
-export function LabelsView() {
+export function LabelsView({ projectId }: { projectId?: string }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDocument, setSelectedDocument] = useState<string>("all");
   const [selectedField, setSelectedField] = useState<string>("all");
-  const localStorageVersion = 0;
-
-  const projectId = localStorage.getItem("selected-project") || "all";
 
   // Fetch documents
   const { data: documentsData } = useQuery({
     queryKey: ["documents"],
     queryFn: () => api.listDocuments(),
+  });
+
+  const { data: projectData } = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api.getProject(projectId || ""),
+    enabled: !!projectId && projectId !== "all",
   });
 
   const documents = useMemo(() => {
@@ -52,14 +55,7 @@ export function LabelsView() {
     }
 
     try {
-      const stored = localStorage.getItem("uu-projects");
-      if (!stored) return [];
-
-      const projects = JSON.parse(stored);
-      const project = projects.find((p: { id: string }) => p.id === projectId);
-      if (!project) return [];
-
-      const projectDocumentIds = project.documentIds || [];
+      const projectDocumentIds = projectData?.project?.document_ids || [];
       return documentsData.documents.filter((doc) =>
         projectDocumentIds.includes(doc.id),
       );
@@ -67,7 +63,7 @@ export function LabelsView() {
       console.error("Error filtering documents:", error);
       return [];
     }
-  }, [documentsData, projectId, localStorageVersion]);
+  }, [documentsData, projectData, projectId]);
 
   // Fetch all annotations for all documents in the project
   const { data: allAnnotationsData, isLoading } = useQuery({

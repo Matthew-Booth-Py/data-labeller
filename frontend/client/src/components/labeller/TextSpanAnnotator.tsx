@@ -6,6 +6,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import type { GroundTruthAnnotation, TextSpanData } from "@/lib/api";
 import { BEAZLEY_PALETTE } from "@/theme/design-tokens";
+import { alphaColor, getReadableTextColor } from "./annotationColors";
 
 export interface EntityType {
   id: string;
@@ -157,7 +158,9 @@ export function TextSpanAnnotator({
         popupHtml += `<div class="dl-popup-group-buttons">`;
         types.forEach((et) => {
           const displayName = et.name.split(".").pop() || et.name;
-          popupHtml += `<button class="dl-popup-entity-btn" style="background:${et.color}30; color:${et.color}; border-color:${et.color}66"
+          const buttonBackground = alphaColor(et.color, 0.18);
+          const buttonTextColor = getReadableTextColor(buttonBackground);
+          popupHtml += `<button class="dl-popup-entity-btn" style="background:${buttonBackground}; color:${buttonTextColor}; border-color:${et.color}66"
            data-entity-id="${et.id}" data-start="${selStart}" data-end="${selEnd}">${escapeHtml(displayName)}</button>`;
         });
         popupHtml += `</div></div>`;
@@ -334,7 +337,8 @@ export function TextSpanAnnotator({
       // Find entity type for color
       const entityType = entityTypes.find((et) => et.name === ann.field_name);
       const color = entityType?.color || BEAZLEY_PALETTE.light;
-      const bgColor = color + "30";
+      const bgColor = alphaColor(color, 0.22);
+      const chipTextColor = getReadableTextColor(color);
 
       // Build tooltip with row number if available
       const instanceNum = (ann.annotation_data as any)?.instance_num;
@@ -350,7 +354,7 @@ export function TextSpanAnnotator({
           style={{
             background: bgColor,
             borderBottom: `2px solid ${color}`,
-            color: color,
+            color: "var(--dl-text-primary)",
           }}
           data-annotation-id={ann.id}
           title={tooltipText}
@@ -358,7 +362,7 @@ export function TextSpanAnnotator({
           {text.substring(data.start, data.end)}
           <span
             className="dl-label-tag"
-            style={{ background: color, color: BEAZLEY_PALETTE.dark }}
+            style={{ background: color, color: chipTextColor }}
           >
             {ann.field_name}
           </span>

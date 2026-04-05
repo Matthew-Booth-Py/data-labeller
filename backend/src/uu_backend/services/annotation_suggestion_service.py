@@ -7,6 +7,7 @@ from typing import Any
 from uuid import uuid4
 
 from uu_backend.config import get_settings
+from uu_backend.django_data import models as orm
 from uu_backend.models.annotation import AnnotationSuggestion, AnnotationType
 from uu_backend.models.taxonomy import DocumentType
 from uu_backend.repositories.document_repository import get_document_repository
@@ -40,16 +41,52 @@ class AnnotationSuggestionService:
             return []
 
         try:
-            # Retrieval-vision finds the right pages, renders them, extracts values.
-            # source_page_numbers tells us which PDF pages were actually used.
-            extraction_result = self.extraction_service.extract_structured_with_retrieval_vision(
+            # extract_auto routes each field through the correct extraction path:
+            # retrieval_table fields get their rows parsed deterministically from the
+            # retrieved chunk; remaining fields use retrieval-vision LLM extraction.
+            # Both paths populate source_page_numbers and field_evidence_regions so
+            # pdfplumber can place bbox highlights on the right pages.
+            extraction_result = self.extraction_service.extract_auto(
                 document_id=document_id
             )
 
             logger.info(f"Extraction returned {len(extraction_result.fields)} fields")
             logger.info(f"Source pages from extraction: {extraction_result.source_page_numbers}")
+            field_region_constraints = self._build_field_region_constraints(
+                extraction_result.request_metadata
+            )
 
-            # Extract positioned words on the same pages the LLM saw.
+            # Identify retrieval_table fields using the metadata set by extract_auto.
+            # This is more reliable than reading document_type.schema_fields because
+            # extract_auto and suggest_annotations may fetch the schema from different
+            # sources at different times.
+            rt_field_pages: dict = (
+                (extraction_result.request_metadata or {}).get("retrieval_table_field_pages", {})
+                if isinstance(extraction_result.request_metadata, dict)
+                else {}
+            )
+            retrieval_table_field_names: set[str] = set(rt_field_pages.keys())
+            logger.info(
+                "retrieval_table fields detected from extraction metadata: %s",
+                retrieval_table_field_names,
+            )
+
+            suggestions: list[AnnotationSuggestion] = []
+
+            # --- Retrieval-table fields: use citation bbox, no pdfplumber text matching ---
+            rt_suggestions = self._create_retrieval_table_suggestions(
+                document_id=document_id,
+                extraction_result=extraction_result,
+                retrieval_table_field_names=retrieval_table_field_names,
+                field_region_constraints=field_region_constraints,
+            )
+            suggestions.extend(rt_suggestions)
+            logger.info(
+                f"Created {len(rt_suggestions)} retrieval-table bbox suggestion(s) for fields: "
+                f"{retrieval_table_field_names}"
+            )
+
+            # --- LLM fields: pdfplumber word-level bbox matching ---
             positioned_words = self._get_pdf_words_for_pages(
                 document_id=document_id,
                 file_type=document.file_type,
@@ -60,12 +97,11 @@ class AnnotationSuggestionService:
                 f"{extraction_result.source_page_numbers}"
             )
 
-            # Convert extraction results to suggestions with locations
-            suggestions = []
-
-            # Flatten nested extraction results (e.g., line_items array)
-            flat_fields = self._flatten_extraction_fields(extraction_result.fields)
-            logger.info(f"Flattened to {len(flat_fields)} field values")
+            # Flatten nested extraction results, skipping retrieval_table fields
+            flat_fields = self._flatten_extraction_fields(
+                [f for f in extraction_result.fields if f.field_name not in retrieval_table_field_names]
+            )
+            logger.info(f"Flattened to {len(flat_fields)} LLM field values")
 
             # Track used line indices to avoid matching the same bbox twice
             used_line_indices: set[int] = set()
@@ -84,6 +120,10 @@ class AnnotationSuggestionService:
                     instance_num=instance_num,
                     positioned_words=positioned_words,
                     used_line_indices=used_line_indices,
+                    allowed_regions=self._regions_for_field(
+                        field_name,
+                        field_region_constraints,
+                    ),
                 )
 
                 if suggestion:
@@ -101,6 +141,86 @@ class AnnotationSuggestionService:
 
             traceback.print_exc()
             return []
+
+    def _create_retrieval_table_suggestions(
+        self,
+        document_id: str,
+        extraction_result: Any,
+        retrieval_table_field_names: set[str],
+        field_region_constraints: dict[str, list[dict]],
+    ) -> list[AnnotationSuggestion]:
+        """Create a single bbox suggestion per retrieval_table field using the table's
+        citation region bbox rather than pdfplumber text matching."""
+        suggestions = []
+        field_page_map: dict[str, int] = (
+            (extraction_result.request_metadata or {}).get("retrieval_table_field_pages", {})
+            if isinstance(extraction_result.request_metadata, dict)
+            else {}
+        )
+
+        for extracted_field in extraction_result.fields:
+            field_name = extracted_field.field_name
+            if field_name not in retrieval_table_field_names:
+                continue
+
+            value = extracted_field.value
+            if not value:
+                logger.info("[RT SUGGEST] field '%s' has no value, skipping", field_name)
+                continue
+
+            regions = field_region_constraints.get(field_name, [])
+            logger.info(
+                "[RT SUGGEST] field '%s': %d row(s), %d constraint region(s), page_map=%s",
+                field_name,
+                len(value) if isinstance(value, list) else 1,
+                len(regions),
+                field_page_map.get(field_name),
+            )
+
+            # Prefer a citation-derived bbox region; fall back to full page
+            annotation_data: dict | None = None
+            if regions:
+                r = regions[0]
+                annotation_data = {
+                    "page": r["page"],
+                    "x": r["x"],
+                    "y": r["y"],
+                    "width": r["width"],
+                    "height": r["height"],
+                }
+            elif field_name in field_page_map:
+                # No citation bbox available — cover the full page so the annotation
+                # still lands on the right page.
+                annotation_data = {
+                    "page": field_page_map[field_name],
+                    "x": 0.0,
+                    "y": 0.0,
+                    "width": 100.0,
+                    "height": 100.0,
+                }
+
+            if annotation_data is None:
+                logger.warning(
+                    "[RETRIEVAL TABLE] No bbox available for field '%s', skipping suggestion",
+                    field_name,
+                )
+                continue
+
+            row_count = len(value) if isinstance(value, list) else 1
+            suggestions.append(
+                AnnotationSuggestion(
+                    id=str(uuid4()),
+                    document_id=document_id,
+                    field_name=field_name,
+                    value=value,
+                    annotation_type=AnnotationType.BBOX,
+                    annotation_data=annotation_data,
+                    confidence=extracted_field.confidence or 0.95,
+                    text_snippet=f"{row_count} row{'s' if row_count != 1 else ''}",
+                )
+            )
+
+        return suggestions
 
     def _get_pdf_words_for_pages(
         self,
@@ -195,6 +315,82 @@ class AnnotationSuggestionService:
 
         return result
 
+    def _build_field_region_constraints(
+        self,
+        request_metadata: dict[str, Any] | None,
+    ) -> dict[str, list[dict[str, float | int | str | None]]]:
+        raw_mapping = (
+            (request_metadata or {}).get("field_evidence_regions", {})
+            if isinstance(request_metadata, dict)
+            else {}
+        )
+        if not isinstance(raw_mapping, dict):
+            return {}
+
+        page_dimensions: dict[str, tuple[float, float]] = {}
+        constraints: dict[str, list[dict[str, float | int | str | None]]] = {}
+
+        for field_name, regions in raw_mapping.items():
+            if not isinstance(field_name, str) or not isinstance(regions, list):
+                continue
+
+            normalized_regions: list[dict[str, float | int | str | None]] = []
+            for region in regions:
+                if not isinstance(region, dict):
+                    continue
+
+                bbox = region.get("bbox")
+                page_number = region.get("page_number")
+                page_id = region.get("page_id")
+                if (
+                    not isinstance(bbox, list)
+                    or len(bbox) != 4
+                    or not isinstance(page_number, int)
+                    or not isinstance(page_id, str)
+                ):
+                    continue
+
+                dimensions = page_dimensions.get(page_id)
+                if dimensions is None:
+                    page = orm.RetrievalPageModel.objects.filter(id=page_id).first()
+                    if page is None:
+                        continue
+                    dimensions = (float(page.width), float(page.height))
+                    page_dimensions[page_id] = dimensions
+
+                page_width, page_height = dimensions
+                if page_width <= 0 or page_height <= 0:
+                    continue
+
+                x0, y0, x1, y1 = [float(value) for value in bbox]
+                normalized_regions.append(
+                    {
+                        "page": page_number,
+                        "x": (x0 / page_width) * 100.0,
+                        "y": (y0 / page_height) * 100.0,
+                        "width": ((x1 - x0) / page_width) * 100.0,
+                        "height": ((y1 - y0) / page_height) * 100.0,
+                        "asset_type": region.get("asset_type"),
+                        "asset_label": region.get("asset_label"),
+                    }
+                )
+
+            if normalized_regions:
+                constraints[field_name] = normalized_regions
+
+        return constraints
+
+    def _regions_for_field(
+        self,
+        field_name: str,
+        field_region_constraints: dict[str, list[dict[str, float | int | str | None]]],
+    ) -> list[dict[str, float | int | str | None]]:
+        if field_name in field_region_constraints:
+            return field_region_constraints[field_name]
+
+        top_level_field = field_name.split(".", 1)[0]
+        return field_region_constraints.get(top_level_field, [])
+
     def _flatten_value(
         self,
         prefix: str,
@@ -266,6 +462,7 @@ class AnnotationSuggestionService:
         instance_num: int,
         positioned_words: list[dict],
         used_line_indices: set[int],
+        allowed_regions: list[dict[str, float | int | str | None]] | None = None,
     ) -> AnnotationSuggestion | None:
         """
         Create an annotation suggestion by finding the value in positioned words.
@@ -288,8 +485,20 @@ class AnnotationSuggestionService:
                 stored_value = value
                 text_snippet = str(value)
 
+            candidate_words = positioned_words
+            if field_name.endswith(".hierarchy_path") and allowed_regions:
+                candidate_words = self._filter_words_to_metric_column(
+                    positioned_words,
+                    allowed_regions,
+                )
+
             # Find bounding box for the search text, avoiding already-used lines
-            bbox, line_idx = self._find_text_bbox(search_text, positioned_words, used_line_indices)
+            bbox, line_idx = self._find_text_bbox(
+                search_text,
+                candidate_words,
+                used_line_indices,
+                allowed_regions=allowed_regions,
+            )
 
             if not bbox:
                 logger.debug(f"Could not find bbox for '{search_text}' in field {field_name}")
@@ -317,8 +526,43 @@ class AnnotationSuggestionService:
             logger.error(f"Error creating suggestion for field {field_name}: {e}")
             return None
 
+    def _filter_words_to_metric_column(
+        self,
+        lines: list[dict],
+        allowed_regions: list[dict[str, float | int | str | None]],
+    ) -> list[dict]:
+        filtered_words: list[dict] = []
+
+        for word in lines:
+            word_center_x = float(word["x"]) + float(word["width"]) / 2.0
+            word_center_y = float(word["y"]) + float(word["height"]) / 2.0
+
+            for region in allowed_regions:
+                region_page = region.get("page")
+                if region_page is not None and int(region_page) != int(word["page"]):
+                    continue
+
+                region_x = float(region.get("x", 0.0) or 0.0)
+                region_y = float(region.get("y", 0.0) or 0.0)
+                region_width = float(region.get("width", 0.0) or 0.0)
+                region_height = float(region.get("height", 0.0) or 0.0)
+                metric_region_width = region_width * 0.28
+
+                if (
+                    region_x <= word_center_x <= region_x + metric_region_width
+                    and region_y <= word_center_y <= region_y + region_height
+                ):
+                    filtered_words.append(word)
+                    break
+
+        return filtered_words or lines
+
     def _find_text_bbox(
-        self, search_text: str, lines: list[dict], used_line_indices: set[int]
+        self,
+        search_text: str,
+        lines: list[dict],
+        used_line_indices: set[int],
+        allowed_regions: list[dict[str, float | int | str | None]] | None = None,
     ) -> tuple[dict | None, int | None]:
         """
         Find bounding box for text, supporting both word-level and phrase matching.
@@ -369,10 +613,50 @@ class AnnotationSuggestionService:
                 "text": " ".join(w["text"] for w in word_list),
             }
 
+        def matches_wrapped_phrase(word_list: list[dict]) -> bool:
+            if len(set(word["page"] for word in word_list)) > 1:
+                return False
+
+            normalized_sequence = self._normalize_text(
+                " ".join(str(word["text"]) for word in word_list)
+            )
+            if normalized_sequence != search_normalized:
+                return False
+
+            min_y = min(float(word["y"]) for word in word_list)
+            max_y = max(float(word["y"]) + float(word["height"]) for word in word_list)
+            return (max_y - min_y) <= 10.0
+
+        def is_allowed_word(word: dict) -> bool:
+            if not allowed_regions:
+                return True
+
+            word_center_x = float(word["x"]) + float(word["width"]) / 2.0
+            word_center_y = float(word["y"]) + float(word["height"]) / 2.0
+
+            for region in allowed_regions:
+                region_page = region.get("page")
+                if region_page is not None and int(region_page) != int(word["page"]):
+                    continue
+
+                region_x = float(region.get("x", 0.0) or 0.0)
+                region_y = float(region.get("y", 0.0) or 0.0)
+                region_width = float(region.get("width", 0.0) or 0.0)
+                region_height = float(region.get("height", 0.0) or 0.0)
+                if (
+                    region_x <= word_center_x <= region_x + region_width
+                    and region_y <= word_center_y <= region_y + region_height
+                ):
+                    return True
+
+            return False
+
         # Strategy 1: Single-word exact match
         if len(search_words) == 1:
             for idx, word in enumerate(lines):
                 if idx in used_line_indices:
+                    continue
+                if not is_allowed_word(word):
                     continue
                 if word["text"].lower().strip() == search_lower:
                     return make_bbox(word), idx
@@ -389,6 +673,8 @@ class AnnotationSuggestionService:
                 # Skip if any word in sequence is already used
                 if any((start_idx + i) in used_line_indices for i in range(len(search_words))):
                     continue
+                if not all(is_allowed_word(word) for word in consecutive_words):
+                    continue
 
                 # Check if words are on same page and close together (same line)
                 if len(set(w["page"] for w in consecutive_words)) > 1:
@@ -404,10 +690,15 @@ class AnnotationSuggestionService:
                 if consecutive_text == search_lower:
                     return merge_word_bboxes(consecutive_words), start_idx
 
+                if matches_wrapped_phrase(consecutive_words):
+                    return merge_word_bboxes(consecutive_words), start_idx
+
         # Strategy 3: Normalized single-word match
         if len(search_words) == 1:
             for idx, word in enumerate(lines):
                 if idx in used_line_indices:
+                    continue
+                if not is_allowed_word(word):
                     continue
                 if self._normalize_text(word["text"]) == search_normalized:
                     return make_bbox(word), idx
@@ -415,6 +706,8 @@ class AnnotationSuggestionService:
         # Strategy 4: Partial match for short search text (fallback)
         for idx, word in enumerate(lines):
             if idx in used_line_indices:
+                continue
+            if not is_allowed_word(word):
                 continue
             if search_lower in word["text"].lower():
                 return make_bbox(word), idx

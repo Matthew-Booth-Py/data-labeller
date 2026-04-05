@@ -29,6 +29,13 @@ class VisualContentType(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ExtractionMethod(StrEnum):
+    """How a field should be extracted."""
+
+    LLM = "llm"
+    RETRIEVAL_TABLE = "retrieval_table"
+
+
 class SchemaField(BaseModel):
     """A field definition within a document type schema."""
 
@@ -37,6 +44,14 @@ class SchemaField(BaseModel):
     description: str | None = Field(None, description="Field description")
     required: bool = Field(False, description="Whether field is required")
     extraction_prompt: str | None = Field(None, description="LLM prompt for extracting this field")
+    extraction_method: ExtractionMethod | None = Field(
+        None,
+        description="Extraction strategy: 'llm' (default) or 'retrieval_table' (parse markdown from retrieval chunk)",
+    )
+    retrieval_query: str | None = Field(
+        None,
+        description="Search query used to locate the table chunk when extraction_method='retrieval_table'",
+    )
     order: int | None = Field(
         None, description="Display order for nested properties (lower = first)"
     )

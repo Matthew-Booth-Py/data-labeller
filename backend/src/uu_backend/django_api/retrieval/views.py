@@ -82,6 +82,13 @@ class SearchView(APIView):
                 "original_text": r.original_text,
                 "context": r.context,
                 "score": r.score,
+                "chunk_id": r.chunk_id,
+                "page_number": r.page_number,
+                "asset_type": r.asset_type,
+                "asset_label": r.asset_label,
+                "citation_id": r.citation_id,
+                "citation_regions": r.citation_regions,
+                "preview_artifact_id": r.preview_artifact_id,
             }
             for r in results
         ]

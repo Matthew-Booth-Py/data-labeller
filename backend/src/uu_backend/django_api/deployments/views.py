@@ -44,7 +44,7 @@ def _run_deployment_extract(project_id: str, deployment_version: dict, file_obj:
     schema_fields = [
         SchemaField.model_validate(field) for field in deployment_version["schema_fields"]
     ]
-    extracted_data = extraction_service.extract_structured_from_snapshot(
+    extracted_data = extraction_service.extract_auto_from_snapshot(
         content=conversion.content,
         filename=file_obj.filename,
         document_type_name=deployment_version["document_type_name"],

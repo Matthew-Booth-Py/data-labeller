@@ -6,6 +6,9 @@ debug: false
 chroma_persist_directory: "./data/chroma"
 chroma_collection_name: "documents"
 file_storage_directory: "./data/files"
+retrieval_artifact_directory: "./data/retrieval_artifacts"
+qdrant_pdf_storage_directory: "./data/qdrant_pdf"
+qdrant_url: ""
 
 chunk_size: 1000
 chunk_overlap: 200
