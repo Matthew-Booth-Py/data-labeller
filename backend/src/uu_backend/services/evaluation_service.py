@@ -163,16 +163,27 @@ class EvaluationService:
         queryset = GroundTruthAnnotationModel.objects.filter(document_id=document_id)
         annotations: list[Any] = await sync_to_async(list)(queryset)  # type: ignore
 
-        return [
-            {
-                "field_name": ann.field_name,  # type: ignore
-                "value": ann.value,  # type: ignore
-                "instance_num": ann.annotation_data.get("instance_num")  # type: ignore
-                if ann.annotation_data
-                else None,
-            }
-            for ann in annotations
-        ]
+        result = []
+        for ann in annotations:
+            field_name: str = ann.field_name  # type: ignore
+            value = ann.value  # type: ignore
+            # Skip table boundary placeholder annotations — these are drawn bbox
+            # markers whose value is either null or the field name string itself.
+            # Only whole-table (non-dotted) fields produce placeholders; real table
+            # GT always has value = list[dict].
+            if not field_name.startswith("_") and "." not in field_name:
+                if value is None or value == field_name:
+                    continue
+            result.append(
+                {
+                    "field_name": field_name,
+                    "value": value,
+                    "instance_num": ann.annotation_data.get("instance_num")  # type: ignore
+                    if ann.annotation_data
+                    else None,
+                }
+            )
+        return result
 
     async def _get_cached_extraction(self, document_id: str):
         """Get cached extraction result."""

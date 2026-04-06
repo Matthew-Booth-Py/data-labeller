@@ -527,11 +527,11 @@ export function PdfTextAnnotator({
       const pageNum = getAnnotationPage(annotation);
       if (!bbox || !pageNum) return;
 
-      const overlayKey = `${pageNum}:${annotation.field_name}`;
-      // Only add if no cell-level overlay already covers this group
-      if (overlaysByPage[pageNum]?.some((o) => o.groupName === annotation.field_name)) {
-        return;
-      }
+      // Skip if a cell-level overlay already covers this group
+      const hasCellLevelOverlay = overlaysByPage[pageNum]?.some(
+        (o) => o.groupName === annotation.field_name && o.allAnnotationIds.length > 1,
+      );
+      if (hasCellLevelOverlay) return;
 
       // Parse value: may be an array of row objects or null
       const rawValue = annotation.value;
@@ -545,6 +545,11 @@ export function PdfTextAnnotator({
         rowNumber: i + 1,
         values: vals,
       }));
+
+      const overlayKey = `${pageNum}:${annotation.field_name}`;
+      const existingIdx = overlaysByPage[pageNum]?.findIndex(
+        (o) => o.groupName === annotation.field_name,
+      ) ?? -1;
 
       const overlay: TableOverlay = {
         id: overlayKey,
@@ -567,7 +572,16 @@ export function PdfTextAnnotator({
       if (!overlaysByPage[pageNum]) {
         overlaysByPage[pageNum] = [];
       }
-      overlaysByPage[pageNum]?.push(overlay);
+
+      if (existingIdx >= 0) {
+        // Replace only if this annotation has more rows than the existing overlay
+        const existing = overlaysByPage[pageNum]![existingIdx]!;
+        if (previewRows.length > existing.totalRows) {
+          overlaysByPage[pageNum]![existingIdx] = overlay;
+        }
+      } else {
+        overlaysByPage[pageNum]?.push(overlay);
+      }
     });
 
     Object.values(overlaysByPage).forEach((overlays) => {
@@ -796,7 +810,7 @@ export function PdfTextAnnotator({
             };
             onAnnotationCreate(
               activeEntityTypeRef.current.name,
-              activeEntityTypeRef.current.name,
+              null,
               bbox,
             );
           }

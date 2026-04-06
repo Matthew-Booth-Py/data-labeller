@@ -470,11 +470,18 @@ export function DataLabellerV2({ projectId: projectIdProp }: DataLabellerV2Props
   // After a table-level bbox is drawn, automatically extract the table contents
   // from that region via the backend and add the results as suggestions.
   const handleTableRegionExtract = useCallback(
-    async (fieldName: string, _bbox: BoundingBoxData) => {
+    async (fieldName: string, bbox: BoundingBoxData) => {
       if (!selectedDocId) return;
       setLoadingSuggestions(true);
       try {
-        const result = await api.suggestField(selectedDocId, fieldName);
+        const result = await api.extractTableRegion(selectedDocId, {
+          field_name: fieldName,
+          page: bbox.page,
+          x: bbox.x,
+          y: bbox.y,
+          width: bbox.width,
+          height: bbox.height,
+        });
         const newSuggestions = result.suggestions || [];
         if (newSuggestions.length > 0) {
           setSuggestions((prev) => [...prev, ...newSuggestions]);
@@ -482,7 +489,7 @@ export function DataLabellerV2({ projectId: projectIdProp }: DataLabellerV2Props
             `Extracted ${newSuggestions.length} row${newSuggestions.length !== 1 ? "s" : ""} from table — review and approve below`,
           );
         } else {
-          toast.info("No table data found for this field.");
+          toast.info("No table data found in this region.");
         }
       } catch (error: any) {
         toast.error(`Table extraction failed: ${error.message}`);
@@ -659,7 +666,21 @@ export function DataLabellerV2({ projectId: projectIdProp }: DataLabellerV2Props
     try {
       const result = await api.suggestAnnotations(selectedDocId);
       const existingFields = new Set(annotations.map((a) => a.field_name));
+      // Parent table names that already have a whole-table annotation
+      const annotatedTablePrefixes = new Set(
+        annotations
+          .filter((a) => !a.field_name.includes("."))
+          .map((a) => a.field_name),
+      );
       const filtered = (result.suggestions || []).filter((s) => {
+        // Skip if exact field already annotated
+        if (existingFields.has(s.field_name)) return false;
+        // Skip column-level suggestions whose parent table is already annotated
+        const dotIdx = s.field_name.indexOf(".");
+        if (dotIdx !== -1) {
+          const parentTable = s.field_name.slice(0, dotIdx);
+          if (annotatedTablePrefixes.has(parentTable)) return false;
+        }
         const instanceNum = (s.annotation_data as any)?.instance_num;
         if (instanceNum) {
           return !annotations.some(
@@ -668,7 +689,7 @@ export function DataLabellerV2({ projectId: projectIdProp }: DataLabellerV2Props
               (a.annotation_data as any)?.instance_num === instanceNum,
           );
         }
-        return !existingFields.has(s.field_name);
+        return true;
       });
       setSuggestions(filtered);
       const skipped = (result.suggestions?.length || 0) - filtered.length;

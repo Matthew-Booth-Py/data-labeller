@@ -234,13 +234,23 @@ export function EvaluateView({ projectId }: { projectId?: string }) {
       return api.deleteEvaluation(evaluationId);
     },
     onSuccess: (_, deletedId) => {
-      queryClient.invalidateQueries({ queryKey: ["evaluations"] });
+      // Immediately remove the deleted run from the cache so the auto-select
+      // useEffect never sees stale data and re-selects a deleted run.
+      queryClient.setQueryData(
+        ["evaluations", projectId],
+        (old: any) =>
+          old
+            ? { ...old, runs: (old.runs || []).filter((r: any) => r.id !== deletedId) }
+            : old,
+      );
+      queryClient.removeQueries({ queryKey: ["evaluation-details", deletedId] });
       queryClient.invalidateQueries({ queryKey: ["evaluation-summary"] });
 
+      const remainingRuns = (evaluationsData?.runs || []).filter(
+        (run) => run.id !== deletedId,
+      );
       if (selectedEvaluation === deletedId) {
-        const fallbackRun =
-          evaluationsData?.runs.find((run) => run.id !== deletedId) || null;
-        setSelectedEvaluation(fallbackRun?.id || null);
+        setSelectedEvaluation(remainingRuns[0]?.id ?? null);
       }
 
       toast.success("Evaluation run deleted");
@@ -617,7 +627,7 @@ export function EvaluateView({ projectId }: { projectId?: string }) {
         </CardContent>
       </Card>
 
-      {summary && (
+      {summary && evaluationRuns.length > 0 && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <Card className="border-[var(--border-subtle)]">

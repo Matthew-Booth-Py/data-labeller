@@ -814,10 +814,28 @@ class AnnotationSuggestionService:
     ) -> list[AnnotationSuggestion]:
         """Extract table data from a specific bbox region drawn by the user.
 
-        Uses pdfplumber to pull text from the cropped region, sends it to the
-        LLM structured as a prompt with the sub-field schema, then maps each
-        extracted cell value back to a per-word bbox for the suggestion overlay.
+        Primary path: spatial overlap query against the retrieval index.
+        Finds any indexed table asset on the given page that overlaps with the
+        drawn bbox, parses its markdown content, and returns a single table-level
+        suggestion (same shape as suggest_field / suggest_annotations).
+
+        Fallback: pdfplumber extraction + LLM parsing when no indexed asset is found.
         """
+        # ------------------------------------------------------------------
+        # Primary path — look up overlapping table asset in the retrieval index
+        # ------------------------------------------------------------------
+        indexed_suggestion = self._extract_from_indexed_asset(
+            document_id, field_name, page, x, y, width, height
+        )
+        if indexed_suggestion is not None:
+            logger.info(
+                "[REGION EXTRACT] Returning indexed asset suggestion for '%s'", field_name
+            )
+            return [indexed_suggestion]
+
+        # ------------------------------------------------------------------
+        # Fallback — pdfplumber + LLM when no indexed table overlaps
+        # ------------------------------------------------------------------
         import pdfplumber
 
         settings = get_settings()
@@ -848,18 +866,14 @@ class AnnotationSuggestionService:
                 page_w = float(page_obj.width)
                 page_h = float(page_obj.height)
 
-                # Convert percentage bbox to pdfplumber coords (x0, top, x1, bottom)
                 x0 = (x / 100.0) * page_w
                 top = (y / 100.0) * page_h
                 x1 = ((x + width) / 100.0) * page_w
                 bottom = ((y + height) / 100.0) * page_h
 
                 cropped = page_obj.within_bbox((x0, top, x1, bottom))
-
-                # Build word-level bboxes for precise cell matching later
                 raw_words = cropped.extract_words(x_tolerance=3, y_tolerance=3)
 
-                # Try pdfplumber's table parser first; fall back to word grouping
                 table_grid = cropped.extract_table(
                     table_settings={
                         "vertical_strategy": "lines_strict",
@@ -877,7 +891,6 @@ class AnnotationSuggestionService:
                         }
                     )
 
-            # Positioned words in percentage-of-page coords for bbox matching
             positioned_words = [
                 {
                     "text": w["text"],
@@ -896,72 +909,151 @@ class AnnotationSuggestionService:
                 logger.warning("No text extracted from region for %s", field_name)
                 return []
 
-            logger.info("[REGION EXTRACT] Extracted %d chars from region of '%s'", len(table_text), field_name)
+            logger.info("[REGION EXTRACT] Fallback pdfplumber: %d chars for '%s'", len(table_text), field_name)
 
-            rows = self._llm_extract_table(table_text, field_name, schema_subfields or [])
+            rows = self._llm_extract_table(table_text, field_name, [])
             if not rows:
                 logger.warning("[REGION EXTRACT] LLM returned no rows for '%s'", field_name)
                 return []
 
-            logger.info("[REGION EXTRACT] LLM returned %d rows for '%s'", len(rows), field_name)
-
-            region_bounds = [{"page": page, "x": x, "y": y, "width": width, "height": height}]
-            suggestions: list[AnnotationSuggestion] = []
-            used_line_indices: set[int] = set()
-
-            for instance_num, row in enumerate(rows, start=1):
-                if not isinstance(row, dict):
-                    continue
-                for sub_field, value in row.items():
-                    if value is None or str(value).strip() in ("", "None", "null"):
-                        continue
-                    full_field = f"{field_name}.{sub_field}"
-                    value_str = str(value).strip()
-
-                    bbox, line_idx = self._find_text_bbox(
-                        value_str,
-                        positioned_words,
-                        used_line_indices,
-                        allowed_regions=region_bounds,
-                    )
-                    if line_idx is not None:
-                        used_line_indices.add(line_idx)
-
-                    if bbox:
-                        annotation_data = {**bbox, "instance_num": instance_num}
-                    else:
-                        # Place approximately within the drawn region
-                        row_height_pct = height / max(len(rows), 1)
-                        annotation_data = {
-                            "page": page,
-                            "x": x,
-                            "y": y + (instance_num - 1) * row_height_pct,
-                            "width": width,
-                            "height": row_height_pct,
-                            "instance_num": instance_num,
-                        }
-
-                    suggestions.append(
-                        AnnotationSuggestion(
-                            id=str(uuid4()),
-                            document_id=document_id,
-                            field_name=full_field,
-                            value=value_str,
-                            annotation_type=AnnotationType.BBOX,
-                            annotation_data=annotation_data,
-                            confidence=0.85,
-                            text_snippet=value_str,
-                        )
-                    )
-
-            logger.info(
-                "[REGION EXTRACT] Created %d suggestions for '%s'", len(suggestions), field_name
-            )
-            return suggestions
+            annotation_data = {"page": page, "x": x, "y": y, "width": width, "height": height}
+            return [
+                AnnotationSuggestion(
+                    id=str(uuid4()),
+                    document_id=document_id,
+                    field_name=field_name,
+                    value=rows,
+                    annotation_type=AnnotationType.BBOX,
+                    annotation_data=annotation_data,
+                    confidence=0.75,
+                    text_snippet=f"{len(rows)} row{'s' if len(rows) != 1 else ''}",
+                )
+            ]
 
         except Exception as e:
             logger.error("extract_table_from_region failed for %s: %s", document_id, e, exc_info=True)
             return []
+
+    def _extract_from_indexed_asset(
+        self,
+        document_id: str,
+        field_name: str,
+        page: int,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+    ) -> "AnnotationSuggestion | None":
+        """Find the indexed table asset that overlaps most with the drawn bbox.
+
+        Converts the percentage bbox to pixel space using the stored page dimensions,
+        then queries RetrievalAssetModel for table assets on that page, computes the
+        intersection-over-union (IoU) overlap, and returns a table-level suggestion
+        built from the asset's chunk content if any overlap is found.
+        """
+        from uu_backend.django_data import models as orm
+
+        try:
+            page_model = orm.RetrievalPageModel.objects.filter(
+                document_id=document_id, page_number=page
+            ).first()
+            if not page_model:
+                logger.info(
+                    "[REGION EXTRACT] No indexed page found for doc=%s page=%d", document_id, page
+                )
+                return None
+
+            pw = float(page_model.width)
+            ph = float(page_model.height)
+
+            # Drawn bbox in pixel space
+            dx0 = (x / 100.0) * pw
+            dy0 = (y / 100.0) * ph
+            dx1 = ((x + width) / 100.0) * pw
+            dy1 = ((y + height) / 100.0) * ph
+            drawn_area = max((dx1 - dx0) * (dy1 - dy0), 1.0)
+
+            table_assets = orm.RetrievalAssetModel.objects.filter(
+                document_id=document_id, page=page_model, asset_type="table"
+            ).prefetch_related("chunks")
+
+            best_asset = None
+            best_overlap = 0.0
+
+            for asset in table_assets:
+                bbox = asset.bbox
+                if not bbox or len(bbox) < 4:
+                    continue
+                ax0, ay0, ax1, ay1 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+
+                ix0 = max(dx0, ax0)
+                iy0 = max(dy0, ay0)
+                ix1 = min(dx1, ax1)
+                iy1 = min(dy1, ay1)
+
+                if ix1 <= ix0 or iy1 <= iy0:
+                    continue
+
+                intersection = (ix1 - ix0) * (iy1 - iy0)
+                # Overlap relative to the drawn region so a small draw over a large table still matches
+                overlap_ratio = intersection / drawn_area
+                logger.info(
+                    "[REGION EXTRACT] Asset '%s' overlap=%.3f", asset.label, overlap_ratio
+                )
+                if overlap_ratio > best_overlap:
+                    best_overlap = overlap_ratio
+                    best_asset = asset
+
+            if best_asset is None or best_overlap < 0.05:
+                logger.info(
+                    "[REGION EXTRACT] No sufficiently overlapping indexed table found (best=%.3f)", best_overlap
+                )
+                return None
+
+            # Get chunk content — prefer the table-type chunk attached to this asset
+            chunk = best_asset.chunks.order_by("chunk_index").first()
+            if not chunk or not chunk.content.strip():
+                logger.info("[REGION EXTRACT] Matched asset '%s' has no chunk content", best_asset.label)
+                return None
+
+            rows = self.extraction_service._parse_markdown_table(chunk.content)
+            if not rows:
+                logger.info(
+                    "[REGION EXTRACT] Could not parse markdown table from asset '%s'", best_asset.label
+                )
+                return None
+
+            # Use the indexed asset's tight bbox (in % coords) for the annotation
+            ax0, ay0, ax1, ay1 = (
+                float(best_asset.bbox[0]), float(best_asset.bbox[1]),
+                float(best_asset.bbox[2]), float(best_asset.bbox[3]),
+            )
+            annotation_data = {
+                "page": page,
+                "x": (ax0 / pw) * 100.0,
+                "y": (ay0 / ph) * 100.0,
+                "width": ((ax1 - ax0) / pw) * 100.0,
+                "height": ((ay1 - ay0) / ph) * 100.0,
+            }
+
+            logger.info(
+                "[REGION EXTRACT] Indexed asset '%s' matched with overlap=%.3f, %d row(s)",
+                best_asset.label, best_overlap, len(rows),
+            )
+            return AnnotationSuggestion(
+                id=str(uuid4()),
+                document_id=document_id,
+                field_name=field_name,
+                value=rows,
+                annotation_type=AnnotationType.BBOX,
+                annotation_data=annotation_data,
+                confidence=0.95,
+                text_snippet=f"{len(rows)} row{'s' if len(rows) != 1 else ''}",
+            )
+
+        except Exception as e:
+            logger.warning("[REGION EXTRACT] Index lookup failed: %s", e, exc_info=True)
+            return None
 
     # ------------------------------------------------------------------
     # Private helpers for region extraction

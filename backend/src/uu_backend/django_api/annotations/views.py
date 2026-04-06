@@ -252,18 +252,16 @@ class SuggestFieldView(APIView):
             if not field_name:
                 return Response({"detail": "field_name is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-            doc_repo = DjangoORMRepository()
-            document = doc_repo.get_document(document_id)
+            document = get_document_repository().get_document(document_id)
             if not document:
                 return Response({"detail": "Document not found"}, status=status.HTTP_404_NOT_FOUND)
 
-            classification = doc_repo.get_document_classification(document_id)
+            doc_repo = DjangoORMRepository()
+            classification = doc_repo.get_classification(document_id)
             if not classification:
                 return Response({"detail": "Document not classified"}, status=status.HTTP_400_BAD_REQUEST)
 
-            from uu_backend.services.taxonomy_service import get_taxonomy_service
-            taxonomy_service = get_taxonomy_service()
-            document_type = taxonomy_service.get_document_type(classification.document_type_id)
+            document_type = doc_repo.get_document_type(classification.document_type_id)
             if not document_type:
                 return Response({"detail": "Document type not found"}, status=status.HTTP_400_BAD_REQUEST)
 
