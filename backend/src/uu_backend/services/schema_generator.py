@@ -10,17 +10,19 @@ from uu_backend.models.taxonomy import FieldType, SchemaField
 def generate_pydantic_schema(
     schema_fields: list[SchemaField], model_name: str = "ExtractionSchema"
 ) -> type[BaseModel]:
-    """
-    Generate a Pydantic model from schema field definitions.
+    """Generate a Pydantic model from schema field definitions.
 
-    This allows us to use OpenAI's structured output with response_format.
+    Parameters
+    ----------
+    schema_fields : list of SchemaField
+        Field definitions to include in the model.
+    model_name : str, optional
+        Name for the generated Pydantic model class.
 
-    Args:
-        schema_fields: List of schema field definitions
-        model_name: Name for the generated Pydantic model
-
-    Returns:
-        Dynamically created Pydantic model class
+    Returns
+    -------
+    type[BaseModel]
+        Dynamically created Pydantic model class.
     """
     field_definitions = {}
 
@@ -37,16 +39,6 @@ def generate_pydantic_schema(
 
 
 def _field_type_to_python_type(field: SchemaField, model_name_prefix: str | None = None) -> Any:
-    """Convert SchemaField to Python type annotation.
-
-    Args:
-        field: The schema field to convert.
-        model_name_prefix: Override the prefix used when naming dynamically created nested Pydantic
-            models. Used by the ARRAY branch to pass the parent field's name so that each
-            array-of-object field gets a unique model name in the JSON Schema ``$defs`` even when
-            all item schemas share the generic ``name: "item"``.
-    """
-
     if field.type == FieldType.STRING:
         return str
 
@@ -65,9 +57,7 @@ def _field_type_to_python_type(field: SchemaField, model_name_prefix: str | None
             # whose item schemas both carry the generic name "item" produce distinct Pydantic model
             # names (e.g. "QuarterlyFinancialHighlightsItem" vs "BusinessUnitRevenueTableItem")
             # and therefore distinct $defs entries in the JSON Schema sent to OpenAI.
-            item_type_result = _field_type_to_python_type(
-                field.items, model_name_prefix=field.name
-            )
+            item_type_result = _field_type_to_python_type(field.items, model_name_prefix=field.name)
             return list[item_type_result]  # type: ignore
         return list[Any]
 
@@ -94,9 +84,7 @@ def _field_type_to_python_type(field: SchemaField, model_name_prefix: str | None
             # Use the caller-supplied prefix when available (e.g. parent array field name),
             # falling back to the field's own name so standalone object fields still work.
             prefix = model_name_prefix if model_name_prefix is not None else field.name
-            nested_model = create_model(
-                f"{prefix.title().replace('_', '')}Item", **nested_fields
-            )
+            nested_model = create_model(f"{prefix.title().replace('_', '')}Item", **nested_fields)
             return nested_model
         return dict[str, Any]
 
@@ -104,39 +92,46 @@ def _field_type_to_python_type(field: SchemaField, model_name_prefix: str | None
 
 
 def _optional_annotation(python_type: Any) -> Any:
-    """Allow null for non-required fields, including nested object properties."""
-
     if python_type is Any:
         return Any
     return python_type | None
 
 
 def schema_to_json_schema(pydantic_model: type[BaseModel]) -> dict:
-    """
-    Convert Pydantic model to JSON schema for OpenAI.
+    """Convert a Pydantic model to a JSON schema dict.
 
-    Args:
-        pydantic_model: Pydantic model class
+    Parameters
+    ----------
+    pydantic_model : type[BaseModel]
+        Pydantic model class to convert.
 
-    Returns:
-        JSON schema dict
+    Returns
+    -------
+    dict
+        JSON schema representation of the model.
     """
     return pydantic_model.model_json_schema()
 
 
 def validate_extraction(data: dict, pydantic_model: type[BaseModel]) -> BaseModel:
-    """
-    Validate extracted data against Pydantic schema.
+    """Validate extracted data against a Pydantic schema.
 
-    Args:
-        data: Extracted data dictionary
-        pydantic_model: Pydantic model to validate against
+    Parameters
+    ----------
+    data : dict
+        Extracted data dictionary.
+    pydantic_model : type[BaseModel]
+        Pydantic model to validate against.
 
-    Returns:
-        Validated Pydantic model instance
+    Returns
+    -------
+    BaseModel
+        Validated Pydantic model instance.
 
-    Raises:
-        ValidationError if data doesn't match schema
+    Raises
+    ------
+    ValidationError
+        If data does not match the schema.
     """
     return pydantic_model.model_validate(data)
 

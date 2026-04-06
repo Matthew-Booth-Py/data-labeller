@@ -29,14 +29,12 @@ class ConversionResult:
 
 
 def _normalize_for_dedupe(line: str) -> str:
-    """Create a normalized representation of a line for duplicate checks."""
     normalized = re.sub(r"\s+", " ", line.strip().lower())
     normalized = re.sub(r"[^\w\s|:.$-]", "", normalized)
     return normalized
 
 
 def _repair_table_header_fragments(line: str) -> str:
-    """Repair common split-header artifacts from table extraction."""
     repaired = line
     # Example observed: "Damage Description E | st. Replacement Cost"
     repaired = repaired.replace(
@@ -47,8 +45,6 @@ def _repair_table_header_fragments(line: str) -> str:
 
 
 def _move_total_after_following_table(lines: list[str]) -> list[str]:
-    """If TOTAL line appears before immediately following markdown table rows, move it
-    below the table."""
     i = 0
     out: list[str] = []
     while i < len(lines):
@@ -73,7 +69,6 @@ def _move_total_after_following_table(lines: list[str]) -> list[str]:
 
 
 def _normalize_key_value_blocks(lines: list[str]) -> list[str]:
-    """Convert contiguous key-value lines into markdown tables for consistent formatting."""
     kv_pattern = re.compile(r"^\s*([A-Za-z][A-Za-z0-9 /()&\-.]{1,50}):\s+(.+?)\s*$")
     out: list[str] = []
     i = 0
@@ -109,7 +104,6 @@ def _normalize_key_value_blocks(lines: list[str]) -> list[str]:
 
 
 def _dedupe_lines(lines: list[str]) -> list[str]:
-    """Remove repeated nearby lines caused by layout extraction overlap."""
     recent: deque[str] = deque(maxlen=24)
     out: list[str] = []
     for line in lines:
@@ -185,12 +179,20 @@ def table_to_markdown(table: list[list[str | None]]) -> str:
 
 
 def extract_pdf_with_tables(pdf_path: str) -> tuple[str, int]:
-    """
-    Extract text and tables from PDF using pdfplumber.
+    """Extract text and tables from a PDF using pdfplumber.
 
-    Returns tuple of (content, page_count).
-    Uses layout-preserving text extraction which maintains tabular alignment.
-    Bordered tables are converted to markdown format when detected.
+    Uses layout-preserving text extraction. Bordered tables are converted to
+    markdown format when detected.
+
+    Parameters
+    ----------
+    pdf_path : str
+        Path to the PDF file.
+
+    Returns
+    -------
+    tuple[str, int]
+        Tuple of (markdown content, page count).
     """
     content_parts = []
     page_count = 0
@@ -348,15 +350,19 @@ class DocumentConverter:
         file: BinaryIO,
         filename: str,
     ) -> ConversionResult:
-        """
-        Convert a file to markdown.
+        """Convert a file to markdown.
 
-        Args:
-            file: File-like object with the document content
-            filename: Original filename for extension detection
+        Parameters
+        ----------
+        file : BinaryIO
+            File-like object with the document content.
+        filename : str
+            Original filename for extension detection.
 
-        Returns:
-            ConversionResult with markdown content and metadata
+        Returns
+        -------
+        ConversionResult
+            Conversion result with markdown content and metadata.
         """
         file_path = Path(filename)
         extension = file_path.suffix.lower()

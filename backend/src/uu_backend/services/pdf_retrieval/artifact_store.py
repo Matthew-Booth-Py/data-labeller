@@ -13,7 +13,10 @@ class PDFArtifactStore:
         self.base_path = base_path or settings.retrieval_artifact_path
         self.base_path.mkdir(parents=True, exist_ok=True)
 
-    def save(self, *, document_id: str, artifact_id: str, data: bytes, media_type: str) -> tuple[str, int]:
+    def save(
+        self, *, document_id: str, artifact_id: str, data: bytes, media_type: str
+    ) -> tuple[str, int]:
+        """Write artifact bytes to disk and return the relative path and byte size."""
         extension = self._extension_for_media_type(media_type)
         relative_path = Path(document_id) / f"{artifact_id}{extension}"
         absolute_path = self.base_path / relative_path
@@ -22,9 +25,11 @@ class PDFArtifactStore:
         return relative_path.as_posix(), len(data)
 
     def read(self, relative_path: str) -> bytes:
+        """Read and return the raw bytes of a stored artifact."""
         return (self.base_path / relative_path).read_bytes()
 
     def delete(self, relative_path: str | None) -> None:
+        """Delete a stored artifact and remove empty parent directories."""
         if not relative_path:
             return
         path = self.base_path / relative_path

@@ -1245,7 +1245,11 @@
   gap: 12px;
   padding: 10px 12px 8px;
   border-bottom: 1px solid rgba(79, 2, 89, 0.08);
-  background: linear-gradient(180deg, rgba(79, 2, 89, 0.04), rgba(255, 255, 255, 0.4));
+  background: linear-gradient(
+    180deg,
+    rgba(79, 2, 89, 0.04),
+    rgba(255, 255, 255, 0.4)
+  );
 }
 
 .dl-table-preview-title {

@@ -68,6 +68,7 @@ class AzureDocumentIntelligenceProvider:
         )
 
     def analyze_pdf(self, pdf_bytes: bytes) -> NormalizedDocumentAnalysis:
+        """Submit a PDF to Azure Document Intelligence and return a normalised analysis."""
         poller = self.client.begin_analyze_document(
             "prebuilt-layout",
             body=BytesIO(pdf_bytes),

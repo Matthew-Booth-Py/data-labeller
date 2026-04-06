@@ -160,85 +160,92 @@ function RetrievalTracePanel({
 
       {coverage && Object.keys(coverage).length > 0 && (
         <div className="space-y-1.5">
-          {Object.entries(coverage).map(([fieldName, info]: [string, FieldCoverageInfo]) => (
-            <Collapsible key={fieldName} defaultOpen={false} className="group">
-              <div className="rounded-md border border-[var(--border-subtle)] bg-card overflow-hidden">
-                <CollapsibleTrigger asChild>
-                  <button
-                    type="button"
-                    className="w-full flex items-center justify-between px-3 py-2 hover:bg-muted/40 transition-colors text-left gap-2"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-90" />
-                      <span className="text-xs font-medium truncate">
-                        {fieldName}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {info.top_page_numbers?.length > 0 && (
-                        <span className="text-[10px] text-muted-foreground">
-                          p.{info.top_page_numbers.join(", ")}
+          {Object.entries(coverage).map(
+            ([fieldName, info]: [string, FieldCoverageInfo]) => (
+              <Collapsible
+                key={fieldName}
+                defaultOpen={false}
+                className="group"
+              >
+                <div className="rounded-md border border-[var(--border-subtle)] bg-card overflow-hidden">
+                  <CollapsibleTrigger asChild>
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-between px-3 py-2 hover:bg-muted/40 transition-colors text-left gap-2"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-90" />
+                        <span className="text-xs font-medium truncate">
+                          {fieldName}
                         </span>
-                      )}
-                      <Badge
-                        variant={coverageStatusVariant(info.status)}
-                        className="text-[10px] px-1.5 py-0"
-                      >
-                        {info.status}
-                      </Badge>
-                    </div>
-                  </button>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="px-3 pb-2.5 pt-1.5 border-t border-[var(--border-subtle)] space-y-2 text-xs">
-                    {info.queries_used?.length > 0 && (
-                      <div>
-                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1">
-                          Queries ({info.rounds} round{info.rounds !== 1 ? "s" : ""})
-                        </p>
-                        <ul className="space-y-0.5">
-                          {info.queries_used.map((q, i) => (
-                            <li
-                              key={i}
-                              className="text-muted-foreground bg-muted/50 rounded px-2 py-1 font-mono text-[10px] break-words"
-                            >
-                              {q}
-                            </li>
-                          ))}
-                        </ul>
                       </div>
-                    )}
-                    {info.scores?.length > 0 && (
-                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                        <span>Scores:</span>
-                        {info.scores.slice(0, 5).map((s, i) => (
-                          <span key={i} className="font-mono">
-                            {s.toFixed(3)}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {info.top_page_numbers?.length > 0 && (
+                          <span className="text-[10px] text-muted-foreground">
+                            p.{info.top_page_numbers.join(", ")}
                           </span>
-                        ))}
-                        {info.scores.length > 5 && (
-                          <span>+{info.scores.length - 5} more</span>
                         )}
+                        <Badge
+                          variant={coverageStatusVariant(info.status)}
+                          className="text-[10px] px-1.5 py-0"
+                        >
+                          {info.status}
+                        </Badge>
                       </div>
-                    )}
-                    {info.asset_labels?.filter(Boolean).length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {info.asset_labels.filter(Boolean).map((label, i) => (
-                          <Badge
-                            key={i}
-                            variant="secondary"
-                            className="text-[10px] px-1.5 py-0"
-                          >
-                            {label}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </CollapsibleContent>
-              </div>
-            </Collapsible>
-          ))}
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="px-3 pb-2.5 pt-1.5 border-t border-[var(--border-subtle)] space-y-2 text-xs">
+                      {info.queries_used?.length > 0 && (
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1">
+                            Queries ({info.rounds} round
+                            {info.rounds !== 1 ? "s" : ""})
+                          </p>
+                          <ul className="space-y-0.5">
+                            {info.queries_used.map((q, i) => (
+                              <li
+                                key={i}
+                                className="text-muted-foreground bg-muted/50 rounded px-2 py-1 font-mono text-[10px] break-words"
+                              >
+                                {q}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {info.scores?.length > 0 && (
+                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                          <span>Scores:</span>
+                          {info.scores.slice(0, 5).map((s, i) => (
+                            <span key={i} className="font-mono">
+                              {s.toFixed(3)}
+                            </span>
+                          ))}
+                          {info.scores.length > 5 && (
+                            <span>+{info.scores.length - 5} more</span>
+                          )}
+                        </div>
+                      )}
+                      {info.asset_labels?.filter(Boolean).length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {info.asset_labels.filter(Boolean).map((label, i) => (
+                            <Badge
+                              key={i}
+                              variant="secondary"
+                              className="text-[10px] px-1.5 py-0"
+                            >
+                              {label}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </CollapsibleContent>
+                </div>
+              </Collapsible>
+            ),
+          )}
         </div>
       )}
     </div>
@@ -398,11 +405,7 @@ function ParsedTableView({ parsed }: { parsed: ParsedTable }) {
       </div>
       <div className="flex items-center gap-3 justify-end">
         <CopyButton
-          getValue={() =>
-            parsed.rows
-              .map((r) => r.join("\t"))
-              .join("\n")
-          }
+          getValue={() => parsed.rows.map((r) => r.join("\t")).join("\n")}
         />
         <CopyButton getValue={() => JSON.stringify(json, null, 2)} />
         <span className="text-[10px] text-muted-foreground ml-auto">
@@ -501,7 +504,9 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
   const [error, setError] = useState<string | null>(null);
 
   const [retrievalQuery, setRetrievalQuery] = useState("");
-  const [retrievalResults, setRetrievalResults] = useState<RetrievalSearchResult[]>([]);
+  const [retrievalResults, setRetrievalResults] = useState<
+    RetrievalSearchResult[]
+  >([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchExecuted, setSearchExecuted] = useState(false);
@@ -697,7 +702,8 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
 
   const hasRetrievalTrace =
     !!selectedExtraction.request_metadata?.coverage_by_field &&
-    Object.keys(selectedExtraction.request_metadata.coverage_by_field).length > 0;
+    Object.keys(selectedExtraction.request_metadata.coverage_by_field).length >
+      0;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[380px_minmax(0,1fr)] gap-6">
@@ -742,9 +748,7 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
                 Active schema
               </p>
               {selectedDoc?.document_type ? (
-                <p className="font-medium">
-                  {selectedDoc.document_type.name}
-                </p>
+                <p className="font-medium">{selectedDoc.document_type.name}</p>
               ) : (
                 <p className="text-[var(--status-warning)] font-medium">
                   Not classified — extraction will fail. Classify this document
@@ -778,7 +782,8 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
               <div>
                 <CardTitle>Extraction Output</CardTitle>
                 <CardDescription>
-                  {selectedDoc?.filename || "Select a document to inspect output"}
+                  {selectedDoc?.filename ||
+                    "Select a document to inspect output"}
                 </CardDescription>
               </div>
               {selectedDoc?.retrieval_index_status === "completed" && (
@@ -798,7 +803,6 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
                 No extraction results yet.
               </div>
             )}
-
 
             {/* Retrieval Trace (from last extraction's request_metadata) */}
             {hasRetrievalTrace && selectedExtraction.request_metadata && (
@@ -897,9 +901,7 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
               <Button
                 onClick={runSearch}
                 disabled={
-                  !selectedDocumentId ||
-                  !retrievalQuery.trim() ||
-                  isSearching
+                  !selectedDocumentId || !retrievalQuery.trim() || isSearching
                 }
                 variant="secondary"
                 className="gap-2 shrink-0"
@@ -919,24 +921,30 @@ export function ExtractionRunner({ projectId }: { projectId?: string }) {
               </div>
             )}
 
-            {searchExecuted && retrievalResults.length === 0 && !searchError && (
-              <div className="rounded-lg border border-dashed border-[var(--border-strong)] py-8 flex items-center justify-center text-sm text-muted-foreground">
-                No chunks matched this query.
-              </div>
-            )}
+            {searchExecuted &&
+              retrievalResults.length === 0 &&
+              !searchError && (
+                <div className="rounded-lg border border-dashed border-[var(--border-strong)] py-8 flex items-center justify-center text-sm text-muted-foreground">
+                  No chunks matched this query.
+                </div>
+              )}
 
             {retrievalResults.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
-                    {retrievalResults.length} chunk{retrievalResults.length !== 1 ? "s" : ""} retrieved
+                    {retrievalResults.length} chunk
+                    {retrievalResults.length !== 1 ? "s" : ""} retrieved
                   </p>
                   <p className="text-[10px] text-muted-foreground">
                     sorted by score ↓
                   </p>
                 </div>
                 {retrievalResults.map((result, i) => (
-                  <SearchResultItem key={`${result.chunk_id ?? result.chunk_index}-${i}`} result={result} />
+                  <SearchResultItem
+                    key={`${result.chunk_id ?? result.chunk_index}-${i}`}
+                    result={result}
+                  />
                 ))}
               </div>
             )}

@@ -59,7 +59,6 @@ class ExtractionService:
         )
 
     def _has_table_like_field(self, schema_fields: list[SchemaField]) -> bool:
-        """True if any field is an array (table-like) or has explicit visual_content_type=table."""
         for field in schema_fields:
             if self._is_table_field(field):
                 return True
@@ -91,7 +90,8 @@ class ExtractionService:
             if document.retrieval_chunks_count == 0:
                 raise ValueError(
                     "Intelligent PDF retrieval completed, but no retrieval content was indexed "
-                    "for this document. Reindex the document after confirming it has extractable text."
+                    "for this document. Reindex the document after confirming it has "
+                    "extractable text."
                 )
             return
 
@@ -297,10 +297,15 @@ class ExtractionService:
             if getattr(result, "asset_type", None) in preferred_asset_types
             or getattr(result, "asset_type", None) is None
         ]
-        best_score = max((float(getattr(result, "score", 0.0) or 0.0) for result in relevant_results), default=0.0)
+        best_score = max(
+            (float(getattr(result, "score", 0.0) or 0.0) for result in relevant_results),
+            default=0.0,
+        )
         status = "missing"
         if relevant_results:
-            status = "covered" if best_score >= self._coverage_threshold_for_field(field) else "partial"
+            status = (
+                "covered" if best_score >= self._coverage_threshold_for_field(field) else "partial"
+            )
 
         return {
             "status": status,
@@ -342,7 +347,8 @@ class ExtractionService:
             )
 
         prompt = (
-            "You are helping a PDF extraction system recover missing evidence for one schema field. "
+            "You are helping a PDF extraction system recover missing evidence for one "
+            "schema field. "
             "Return JSON in the form {\"queries\": [\"...\", \"...\"]}. "
             "Provide at most 2 focused search queries and do not repeat earlier wording.\n\n"
             f"Document type: {doc_type.name}\n"
@@ -605,10 +611,11 @@ class ExtractionService:
                 page_label = f"pages {page_numbers}" if page_numbers else "pages unknown"
                 asset_type = getattr(result, "asset_type", None) or "unknown"
                 asset_label = getattr(result, "asset_label", None) or ""
-                lines.append(
-                    f"- {page_label} | {asset_type} | {asset_label} | score={float(getattr(result, 'score', 0.0) or 0.0):.3f}"
+                score = float(getattr(result, "score", 0.0) or 0.0)
+                lines.append(f"- {page_label} | {asset_type} | {asset_label} | score={score:.3f}")
+                snippet = str(
+                    getattr(result, "text", "") or getattr(result, "original_text", "") or ""
                 )
-                snippet = str(getattr(result, "text", "") or getattr(result, "original_text", "") or "")
                 lines.append(self._normalize_query_fragment(snippet, max_chars=900))
             sections.append("\n".join(lines))
         return "\n\n".join(sections)
@@ -616,7 +623,6 @@ class ExtractionService:
     def _should_use_vision_extraction(
         self, schema_fields: list[SchemaField], file_type: str
     ) -> bool:
-        """Check if vision extraction should be used for table fields in PDFs."""
         if file_type.lower() != "pdf":
             return False
         return self._has_table_like_field(schema_fields)
@@ -633,16 +639,10 @@ class ExtractionService:
         return metadata
 
     def _parse_markdown_table(self, text: str) -> list[dict] | None:
-        """Parse a markdown table embedded in chunk text into a list of row dicts.
-
-        Handles single-level and two-level (spanning group) headers. Empty cells in
-        a header row are forward-filled so that GAAP/Non-GAAP spanning groups produce
-        keys like 'GAAP_2025', 'GAAP_2024', 'GAAP_vs. 2024' instead of col_2, col_3.
-        """
         lines = [
-            l.strip()
-            for l in text.split("\n")
-            if l.strip().startswith("|") and l.strip().endswith("|")
+            ln.strip()
+            for ln in text.split("\n")
+            if ln.strip().startswith("|") and ln.strip().endswith("|")
         ]
         if len(lines) < 3:
             return None
@@ -663,18 +663,18 @@ class ExtractionService:
                 filled.append(last if not h else h)
             return filled
 
-        sep_idx = next((i for i, l in enumerate(lines) if is_sep(l)), None)
+        sep_idx = next((i for i, ln in enumerate(lines) if is_sep(ln)), None)
         if sep_idx is None or sep_idx < 1:
             return None
 
         group_headers = parse_cells(lines[sep_idx - 1])
-        post_sep = lines[sep_idx + 1:]
-        next_sep_idx = next((i for i, l in enumerate(post_sep) if is_sep(l)), None)
+        post_sep = lines[sep_idx + 1 :]
+        next_sep_idx = next((i for i, ln in enumerate(post_sep) if is_sep(ln)), None)
 
         two_level = next_sep_idx is not None and next_sep_idx > 0
         if two_level:
             col_headers = parse_cells(post_sep[0])
-            data_lines = post_sep[next_sep_idx + 1:]
+            data_lines = post_sep[next_sep_idx + 1 :]
         elif next_sep_idx == 0:
             col_headers = parse_cells(post_sep[1]) if len(post_sep) > 1 else group_headers
             data_lines = post_sep[2:]
@@ -683,9 +683,9 @@ class ExtractionService:
             data_lines = post_sep
 
         rows = [
-            parse_cells(l)
-            for l in data_lines
-            if not is_sep(l) and any(c for c in parse_cells(l))
+            parse_cells(ln)
+            for ln in data_lines
+            if not is_sep(ln) and any(c for c in parse_cells(ln))
         ]
         if not rows:
             return None
@@ -712,7 +712,11 @@ class ExtractionService:
             # (e.g. GAAP covering multiple year columns) propagate correctly.
             filled_groups = fill_spans(group_headers)
             keys = [
-                h if h else (filled_groups[i] if i < len(filled_groups) and filled_groups[i] else f"col_{i}")
+                h
+                if h
+                else (
+                    filled_groups[i] if i < len(filled_groups) and filled_groups[i] else f"col_{i}"
+                )
                 for i, h in enumerate(col_headers)
             ]
 
@@ -738,12 +742,6 @@ class ExtractionService:
     def _extract_retrieval_table_fields(
         self, document_id: str, fields: list[SchemaField]
     ) -> tuple[list[ExtractedField], list[int], dict[str, list[dict]], dict[str, int]]:
-        """Extract array fields using retrieval + markdown table parsing, bypassing the LLM.
-
-        Returns:
-            (extracted_fields, source_page_numbers, field_evidence_regions, field_page_map)
-            field_page_map maps field_name → page_number for use when citation regions are absent.
-        """
         from uu_backend.services.contextual_retrieval import get_contextual_retrieval_service
 
         retrieval_service = get_contextual_retrieval_service()
@@ -774,7 +772,8 @@ class ExtractionService:
                     if parsed_rows is not None:
                         matched_result = result
                         logger.info(
-                            "[RETRIEVAL TABLE] Parsed %d rows for field '%s' from chunk #%s (page %s)",
+                            "[RETRIEVAL TABLE] Parsed %d rows for field '%s' "
+                            "from chunk #%s (page %s)",
                             len(parsed_rows),
                             field.name,
                             getattr(result, "chunk_index", "?"),
@@ -801,6 +800,7 @@ class ExtractionService:
                     if page_id:
                         # Look up table assets on this page for a tight bbox
                         from uu_backend.django_data.models import RetrievalAssetModel
+
                         table_assets = list(
                             RetrievalAssetModel.objects.filter(
                                 page_id=page_id, asset_type="table"
@@ -833,7 +833,8 @@ class ExtractionService:
                                 }
                             ]
                             logger.info(
-                                "[RETRIEVAL TABLE] Using table asset '%s' bbox %s on page %s for field '%s' (chunk_label=%r)",
+                                "[RETRIEVAL TABLE] Using table asset '%s' bbox %s "
+                                "on page %s for field '%s' (chunk_label=%r)",
                                 asset.label,
                                 asset.bbox,
                                 page_num,
@@ -871,21 +872,21 @@ class ExtractionService:
         prompt_version_id: str | None = None,
         top_k_per_field: int = 3,
     ) -> ExtractionResult:
-        """
-        Smart extraction that automatically selects the best extraction strategy.
+        """Select and run the best extraction strategy for a document.
 
-        Routes to:
-        - extract_structured_with_retrieval_vision: when any field has
-          visual_content_type='table' (PDF only)
-        - extract_structured: default fallback using full document vision/text
+        Parameters
+        ----------
+        document_id : str
+            The document to extract from.
+        prompt_version_id : str or None, optional
+            Prompt version override to use.
+        top_k_per_field : int, optional
+            Number of chunks to retrieve per field.
 
-        Args:
-            document_id: The document to extract from
-            prompt_version_id: Optional prompt version to use
-            top_k_per_field: Number of chunks to retrieve per field (for retrieval methods)
-
-        Returns:
-            ExtractionResult with extracted field values
+        Returns
+        -------
+        ExtractionResult
+            Extracted field values.
         """
         repository = get_repository()
         document_repo = get_document_repository()
@@ -943,7 +944,8 @@ class ExtractionService:
             # Fall back to plain text extraction only for non-PDF documents.
             if file_type == "pdf":
                 logger.info(
-                    "[EXTRACTION DEBUG] extract_auto: retrieval-vision extraction for %d LLM field(s)",
+                    "[EXTRACTION DEBUG] extract_auto: retrieval-vision extraction "
+                    "for %d LLM field(s)",
                     len(llm_fields),
                 )
                 llm_result = self.extract_structured_with_retrieval_vision(
@@ -971,6 +973,7 @@ class ExtractionService:
         # Merge: start from LLM result (or a shell) and prepend retrieval_table fields
         if llm_result is None:
             from django.utils import timezone as tz
+
             llm_result = ExtractionResult(
                 document_id=document_id,
                 document_type_id=doc_type.id,
@@ -1010,18 +1013,19 @@ class ExtractionService:
     def extract_structured(
         self, document_id: str, prompt_version_id: str | None = None
     ) -> ExtractionResult:
-        """
-        Extract structured data directly from document using OpenAI structured output.
+        """Extract structured data directly from a document using OpenAI structured output.
 
-        This uses the schema fields to generate a Pydantic model and enforces
-        structured output from the LLM, bypassing the need for annotations.
+        Parameters
+        ----------
+        document_id : str
+            The document to extract from.
+        prompt_version_id : str or None, optional
+            Prompt version override to use.
 
-        Args:
-            document_id: The document to extract from
-            prompt_version_id: Optional prompt version to use
-
-        Returns:
-            ExtractionResult with extracted field values
+        Returns
+        -------
+        ExtractionResult
+            Extracted field values.
         """
         repository = get_repository()
         document_repo = get_document_repository()
@@ -1255,6 +1259,22 @@ Extract all fields according to the schema. Return null for fields that cannot b
         prompt_version_id: str | None = None,
         top_k_per_field: int = 5,
     ) -> ExtractionResult:
+        """Alias for extract_structured_with_retrieval_vision.
+
+        Parameters
+        ----------
+        document_id : str
+            The document to extract from.
+        prompt_version_id : str or None, optional
+            Prompt version override to use.
+        top_k_per_field : int, optional
+            Number of chunks to retrieve per field.
+
+        Returns
+        -------
+        ExtractionResult
+            Extracted field values.
+        """
         return self.extract_structured_with_retrieval_vision(
             document_id=document_id,
             prompt_version_id=prompt_version_id,
@@ -1269,12 +1289,25 @@ Extract all fields according to the schema. Return null for fields that cannot b
         min_score: float = 0.0,
         schema_fields_override: list[SchemaField] | None = None,
     ) -> ExtractionResult:
-        """Extract structured data from PDFs using agentic evidence coverage + page vision.
+        """Extract structured data from PDFs using agentic evidence coverage and page vision.
 
-        Args:
-            schema_fields_override: When provided, use these fields instead of the full
-                document-type schema. Used by extract_auto to pass only the LLM-destined
-                subset after retrieval_table fields have been routed elsewhere.
+        Parameters
+        ----------
+        document_id : str
+            The document to extract from.
+        prompt_version_id : str or None, optional
+            Prompt version override to use.
+        top_k_per_field : int, optional
+            Number of retrieval chunks per field per query round.
+        min_score : float, optional
+            Minimum retrieval score threshold.
+        schema_fields_override : list of SchemaField or None, optional
+            When provided, restrict extraction to these fields instead of the full schema.
+
+        Returns
+        -------
+        ExtractionResult
+            Extracted field values with page-level evidence metadata.
         """
         from uu_backend.services.contextual_retrieval import get_contextual_retrieval_service
 
@@ -1298,6 +1331,7 @@ Extract all fields according to the schema. Return null for fields that cannot b
         # This lets extract_auto exclude retrieval_table fields from the LLM pass.
         if schema_fields_override is not None:
             import copy
+
             doc_type = copy.copy(doc_type)
             doc_type.schema_fields = schema_fields_override
 
@@ -1315,7 +1349,9 @@ Extract all fields according to the schema. Return null for fields that cannot b
 
         retrieval_service = get_contextual_retrieval_service()
 
-        logger.info("PDF intelligent retrieval extraction: %s (type=%s)", document.filename, doc_type.name)
+        logger.info(
+            "PDF intelligent retrieval extraction: %s (type=%s)", document.filename, doc_type.name
+        )
 
         evidence_by_field, coverage_by_field, retry_count = self._run_agentic_retrieval_loop(
             document_id=document_id,
@@ -1445,7 +1481,8 @@ CRITICAL INSTRUCTIONS:
                     source_preview = None
                     if top_result is not None:
                         source_preview = self._normalize_query_fragment(
-                            getattr(top_result, "original_text", "") or getattr(top_result, "text", ""),
+                            getattr(top_result, "original_text", "")
+                            or getattr(top_result, "text", ""),
                             max_chars=200,
                         )
                     source_text = (
@@ -1604,10 +1641,27 @@ CRITICAL INSTRUCTIONS:
         system_prompt: str | None = None,
         model: str | None = None,
     ) -> dict[str, Any]:
-        """
-        Extract structured data using a deployable schema/prompt snapshot.
+        """Extract structured data using a deployable schema/prompt snapshot.
 
-        This does not require document ingestion, classification, or annotation persistence.
+        Parameters
+        ----------
+        content : str
+            Raw document text content.
+        filename : str
+            Document filename for logging.
+        document_type_name : str
+            Name of the document type.
+        schema_fields : list of SchemaField
+            Fields to extract.
+        system_prompt : str or None, optional
+            System prompt override.
+        model : str or None, optional
+            Model override.
+
+        Returns
+        -------
+        dict
+            Extracted field values keyed by field name.
         """
         if not schema_fields:
             raise ValueError("Deployment snapshot has no schema fields")
@@ -1668,19 +1722,36 @@ Extract all fields according to the schema. Return null for fields that cannot b
         system_prompt: str | None = None,
         model: str | None = None,
     ) -> dict[str, Any]:
-        """
-        Deployment-path extraction that respects extraction_method per field.
+        """Deployment-path extraction that routes fields by extraction_method.
 
-        For retrieval_table fields: scans raw content for markdown tables without
-        needing a stored document or vector index.
-        For all other fields: delegates to the standard LLM snapshot extraction.
+        Parameters
+        ----------
+        content : str
+            Raw document text content.
+        filename : str
+            Document filename for logging.
+        document_type_name : str
+            Name of the document type.
+        schema_fields : list of SchemaField
+            Fields to extract.
+        system_prompt : str or None, optional
+            System prompt override.
+        model : str or None, optional
+            Model override.
+
+        Returns
+        -------
+        dict
+            Extracted field values keyed by field name.
         """
         retrieval_table_fields = [
-            f for f in schema_fields
+            f
+            for f in schema_fields
             if getattr(f, "extraction_method", None) == ExtractionMethod.RETRIEVAL_TABLE
         ]
         llm_fields = [
-            f for f in schema_fields
+            f
+            for f in schema_fields
             if getattr(f, "extraction_method", None) != ExtractionMethod.RETRIEVAL_TABLE
         ]
 
@@ -1690,7 +1761,8 @@ Extract all fields according to the schema. Return null for fields that cannot b
         if retrieval_table_fields:
             all_table_blocks = self._extract_table_blocks_from_content(content)
             logger.info(
-                "[SNAPSHOT] Found %d markdown table block(s) in content for retrieval_table routing",
+                "[SNAPSHOT] Found %d markdown table block(s) in content "
+                "for retrieval_table routing",
                 len(all_table_blocks),
             )
             for field in retrieval_table_fields:
@@ -1743,13 +1815,6 @@ Extract all fields according to the schema. Return null for fields that cannot b
         return result
 
     def _extract_table_blocks_from_content(self, content: str) -> list[str]:
-        """
-        Split raw markdown content into individual table blocks.
-
-        A table block is a contiguous group of lines that start and end with '|'.
-        We keep a window of surrounding context lines so that keyword matching
-        against the field query can see section headings near the table.
-        """
         lines = content.split("\n")
         blocks: list[str] = []
         i = 0
@@ -1758,7 +1823,11 @@ Extract all fields according to the schema. Return null for fields that cannot b
                 # Capture up to 5 context lines before the table
                 context_start = max(0, i - 5)
                 j = i
-                while j < len(lines) and lines[j].strip().startswith("|") and lines[j].strip().endswith("|"):
+                while (
+                    j < len(lines)
+                    and lines[j].strip().startswith("|")
+                    and lines[j].strip().endswith("|")
+                ):
                     j += 1
                 block_lines = lines[context_start:j]
                 blocks.append("\n".join(block_lines))

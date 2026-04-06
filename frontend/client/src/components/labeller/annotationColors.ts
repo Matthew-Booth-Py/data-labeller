@@ -20,7 +20,9 @@ function parseColor(color: string): RgbColor | null {
 
   if (normalized.startsWith("#")) {
     const rawHex =
-      normalized.length === 4 ? expandShortHex(normalized) : normalized.slice(1);
+      normalized.length === 4
+        ? expandShortHex(normalized)
+        : normalized.slice(1);
     if (rawHex.length !== 6 || /[^0-9a-f]/i.test(rawHex)) {
       return null;
     }

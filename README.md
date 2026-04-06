@@ -37,7 +37,7 @@ The strongest product signals in the code are:
 
 ### 1. Create a workspace
 
-The frontend groups work into "projects". In the current implementation, those project records live in browser `localStorage`, not a backend `projects` table.
+The frontend groups work into "projects". Project records are persisted in the backend (`/api/v1/projects`) and associated with their documents, schemas, labels, and deployment versions.
 
 ### 2. Ingest documents
 
@@ -82,7 +82,7 @@ Evaluation compares extracted output against approved labels and computes qualit
 - Celery worker for retrieval indexing and async evaluation tasks
 - PostgreSQL for persistent app data
 - Redis for Celery broker/result backend
-- Chroma/BM25-based contextual retrieval stack
+- Qdrant, Chroma, and BM25-based contextual retrieval stack
 - OpenAI or Azure OpenAI for classification, field suggestion, extraction, and evaluation
 
 ### Frontend
@@ -124,7 +124,7 @@ PDFs receive special handling. Bordered tables are converted into markdown table
 
 ## Running With Docker Compose
 
-Docker Compose is the most reliable way to run the full stack because it brings up PostgreSQL, Redis, the backend, the frontend, and the Celery worker together.
+Docker Compose is the most reliable way to run the full stack because it brings up PostgreSQL, Redis, Qdrant, the backend, the frontend, and the Celery worker together.
 
 ### Prerequisites
 
@@ -147,6 +147,26 @@ export USE_AZURE_OPENAI=true
 export AZURE_OPENAI_ENDPOINT=...
 export AZURE_OPENAI_API_KEY=...
 export AZURE_OPENAI_API_VERSION=2024-12-01-preview
+```
+
+### Optional environment
+
+These variables are not required but enable additional capabilities:
+
+```bash
+# Override the model used for extraction and classification (defaults to a GPT-4o variant)
+export OPENAI_MODEL=gpt-4o
+
+# Override the model used for context generation during retrieval indexing
+export CONTEXT_MODEL=gpt-4o-mini
+
+# Azure Document Intelligence for OCR-quality PDF extraction
+export AZURE_DI_ENDPOINT=...
+export AZURE_DI_KEY=...
+
+# Cohere reranking to improve retrieval quality
+export CO_API_KEY=...
+export CO_RERANK_ENDPOINT=...
 ```
 
 ### Start the stack
@@ -212,7 +232,7 @@ If you run the frontend on an origin other than `http://localhost:3000`, update 
 - Extraction aims to preserve raw source values exactly rather than normalizing them.
 - Evaluation is grounded in stored ground-truth annotations, not just ad hoc comparison.
 - Deployment versions are immutable snapshots of schema, prompts, and model settings for a given workspace.
-- The frontend "project" concept is currently a UI workspace record. The backend persists documents, schemas, labels, evaluations, and deployment versions, but not a standalone `projects` table.
+- The frontend "project" concept maps to a backend-persisted project record. The backend stores documents, schemas, labels, evaluations, and deployment versions, all associated with a project.
 
 ## Key Endpoints
 
@@ -281,7 +301,7 @@ curl -X POST http://localhost:8000/api/v1/deployments/projects/<project_id>/extr
 backend/   Django API, models, services, Celery tasks, tests
 frontend/  React application, frontend shell server, styling
 docs/      supporting notes, guides, and implementation docs
-data/      local runtime data such as Chroma persistence
+data/      local runtime data: document files, retrieval artifacts, Qdrant PDF storage
 ```
 
 ## Testing

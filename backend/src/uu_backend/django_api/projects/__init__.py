@@ -1,2 +1,1 @@
 """Projects API endpoints."""
-

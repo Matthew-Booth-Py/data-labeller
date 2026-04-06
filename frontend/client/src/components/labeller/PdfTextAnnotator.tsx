@@ -126,9 +126,7 @@ function prettifyTableColumnLabel(key: string): string {
 
 function parseHierarchyPath(value: unknown): string[] {
   if (Array.isArray(value)) {
-    return value
-      .map((item) => String(item).trim())
-      .filter(Boolean);
+    return value.map((item) => String(item).trim()).filter(Boolean);
   }
 
   return String(value ?? "")
@@ -159,7 +157,10 @@ function buildSpreadsheetPreview(overlay: TableOverlay): {
     const headerKey = key.replace(/_value$/, "_header");
     const headerLabel = overlay.rows
       .map((row) => row.values[headerKey])
-      .find((value) => value !== null && value !== undefined && String(value).trim() !== "");
+      .find(
+        (value) =>
+          value !== null && value !== undefined && String(value).trim() !== "",
+      );
 
     columns.push({
       key,
@@ -196,7 +197,7 @@ function buildSpreadsheetPreview(overlay: TableOverlay): {
       rowValues.__metric =
         hierarchyPath.length > 1
           ? hierarchyPath.slice(1).join(" > ")
-          : hierarchyPath[0] ?? "—";
+          : (hierarchyPath[0] ?? "—");
     }
 
     for (const column of visibleColumns) {
@@ -430,7 +431,12 @@ export function PdfTextAnnotator({
         (bboxData as { instance_num?: number | string }).instance_num,
       );
 
-      if (!bbox || !pageNum || !Number.isFinite(instanceNum) || instanceNum < 1) {
+      if (
+        !bbox ||
+        !pageNum ||
+        !Number.isFinite(instanceNum) ||
+        instanceNum < 1
+      ) {
         return;
       }
 
@@ -513,9 +519,7 @@ export function PdfTextAnnotator({
     // corresponding cell-level overlay yet still deserve a hover card so the
     // user gets feedback immediately after drawing.
     const tableEntityNames = new Set(
-      entityTypes
-        .filter((et) => et.fieldKind === "table")
-        .map((et) => et.name),
+      entityTypes.filter((et) => et.fieldKind === "table").map((et) => et.name),
     );
     annotations.forEach((annotation) => {
       if (annotation.annotation_type !== "bbox") return;
@@ -529,7 +533,9 @@ export function PdfTextAnnotator({
 
       // Skip if a cell-level overlay already covers this group
       const hasCellLevelOverlay = overlaysByPage[pageNum]?.some(
-        (o) => o.groupName === annotation.field_name && o.allAnnotationIds.length > 1,
+        (o) =>
+          o.groupName === annotation.field_name &&
+          o.allAnnotationIds.length > 1,
       );
       if (hasCellLevelOverlay) return;
 
@@ -538,18 +544,20 @@ export function PdfTextAnnotator({
       const valueRows: Array<Record<string, unknown>> = Array.isArray(rawValue)
         ? rawValue.filter((r) => r && typeof r === "object")
         : [];
-      const valueColumns = valueRows.length > 0
-        ? Array.from(new Set(valueRows.flatMap((r) => Object.keys(r))))
-        : [];
+      const valueColumns =
+        valueRows.length > 0
+          ? Array.from(new Set(valueRows.flatMap((r) => Object.keys(r))))
+          : [];
       const previewRows: TablePreviewRow[] = valueRows.map((vals, i) => ({
         rowNumber: i + 1,
         values: vals,
       }));
 
       const overlayKey = `${pageNum}:${annotation.field_name}`;
-      const existingIdx = overlaysByPage[pageNum]?.findIndex(
-        (o) => o.groupName === annotation.field_name,
-      ) ?? -1;
+      const existingIdx =
+        overlaysByPage[pageNum]?.findIndex(
+          (o) => o.groupName === annotation.field_name,
+        ) ?? -1;
 
       const overlay: TableOverlay = {
         id: overlayKey,
@@ -593,7 +601,13 @@ export function PdfTextAnnotator({
     });
 
     return overlaysByPage;
-  }, [annotations, entityTypes, getAnnotationPage, getEntityColor, normalizeBBox]);
+  }, [
+    annotations,
+    entityTypes,
+    getAnnotationPage,
+    getEntityColor,
+    normalizeBBox,
+  ]);
 
   useEffect(() => {
     setHoveredTableOverlayId(null);
@@ -783,17 +797,11 @@ export function PdfTextAnnotator({
           const rect = pageEl.getBoundingClientRect();
           const xPct = Math.max(
             0,
-            Math.min(
-              100,
-              ((event.clientX - rect.left) / rect.width) * 100,
-            ),
+            Math.min(100, ((event.clientX - rect.left) / rect.width) * 100),
           );
           const yPct = Math.max(
             0,
-            Math.min(
-              100,
-              ((event.clientY - rect.top) / rect.height) * 100,
-            ),
+            Math.min(100, ((event.clientY - rect.top) / rect.height) * 100),
           );
           const x = Math.min(state.startXPct, xPct);
           const y = Math.min(state.startYPct, yPct);
@@ -808,11 +816,7 @@ export function PdfTextAnnotator({
               height: h,
               text: "",
             };
-            onAnnotationCreate(
-              activeEntityTypeRef.current.name,
-              null,
-              bbox,
-            );
+            onAnnotationCreate(activeEntityTypeRef.current.name, null, bbox);
           }
         }
         return;
@@ -1037,16 +1041,16 @@ export function PdfTextAnnotator({
   // Render annotation highlights on a page
   const renderAnnotationHighlights = (pageNum: number) => {
     const tableEntityNames = new Set(
-      entityTypes
-        .filter((et) => et.fieldKind === "table")
-        .map((et) => et.name),
+      entityTypes.filter((et) => et.fieldKind === "table").map((et) => et.name),
     );
     const pageAnnotations = annotations.filter(
       (a) =>
         a.annotation_type === "bbox" &&
         getAnnotationPage(a) === pageNum &&
         // Exclude cell-level annotations (handled by table overlays)
-        !(a.field_name.includes(".") && getAnnotationInstanceNumber(a) !== null) &&
+        !(
+          a.field_name.includes(".") && getAnnotationInstanceNumber(a) !== null
+        ) &&
         // Exclude whole-table bbox annotations (also handled by table overlays now)
         !tableEntityNames.has(a.field_name),
     );
@@ -1220,52 +1224,15 @@ export function PdfTextAnnotator({
                 </div>
               ) : null}
 
-              {overlay.totalRows > 0 && <div className="dl-table-preview-scroll">
-                <table className="dl-table-preview-table">
-                  <thead>
-                    <tr>
-                      <th>Row</th>
-                      {preview.columns.map((column) => (
-                        <th
-                          key={`${overlay.id}-${column.key}`}
-                          className={
-                            column.key === "__section"
-                              ? "dl-table-preview-col-section"
-                              : column.key === "__metric"
-                                ? "dl-table-preview-col-metric"
-                                : column.align === "right"
-                                  ? "dl-table-preview-col-value"
-                                  : undefined
-                          }
-                        >
-                          {column.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {preview.rows.map((row: any) => (
-                      <tr key={`${overlay.id}-row-${row.__row}`}>
-                        <td className="dl-table-preview-rownum">{row.__row}</td>
-                        {false && preview.columns.map((column: any) => (
-                          <td
-                            key={`${overlay.id}-${row.__row}-${column.key}`}
-                            className={
-                              column.key === "__section"
-                                ? "dl-table-preview-col-section"
-                                : column.key === "__metric"
-                                  ? "dl-table-preview-col-metric"
-                                  : column.align === "right"
-                                    ? "dl-table-preview-col-value"
-                                    : undefined
-                            }
-                          >
-                            {row.values[column] || "—"}
-                          </td>
-                        ))}
+              {overlay.totalRows > 0 && (
+                <div className="dl-table-preview-scroll">
+                  <table className="dl-table-preview-table">
+                    <thead>
+                      <tr>
+                        <th>Row</th>
                         {preview.columns.map((column) => (
-                          <td
-                            key={`${overlay.id}-${row.__row}-${column.key}-preview`}
+                          <th
+                            key={`${overlay.id}-${column.key}`}
                             className={
                               column.key === "__section"
                                 ? "dl-table-preview-col-section"
@@ -1276,14 +1243,56 @@ export function PdfTextAnnotator({
                                     : undefined
                             }
                           >
-                            {String(row[column.key] ?? "—")}
-                          </td>
+                            {column.label}
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>}
+                    </thead>
+                    <tbody>
+                      {preview.rows.map((row: any) => (
+                        <tr key={`${overlay.id}-row-${row.__row}`}>
+                          <td className="dl-table-preview-rownum">
+                            {row.__row}
+                          </td>
+                          {false &&
+                            preview.columns.map((column: any) => (
+                              <td
+                                key={`${overlay.id}-${row.__row}-${column.key}`}
+                                className={
+                                  column.key === "__section"
+                                    ? "dl-table-preview-col-section"
+                                    : column.key === "__metric"
+                                      ? "dl-table-preview-col-metric"
+                                      : column.align === "right"
+                                        ? "dl-table-preview-col-value"
+                                        : undefined
+                                }
+                              >
+                                {row.values[column] || "—"}
+                              </td>
+                            ))}
+                          {preview.columns.map((column) => (
+                            <td
+                              key={`${overlay.id}-${row.__row}-${column.key}-preview`}
+                              className={
+                                column.key === "__section"
+                                  ? "dl-table-preview-col-section"
+                                  : column.key === "__metric"
+                                    ? "dl-table-preview-col-metric"
+                                    : column.align === "right"
+                                      ? "dl-table-preview-col-value"
+                                      : undefined
+                              }
+                            >
+                              {String(row[column.key] ?? "—")}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               {overlay.totalRows > 0 && hiddenColumnCount > 0 && (
                 <div className="dl-table-preview-footnote">
@@ -1386,9 +1395,7 @@ export function PdfTextAnnotator({
 
     // Entity names that represent whole-table fields
     const tableEntityNames = new Set(
-      entityTypes
-        .filter((et) => et.fieldKind === "table")
-        .map((et) => et.name),
+      entityTypes.filter((et) => et.fieldKind === "table").map((et) => et.name),
     );
 
     // Separate table-cell suggestions (grouped) from individual field suggestions
@@ -1468,7 +1475,8 @@ export function PdfTextAnnotator({
       const unionBottom = Math.max(...bboxes.map((b) => b.y + b.height));
       const rowCount = new Set(
         groupSugs.map(
-          (sug) => (sug.annotation_data as Record<string, unknown>)?.instance_num,
+          (sug) =>
+            (sug.annotation_data as Record<string, unknown>)?.instance_num,
         ),
       ).size;
       const color =
@@ -1498,7 +1506,9 @@ export function PdfTextAnnotator({
             </span>
             <button
               type="button"
-              onClick={() => groupSugs.forEach((sug) => onSuggestionApprove?.(sug))}
+              onClick={() =>
+                groupSugs.forEach((sug) => onSuggestionApprove?.(sug))
+              }
               className="dl-popup-action approve"
               title="Accept all rows"
             >
@@ -1677,12 +1687,8 @@ export function PdfTextAnnotator({
                         ? "none"
                         : undefined,
                   }}
-                  onMouseDown={(event) =>
-                    handlePageMouseDown(index + 1, event)
-                  }
-                  onMouseMove={(event) =>
-                    handlePageMouseMove(index + 1, event)
-                  }
+                  onMouseDown={(event) => handlePageMouseDown(index + 1, event)}
+                  onMouseMove={(event) => handlePageMouseMove(index + 1, event)}
                   onMouseLeave={() => setHoveredTableOverlayId(null)}
                 >
                   <Page
@@ -1714,7 +1720,8 @@ export function PdfTextAnnotator({
 
                   {/* Live draw rectangle for table bbox */}
                   {drawState &&
-                    drawState.pageNum === index + 1 && (() => {
+                    drawState.pageNum === index + 1 &&
+                    (() => {
                       const x = Math.min(
                         drawState.startXPct,
                         drawState.currentXPct,

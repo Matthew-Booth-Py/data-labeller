@@ -70,6 +70,7 @@ class DeploymentsPrefixView(APIView):
     permission_classes: list = []
 
     def post(self, request, subpath: str):
+        """Handle POST requests for deployment prefix routes."""
         repository = get_repository()
         parts = [part for part in subpath.strip("/").split("/") if part]
         body = request.data if isinstance(request.data, dict) else {}
@@ -164,6 +165,7 @@ class DeploymentsPrefixView(APIView):
         return Response({"detail": "Not Found"}, status=404)
 
     def get(self, request, subpath: str):
+        """Handle GET requests for deployment prefix routes."""
         repository = get_repository()
         parts = [part for part in subpath.strip("/").split("/") if part]
         if len(parts) == 3 and parts[0] == "projects" and parts[2] == "versions":

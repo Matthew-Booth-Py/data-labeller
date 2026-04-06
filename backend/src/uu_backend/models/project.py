@@ -43,4 +43,3 @@ class ProjectResponse(BaseModel):
 class ProjectListResponse(BaseModel):
     projects: list[Project]
     total: int
-

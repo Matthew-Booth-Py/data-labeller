@@ -63,14 +63,17 @@ class OpenAIEmbedder:
         return self._dimensions.get(self.model, 1536)
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        """
-        Generate embeddings for a list of texts.
+        """Generate embeddings for a list of texts.
 
-        Args:
-            texts: List of text strings to embed
+        Parameters
+        ----------
+        texts : Sequence[str]
+            Text strings to embed.
 
-        Returns:
-            List of embedding vectors
+        Returns
+        -------
+        list[list[float]]
+            List of embedding vectors.
         """
         if not texts:
             return []
@@ -91,29 +94,32 @@ class OpenAIEmbedder:
         return all_embeddings
 
     def embed_single(self, text: str) -> list[float]:
-        """
-        Generate embedding for a single text.
+        """Generate embedding for a single text.
 
-        Args:
-            text: Text string to embed
+        Parameters
+        ----------
+        text : str
+            Text string to embed.
 
-        Returns:
-            Embedding vector
+        Returns
+        -------
+        list[float]
+            Embedding vector.
         """
         embeddings = self.embed([text])
         return embeddings[0] if embeddings else []
 
     def embed_query(self, query: str) -> list[float]:
-        """
-        Generate embedding for a search query.
+        """Generate embedding for a search query.
 
-        This is an alias for embed_single, but could be customized
-        for query-specific embedding if needed.
+        Parameters
+        ----------
+        query : str
+            Search query text.
 
-        Args:
-            query: Search query text
-
-        Returns:
-            Query embedding vector
+        Returns
+        -------
+        list[float]
+            Query embedding vector.
         """
         return self.embed_single(query)

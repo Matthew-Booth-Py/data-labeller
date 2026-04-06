@@ -8,8 +8,8 @@ from celery import shared_task
 from uu_backend.config import get_settings
 from uu_backend.ingestion.converter import extract_pdf_with_tables, postprocess_markdown
 from uu_backend.repositories.document_repository import get_document_repository
-from uu_backend.services.pdf_retrieval import PDF_RETRIEVAL_BACKEND
 from uu_backend.services.contextual_retrieval import get_contextual_retrieval_service
+from uu_backend.services.pdf_retrieval import PDF_RETRIEVAL_BACKEND
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,6 @@ def _resolve_document_file_path(document) -> Path | None:
 
 
 def _load_document_content_for_retrieval(document) -> str:
-    """Compatibility helper used by tests and legacy debug tooling."""
     file_type = (document.file_type or "").lower()
     if file_type == "pdf":
         file_path = _resolve_document_file_path(document)
@@ -40,15 +39,17 @@ def _load_document_content_for_retrieval(document) -> str:
                 return content
     return document.content or ""
 
+
 @shared_task(bind=True, max_retries=3)
 def index_document_for_retrieval(self, document_id: str):
-    """
-    Index a document for contextual retrieval.
+    """Index a document for contextual retrieval.
 
-    This task builds the PDF-only intelligent retrieval index.
+    Builds the PDF-only intelligent retrieval index.
 
-    Args:
-        document_id: Document ID to index
+    Parameters
+    ----------
+    document_id : str
+        Document ID to index.
     """
     from uu_backend.django_data.models import DocumentModel
 
@@ -100,7 +101,6 @@ def index_document_for_retrieval(self, document_id: str):
         last_saved_progress = {"current": -1}
 
         def _update_progress_in_db(current: int, total: int) -> None:
-            """Update progress in database - runs in separate thread."""
             try:
                 from uu_backend.django_data.models import DocumentModel
 
@@ -111,6 +111,7 @@ def index_document_for_retrieval(self, document_id: str):
                 logger.warning(f"Failed to update progress in thread: {e}")
 
         def progress_callback(stage: str, current: int, total: int) -> None:
+            """Log indexing progress and persist it to the database periodically."""
             logger.info(f"Indexing {document_id}: {stage} {current}/{total}")
             if current == total or current - last_saved_progress["current"] >= max(1, total // 10):
                 try:

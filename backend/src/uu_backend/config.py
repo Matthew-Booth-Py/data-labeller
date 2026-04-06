@@ -43,30 +43,36 @@ class Settings(BaseModel):
 
     @property
     def effective_tagging_model(self) -> str:
+        """Return the tagging model, falling back to openai_model if not explicitly set."""
         return self.openai_tagging_model or self.openai_model
 
     @property
     def effective_context_model(self) -> str:
+        """Return the context model, falling back to openai_model if not explicitly set."""
         return self.context_model or self.openai_model
 
     @property
     def effective_summary_model(self) -> str:
+        """Return the summary model, falling back to effective_context_model if not set."""
         return self.summary_model or self.effective_context_model
 
     @property
     def file_storage_path(self) -> Path:
+        """Return the file storage directory as a Path, creating it if necessary."""
         path = Path(self.file_storage_directory)
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     @property
     def retrieval_artifact_path(self) -> Path:
+        """Return the retrieval artifact directory as a Path, creating it if necessary."""
         path = Path(self.retrieval_artifact_directory)
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     @property
     def qdrant_pdf_storage_path(self) -> Path:
+        """Return the Qdrant PDF storage directory as a Path, creating it if necessary."""
         path = Path(self.qdrant_pdf_storage_directory)
         path.mkdir(parents=True, exist_ok=True)
         return path
@@ -178,4 +184,5 @@ def _build_settings_payload() -> dict[str, Any]:
 
 @lru_cache
 def get_settings() -> Settings:
+    """Return the application settings singleton, built and cached on first call."""
     return Settings(**_build_settings_payload())

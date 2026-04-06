@@ -25,11 +25,12 @@ class BM25Index:
         self._loaded = False
 
     def build(self, chunks: list[ContextualizedChunk]) -> None:
-        """
-        Build BM25 index from contextualized chunks.
+        """Build BM25 index from contextualized chunks.
 
-        Args:
-            chunks: List of ContextualizedChunk objects to index
+        Parameters
+        ----------
+        chunks : list[ContextualizedChunk]
+            List of ContextualizedChunk objects to index.
         """
         if not chunks:
             return
@@ -41,14 +42,15 @@ class BM25Index:
         self._save()
 
     def add(self, chunks: list[ContextualizedChunk]) -> None:
-        """
-        Add new chunks to the index (rebuilds the full index).
+        """Add new chunks to the index (rebuilds the full index).
 
-        Note: BM25Okapi doesn't support incremental updates,
-        so we rebuild the entire index.
+        BM25Okapi does not support incremental updates, so the entire index
+        is rebuilt.
 
-        Args:
-            chunks: New chunks to add
+        Parameters
+        ----------
+        chunks : list[ContextualizedChunk]
+            New chunks to add.
         """
         if not self._loaded:
             self._load()
@@ -65,16 +67,21 @@ class BM25Index:
         top_k: int = 100,
         filter_doc_id: str | None = None,
     ) -> list[SearchResult]:
-        """
-        Search for chunks matching the query.
+        """Search for chunks matching the query.
 
-        Args:
-            query: Search query text
-            top_k: Number of results to return
-            filter_doc_id: Optional document ID to filter results
+        Parameters
+        ----------
+        query : str
+            Search query text.
+        top_k : int
+            Number of results to return.
+        filter_doc_id : str or None
+            Optional document ID to filter results.
 
-        Returns:
-            List of SearchResult objects sorted by BM25 score
+        Returns
+        -------
+        list[SearchResult]
+            List of SearchResult objects sorted by BM25 score.
         """
         if not self._loaded:
             self._load()
@@ -114,14 +121,17 @@ class BM25Index:
         return results
 
     def delete_document(self, doc_id: str) -> int:
-        """
-        Delete all chunks for a document and rebuild index.
+        """Delete all chunks for a document and rebuild the index.
 
-        Args:
-            doc_id: Document ID to delete
+        Parameters
+        ----------
+        doc_id : str
+            Document ID to delete.
 
-        Returns:
-            Number of chunks deleted
+        Returns
+        -------
+        int
+            Number of chunks deleted.
         """
         if not self._loaded:
             self._load()
@@ -141,19 +151,12 @@ class BM25Index:
         return deleted
 
     def _tokenize(self, text: str) -> list[str]:
-        """
-        Tokenize text for BM25.
-
-        Simple whitespace tokenization with lowercasing and
-        basic punctuation removal.
-        """
         text = text.lower()
         text = re.sub(r"[^\w\s]", " ", text)
         tokens = text.split()
         return [t for t in tokens if len(t) > 1]
 
     def _save(self) -> None:
-        """Save the index to disk."""
         path = Path(self.storage_path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -167,7 +170,6 @@ class BM25Index:
             )
 
     def _load(self) -> None:
-        """Load the index from disk."""
         path = Path(self.storage_path)
 
         if path.exists():

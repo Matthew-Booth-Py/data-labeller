@@ -42,18 +42,25 @@ class HybridRetriever:
         filter_doc_id: str | None = None,
         use_reranking: bool = True,
     ) -> list[SearchResult]:
-        """
-        Retrieve relevant chunks using hybrid search.
+        """Retrieve relevant chunks using hybrid search.
 
-        Args:
-            query: Search query
-            top_k_initial: Number of candidates from each search method
-            top_k_final: Final number of results after reranking
-            filter_doc_id: Optional document ID to filter results
-            use_reranking: Whether to apply reranking
+        Parameters
+        ----------
+        query : str
+            Search query.
+        top_k_initial : int
+            Number of candidates fetched from each search method.
+        top_k_final : int
+            Final number of results returned after reranking.
+        filter_doc_id : str, optional
+            Restrict results to a specific document.
+        use_reranking : bool
+            Whether to apply reranking on the fused candidates.
 
-        Returns:
-            List of SearchResult objects sorted by relevance
+        Returns
+        -------
+        list[SearchResult]
+            Results sorted by relevance.
         """
         logger.debug("[Retriever] Embedding query...")
         query_embedding = self.embedder.embed_query(query)
@@ -99,16 +106,21 @@ class HybridRetriever:
         top_k: int = 20,
         filter_doc_id: str | None = None,
     ) -> list[SearchResult]:
-        """
-        Retrieve using only vector search (no BM25 or reranking).
+        """Retrieve using only vector search (no BM25 or reranking).
 
-        Args:
-            query: Search query
-            top_k: Number of results to return
-            filter_doc_id: Optional document ID to filter
+        Parameters
+        ----------
+        query : str
+            Search query.
+        top_k : int
+            Number of results to return.
+        filter_doc_id : str, optional
+            Restrict results to a specific document.
 
-        Returns:
-            List of SearchResult objects
+        Returns
+        -------
+        list[SearchResult]
+            Vector-ranked results.
         """
         query_embedding = self.embedder.embed_query(query)
         return self.vector_store.search(
@@ -123,16 +135,21 @@ class HybridRetriever:
         top_k: int = 20,
         filter_doc_id: str | None = None,
     ) -> list[SearchResult]:
-        """
-        Retrieve using only BM25 search (no vector search or reranking).
+        """Retrieve using only BM25 keyword search (no vector search or reranking).
 
-        Args:
-            query: Search query
-            top_k: Number of results to return
-            filter_doc_id: Optional document ID to filter
+        Parameters
+        ----------
+        query : str
+            Search query.
+        top_k : int
+            Number of results to return.
+        filter_doc_id : str, optional
+            Restrict results to a specific document.
 
-        Returns:
-            List of SearchResult objects
+        Returns
+        -------
+        list[SearchResult]
+            BM25-ranked results.
         """
         return self.bm25_index.search(
             query,
@@ -145,18 +162,6 @@ class HybridRetriever:
         *result_lists: list[SearchResult],
         k: int = 60,
     ) -> list[SearchResult]:
-        """
-        Combine multiple ranked lists using Reciprocal Rank Fusion.
-
-        RRF Score = sum(1 / (k + rank_i)) for each list
-
-        Args:
-            result_lists: Multiple lists of SearchResult objects
-            k: RRF constant (default 60, as per original paper)
-
-        Returns:
-            Fused list sorted by combined RRF score
-        """
         scores: dict[str, dict] = {}
 
         for results in result_lists:

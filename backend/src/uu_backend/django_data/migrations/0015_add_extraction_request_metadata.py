@@ -15,33 +15,31 @@ def ensure_request_metadata_column(apps, schema_editor):
         if connection.vendor == "postgresql":
             schema_editor.execute(
                 'ALTER TABLE "extractions" '
-                'ADD COLUMN "request_metadata" jsonb NOT NULL DEFAULT \'{}\'::jsonb'
+                "ADD COLUMN \"request_metadata\" jsonb NOT NULL DEFAULT '{}'::jsonb"
             )
         else:
             schema_editor.execute(
                 'ALTER TABLE "extractions" '
-                'ADD COLUMN "request_metadata" TEXT NOT NULL DEFAULT \'{}\''
+                "ADD COLUMN \"request_metadata\" TEXT NOT NULL DEFAULT '{}'"
             )
         return
 
     if connection.vendor == "postgresql":
         schema_editor.execute(
             'UPDATE "extractions" '
-            'SET "request_metadata" = \'{}\'::jsonb '
+            "SET \"request_metadata\" = '{}'::jsonb "
             'WHERE "request_metadata" IS NULL'
         )
         schema_editor.execute(
-            'ALTER TABLE "extractions" '
-            'ALTER COLUMN "request_metadata" SET DEFAULT \'{}\'::jsonb'
+            'ALTER TABLE "extractions" ' "ALTER COLUMN \"request_metadata\" SET DEFAULT '{}'::jsonb"
         )
         schema_editor.execute(
-            'ALTER TABLE "extractions" '
-            'ALTER COLUMN "request_metadata" SET NOT NULL'
+            'ALTER TABLE "extractions" ' 'ALTER COLUMN "request_metadata" SET NOT NULL'
         )
     else:
         schema_editor.execute(
             'UPDATE "extractions" '
-            'SET "request_metadata" = \'{}\' '
+            "SET \"request_metadata\" = '{}' "
             'WHERE "request_metadata" IS NULL'
         )
 

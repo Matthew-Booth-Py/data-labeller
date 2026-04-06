@@ -8,7 +8,9 @@ import pytest
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "uu_backend.django_project.settings.test")
 django.setup()
 
-from uu_backend.services.annotation_suggestion_service import AnnotationSuggestionService
+from uu_backend.services.annotation_suggestion_service import (  # noqa: E402
+    AnnotationSuggestionService,
+)
 
 
 @pytest.fixture

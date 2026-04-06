@@ -236,14 +236,17 @@ export function EvaluateView({ projectId }: { projectId?: string }) {
     onSuccess: (_, deletedId) => {
       // Immediately remove the deleted run from the cache so the auto-select
       // useEffect never sees stale data and re-selects a deleted run.
-      queryClient.setQueryData(
-        ["evaluations", projectId],
-        (old: any) =>
-          old
-            ? { ...old, runs: (old.runs || []).filter((r: any) => r.id !== deletedId) }
-            : old,
+      queryClient.setQueryData(["evaluations", projectId], (old: any) =>
+        old
+          ? {
+              ...old,
+              runs: (old.runs || []).filter((r: any) => r.id !== deletedId),
+            }
+          : old,
       );
-      queryClient.removeQueries({ queryKey: ["evaluation-details", deletedId] });
+      queryClient.removeQueries({
+        queryKey: ["evaluation-details", deletedId],
+      });
       queryClient.invalidateQueries({ queryKey: ["evaluation-summary"] });
 
       const remainingRuns = (evaluationsData?.runs || []).filter(
@@ -366,11 +369,14 @@ export function EvaluateView({ projectId }: { projectId?: string }) {
       { correct: number; total: number; incorrect: number; missing: number }
     > = {};
 
-    for (const metric of Object.values(evaluation.result.metrics.field_metrics)) {
+    for (const metric of Object.values(
+      evaluation.result.metrics.field_metrics,
+    )) {
       const leaf = metric.field_name.split(".").pop() || metric.field_name;
       if (leaf.includes("_header")) continue;
       const parent = metric.field_name.split(".")[0];
-      if (!groups[parent]) groups[parent] = { correct: 0, total: 0, incorrect: 0, missing: 0 };
+      if (!groups[parent])
+        groups[parent] = { correct: 0, total: 0, incorrect: 0, missing: 0 };
       groups[parent].correct += metric.correct_predictions;
       groups[parent].total += metric.total_occurrences;
       groups[parent].incorrect += metric.incorrect_predictions;
@@ -388,7 +394,6 @@ export function EvaluateView({ projectId }: { projectId?: string }) {
       }))
       .sort((a, b) => a.accuracy - b.accuracy);
   }, [evaluation]);
-
 
   const hasTopErrors =
     !!documentsError ||
@@ -718,7 +723,6 @@ export function EvaluateView({ projectId }: { projectId?: string }) {
               </CardContent>
             </Card>
           </div>
-
         </>
       )}
 
@@ -999,14 +1003,14 @@ export function EvaluateView({ projectId }: { projectId?: string }) {
                                       {allFields.map((field) => (
                                         <TableCell
                                           key={`gt-${instance.instance_num}-${field}`}
-                                            className={cn(
-                                              "text-xs",
-                                              matchStatus[field] === false &&
+                                          className={cn(
+                                            "text-xs",
+                                            matchStatus[field] === false &&
                                               gtValues[field]
-                                                ? "bg-[var(--status-error)]/10"
-                                                : "",
-                                            )}
-                                          >
+                                              ? "bg-[var(--status-error)]/10"
+                                              : "",
+                                          )}
+                                        >
                                           {formatValue(gtValues[field])}
                                         </TableCell>
                                       ))}

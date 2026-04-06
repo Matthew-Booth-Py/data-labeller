@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -10,9 +11,8 @@ from typing import Any
 from uuid import uuid4
 
 import fitz
-from PIL import Image
 from django.db import transaction
-from collections.abc import Callable
+from PIL import Image
 
 from uu_backend.config import get_settings
 from uu_backend.django_data import models as orm
@@ -26,7 +26,6 @@ from .document_intelligence import (
     NormalizedDocumentAnalysis,
     NormalizedLine,
     NormalizedPage,
-    NormalizedTable,
 )
 from .vector_index import PDFVectorIndex
 
@@ -86,6 +85,7 @@ class PDFRetrievalService:
 
     @property
     def provider(self) -> AzureDocumentIntelligenceProvider:
+        """Lazily initialised Azure Document Intelligence provider."""
         if self._provider is None:
             self._provider = AzureDocumentIntelligenceProvider(
                 endpoint=self.settings.azure_di_endpoint,
@@ -101,6 +101,7 @@ class PDFRetrievalService:
         filename: str,
         progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> int:
+        """Analyse a PDF, persist pages/tables/images, embed chunks, and return the chunk count."""
         path = Path(file_path)
         if not path.exists():
             raise ValueError(f"PDF file not found: {file_path}")
@@ -151,7 +152,9 @@ class PDFRetrievalService:
             for prepared_table in prepared_tables
         ]
         image_captions = [
-            self._caption_image(filename, prepared_image.page_model.page_number, prepared_image.surrounding_text)
+            self._caption_image(
+                filename, prepared_image.page_model.page_number, prepared_image.surrounding_text
+            )
             for prepared_image in prepared_images
         ]
 
@@ -198,6 +201,7 @@ class PDFRetrievalService:
         filter_doc_id: str | None = None,
         asset_types: set[str] | None = None,
     ) -> list[SearchResult]:
+        """Search indexed PDF chunks by semantic similarity."""
         query_embedding = self.embedder.embed_query(query)
         return self.vector_index.search(
             query_embedding,
@@ -214,6 +218,7 @@ class PDFRetrievalService:
         filter_doc_id: str,
         asset_types: set[str] | None = None,
     ) -> list[SearchResult]:
+        """Run multiple queries and return a deduplicated, score-sorted result list."""
         seen_chunk_ids: set[str] = set()
         results: list[SearchResult] = []
         for query in queries:
@@ -232,6 +237,7 @@ class PDFRetrievalService:
         return results
 
     def delete_document(self, document_id: str) -> dict[str, int]:
+        """Delete all retrieval data and artifacts for a document."""
         artifact_paths = list(
             orm.RetrievalArtifactModel.objects.filter(document_id=document_id).values_list(
                 "relative_path", flat=True
@@ -254,6 +260,7 @@ class PDFRetrievalService:
         }
 
     def get_document_chunks(self, document_id: str) -> list[dict[str, Any]]:
+        """Return all indexed chunks for a document as plain dicts."""
         rows = (
             orm.RetrievalChunkModel.objects.select_related("asset", "page")
             .filter(document_id=document_id)
@@ -275,6 +282,7 @@ class PDFRetrievalService:
         ]
 
     def get_stats(self) -> dict[str, Any]:
+        """Return summary statistics for the PDF retrieval backend."""
         return {
             "vector_store_count": self.vector_index.count(),
             "bm25_index_count": 0,
@@ -408,7 +416,9 @@ class PDFRetrievalService:
 
         stitched_groups: list[list[_TableFragment]] = []
         for fragment in fragments:
-            if stitched_groups and self._should_stitch_table_fragments(stitched_groups[-1][-1], fragment):
+            if stitched_groups and self._should_stitch_table_fragments(
+                stitched_groups[-1][-1], fragment
+            ):
                 stitched_groups[-1].append(fragment)
             else:
                 stitched_groups.append([fragment])
@@ -422,7 +432,11 @@ class PDFRetrievalService:
                 row_count -= len(group) - 1
             heading_context = self._table_heading_context(
                 page=next(
-                    (page for page in analysis.pages if page.page_number == primary.page_model.page_number),
+                    (
+                        page
+                        for page in analysis.pages
+                        if page.page_number == primary.page_model.page_number
+                    ),
                     None,
                 ),
                 bbox=primary.source_bbox,
@@ -731,7 +745,9 @@ class PDFRetrievalService:
             y1 * page_height / max(source_height, 1.0),
         ]
 
-    def _should_stitch_table_fragments(self, previous: _TableFragment, current: _TableFragment) -> bool:
+    def _should_stitch_table_fragments(
+        self, previous: _TableFragment, current: _TableFragment
+    ) -> bool:
         if current.page_model.page_number != previous.page_model.page_number + 1:
             return False
         if current.column_count != previous.column_count:
@@ -749,7 +765,10 @@ class PDFRetrievalService:
         header_signature = self._header_signature(fragments[0].markdown)
         for fragment in fragments[1:]:
             fragment_lines = self._markdown_lines(fragment.markdown)
-            if self._header_signature(fragment.markdown) == header_signature and len(fragment_lines) >= 2:
+            if (
+                self._header_signature(fragment.markdown) == header_signature
+                and len(fragment_lines) >= 2
+            ):
                 fragment_lines = fragment_lines[2:]
             merged_lines.extend(fragment_lines)
         return "\n".join(merged_lines)
@@ -821,6 +840,7 @@ _service_instance: PDFRetrievalService | None = None
 
 
 def get_pdf_retrieval_service() -> PDFRetrievalService:
+    """Return the module-level singleton PDFRetrievalService, creating it on first call."""
     global _service_instance
     if _service_instance is None:
         _service_instance = PDFRetrievalService()

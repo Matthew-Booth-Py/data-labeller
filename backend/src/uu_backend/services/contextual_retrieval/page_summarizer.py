@@ -82,6 +82,7 @@ class PageSummarizer:
         self._completed_count = 0
 
     def summarize(self, page_content: str) -> str:
+        """Generate a concise summary of a page's content for semantic search."""
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -93,6 +94,8 @@ class PageSummarizer:
         return response.choices[0].message.content or ""
 
     async def asummarize(self, page_content: str) -> str:
+        """Async variant of summarize with exponential-backoff retry on rate limits."""
+
         @retry(
             retry=retry_if_exception_type(RateLimitError),
             wait=wait_exponential(multiplier=1, min=2, max=60),
@@ -113,6 +116,7 @@ class PageSummarizer:
         return await _call_api()
 
     def summarize_page(self, chunk: Chunk) -> str:
+        """Summarize the text content of a single chunk."""
         return self.summarize(chunk.text)
 
     async def asummarize_page(
@@ -122,6 +126,7 @@ class PageSummarizer:
         progress_callback: Callable[[int, int], None] | None = None,
         total: int = 0,
     ) -> str:
+        """Async variant of summarize_page that respects a concurrency semaphore."""
         async with semaphore:
             summary = await self.asummarize(chunk.text)
 
@@ -136,6 +141,7 @@ class PageSummarizer:
         chunks: list[Chunk],
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[str]:
+        """Summarize a list of chunks synchronously, returning one summary string per chunk."""
         summaries = []
         total = len(chunks)
 
@@ -153,6 +159,7 @@ class PageSummarizer:
         chunks: list[Chunk],
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[str]:
+        """Summarize all chunks concurrently up to max_concurrency."""
         self._completed_count = 0
         total = len(chunks)
         semaphore = asyncio.Semaphore(self.max_concurrency)
@@ -168,6 +175,7 @@ class PageSummarizer:
         chunks: list[Chunk],
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[str]:
+        """Sync entry point for async page summarization; works with already-running event loops."""
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:

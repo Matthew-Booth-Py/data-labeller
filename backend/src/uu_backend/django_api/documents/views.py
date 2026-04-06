@@ -61,6 +61,7 @@ class DocumentsListView(APIView):
     permission_classes: list = []
 
     def get(self, request):
+        """List all documents with their classifications."""
         document_repo = get_document_repository()
         repository = get_repository()
         documents = document_repo.get_all_documents()
@@ -81,6 +82,7 @@ class DocumentDetailView(APIView):
     permission_classes: list = []
 
     def get(self, request, document_id: str):
+        """Get a document by ID."""
         document_repo = get_document_repository()
         document = document_repo.get_document(document_id)
         if not document:
@@ -126,6 +128,7 @@ class DocumentFileView(APIView):
     permission_classes: list = []
 
     def get(self, request, document_id: str):
+        """Serve the original file for a document."""
         document_repo = get_document_repository()
         document = document_repo.get_document(document_id)
         if not document:

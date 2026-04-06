@@ -167,7 +167,9 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
       // Save new document IDs to the project
       if (projectId && result.document_ids && result.document_ids.length > 0) {
         await api.addProjectDocuments(projectId, result.document_ids);
-        await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+        await queryClient.invalidateQueries({
+          queryKey: ["project", projectId],
+        });
         await queryClient.invalidateQueries({ queryKey: ["projects"] });
       }
 
@@ -351,8 +353,9 @@ export function DocumentPool({ projectId }: DocumentPoolProps) {
   const filteredDocs = (filteredData?.documents || []).filter((doc) =>
     doc.filename.toLowerCase().includes(searchQuery.toLowerCase()),
   );
-  const unclassifiedCount = filteredDocs.filter((doc) => !doc.document_type)
-    .length;
+  const unclassifiedCount = filteredDocs.filter(
+    (doc) => !doc.document_type,
+  ).length;
   const classifiedCount = filteredDocs.length - unclassifiedCount;
 
   const formatDate = (dateStr: string | undefined) => {

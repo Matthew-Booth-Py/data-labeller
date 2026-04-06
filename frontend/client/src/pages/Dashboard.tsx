@@ -37,10 +37,7 @@ export default function Dashboard() {
     staleTime: 30000,
   });
 
-  const projects = useMemo(
-    () => projectsData?.projects || [],
-    [projectsData],
-  );
+  const projects = useMemo(() => projectsData?.projects || [], [projectsData]);
 
   // When there's exactly one project, scope stats to it; otherwise aggregate across all
   const scopedProjectId = projects.length === 1 ? projects[0].id : undefined;
@@ -111,64 +108,66 @@ export default function Dashboard() {
             </h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Documents in System</CardDescription>
-              <CardTitle className="text-3xl">
-                {totalDocs.toLocaleString()}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-                <FileText className="h-4 w-4" />
-                {classifiedDocs.toLocaleString()} classified
-              </div>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Documents in System</CardDescription>
+                <CardTitle className="text-3xl">
+                  {totalDocs.toLocaleString()}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                  <FileText className="h-4 w-4" />
+                  {classifiedDocs.toLocaleString()} classified
+                </div>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Active Projects</CardDescription>
-              <CardTitle className="text-3xl">{projects.length}</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-                <Building2 className="h-4 w-4" />
-                Multi-project operations
-              </div>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Active Projects</CardDescription>
+                <CardTitle className="text-3xl">{projects.length}</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                  <Building2 className="h-4 w-4" />
+                  Multi-project operations
+                </div>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Document Types</CardDescription>
-              <CardTitle className="text-3xl">
-                {documentTypes?.types?.length || 0}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-                <Layers className="h-4 w-4" />
-                Schema catalog coverage
-              </div>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Document Types</CardDescription>
+                <CardTitle className="text-3xl">
+                  {documentTypes?.types?.length || 0}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                  <Layers className="h-4 w-4" />
+                  Schema catalog coverage
+                </div>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Platform Health</CardDescription>
-              <CardTitle className="text-3xl">{healthStatus}</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <Badge
-                variant={healthStatus === "Healthy" ? "primary" : "danger"}
-                className="gap-1"
-              >
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                {healthStatus === "Healthy" ? "Operational" : "Action Required"}
-              </Badge>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Platform Health</CardDescription>
+                <CardTitle className="text-3xl">{healthStatus}</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <Badge
+                  variant={healthStatus === "Healthy" ? "primary" : "danger"}
+                  className="gap-1"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  {healthStatus === "Healthy"
+                    ? "Operational"
+                    : "Action Required"}
+                </Badge>
+              </CardContent>
+            </Card>
           </div>
         </section>
 
@@ -249,7 +248,10 @@ export default function Dashboard() {
           <CardContent className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {projects.length === 0 ? (
               <div className="col-span-full rounded-lg border border-dashed border-[var(--border-strong)] p-8 text-center text-muted-foreground">
-                <p>No projects yet. Create your first project to start ingestion and schema work.</p>
+                <p>
+                  No projects yet. Create your first project to start ingestion
+                  and schema work.
+                </p>
                 <div className="mt-4">
                   <Button
                     variant="secondary"

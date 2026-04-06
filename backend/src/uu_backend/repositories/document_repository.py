@@ -10,11 +10,12 @@ class DocumentRepository:
     """Repository for document storage using Django ORM."""
 
     def add_document(self, document: Document) -> None:
-        """
-        Add a document to the database.
+        """Add a document to the database.
 
-        Args:
-            document: The document to add
+        Parameters
+        ----------
+        document : Document
+            The document to add.
         """
         DocumentModel.objects.update_or_create(
             id=document.id,
@@ -31,14 +32,17 @@ class DocumentRepository:
         )
 
     def get_document(self, document_id: str) -> Document | None:
-        """
-        Retrieve a document by ID.
+        """Retrieve a document by ID.
 
-        Args:
-            document_id: The document ID
+        Parameters
+        ----------
+        document_id : str
+            The document ID.
 
-        Returns:
-            The document or None if not found
+        Returns
+        -------
+        Document or None
+            The document, or None if not found.
         """
         try:
             doc = DocumentModel.objects.get(id=document_id)
@@ -47,34 +51,39 @@ class DocumentRepository:
             return None
 
     def get_all_documents(self) -> list[DocumentSummary]:
-        """
-        Get all documents.
+        """Get all documents.
 
-        Returns:
-            List of all document summaries
+        Returns
+        -------
+        list[DocumentSummary]
+            List of all document summaries.
         """
         docs = DocumentModel.objects.all().order_by("-created_at")
         return [self._model_to_summary(doc) for doc in docs]
 
     def delete_document(self, document_id: str) -> bool:
-        """
-        Delete a document by ID.
+        """Delete a document by ID.
 
-        Args:
-            document_id: The document ID to delete
+        Parameters
+        ----------
+        document_id : str
+            The document ID to delete.
 
-        Returns:
-            True if deleted, False if not found
+        Returns
+        -------
+        bool
+            True if deleted, False if not found.
         """
         deleted_count, _ = DocumentModel.objects.filter(id=document_id).delete()
         return deleted_count > 0
 
     def count(self) -> int:
-        """
-        Count total documents.
+        """Count total documents.
 
-        Returns:
-            Total number of documents
+        Returns
+        -------
+        int
+            Total number of documents.
         """
         return DocumentModel.objects.count()
 
@@ -86,18 +95,25 @@ class DocumentRepository:
         end_date: datetime | None = None,
         limit: int = 100,
     ) -> list[DocumentSummary]:
-        """
-        Search documents by filters.
+        """Search documents by filters.
 
-        Args:
-            query: Text search query (searches filename and content)
-            file_types: Filter by file types
-            start_date: Filter by minimum date
-            end_date: Filter by maximum date
-            limit: Maximum number of results
+        Parameters
+        ----------
+        query : str or None
+            Text search query (searches filename and content).
+        file_types : list[str] or None
+            Filter by file types.
+        start_date : datetime or None
+            Filter by minimum date.
+        end_date : datetime or None
+            Filter by maximum date.
+        limit : int
+            Maximum number of results.
 
-        Returns:
-            List of document summaries
+        Returns
+        -------
+        list[DocumentSummary]
+            List of document summaries.
         """
         queryset = DocumentModel.objects.all()
 
@@ -120,7 +136,6 @@ class DocumentRepository:
         return [self._model_to_summary(doc) for doc in queryset]
 
     def _model_to_document(self, doc: DocumentModel) -> Document:
-        """Convert Django model to Document."""
         metadata = DocumentMetadata(
             filename=doc.filename,
             file_type=doc.file_type,
@@ -145,7 +160,6 @@ class DocumentRepository:
         )
 
     def _model_to_summary(self, doc: DocumentModel) -> DocumentSummary:
-        """Convert Django model to DocumentSummary."""
         return DocumentSummary(
             id=doc.id,
             filename=doc.filename,
@@ -166,17 +180,23 @@ class DocumentRepository:
         ocr_file_path: str | None = None,
         has_text_layer: bool | None = None,
     ) -> bool:
-        """
-        Update OCR processing status for a document.
+        """Update OCR processing status for a document.
 
-        Args:
-            document_id: The document ID
-            ocr_status: Status: pending, processing, completed, failed
-            ocr_file_path: Path to OCR'd PDF (if completed)
-            has_text_layer: Whether PDF has text layer
+        Parameters
+        ----------
+        document_id : str
+            The document ID.
+        ocr_status : str
+            Status: pending, processing, completed, or failed.
+        ocr_file_path : str or None
+            Path to OCR'd PDF if completed.
+        has_text_layer : bool or None
+            Whether the PDF has a native text layer.
 
-        Returns:
-            True if updated, False if document not found
+        Returns
+        -------
+        bool
+            True if updated, False if document not found.
         """
         try:
             doc = DocumentModel.objects.get(id=document_id)

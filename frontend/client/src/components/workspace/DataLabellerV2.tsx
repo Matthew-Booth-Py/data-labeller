@@ -39,12 +39,7 @@ import {
   Check,
   X,
 } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -93,7 +88,9 @@ const isLabellerSidebarMode = (
   value: string | null,
 ): value is LabellerSidebarMode => value === "expanded" || value === "hidden";
 
-export function DataLabellerV2({ projectId: projectIdProp }: DataLabellerV2Props) {
+export function DataLabellerV2({
+  projectId: projectIdProp,
+}: DataLabellerV2Props) {
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const [mounted, setMounted] = useState(false);
 
@@ -523,7 +520,9 @@ export function DataLabellerV2({ projectId: projectIdProp }: DataLabellerV2Props
       const isTableBbox =
         !isArrayField &&
         annotationType === "bbox" &&
-        entityTypes.find((et) => et.name === fieldName && et.fieldKind === "table");
+        entityTypes.find(
+          (et) => et.name === fieldName && et.fieldKind === "table",
+        );
       if (isTableBbox) {
         handleTableRegionExtract(fieldName, data as BoundingBoxData);
         return;
@@ -1230,9 +1229,7 @@ export function DataLabellerV2({ projectId: projectIdProp }: DataLabellerV2Props
                       <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                       <Input
                         value={fieldFilter}
-                        onChange={(event) =>
-                          setFieldFilter(event.target.value)
-                        }
+                        onChange={(event) => setFieldFilter(event.target.value)}
                         placeholder="Filter fields..."
                         className="pl-8"
                       />
@@ -1249,155 +1246,156 @@ export function DataLabellerV2({ projectId: projectIdProp }: DataLabellerV2Props
                             const isExpanded =
                               isRoot || expandedGroups.has(groupName);
                             return (
-                              <div
-                                key={groupName}
-                                className="dl-entity-group"
-                              >
-                                {!isRoot && (() => {
-                                  const tableEt = entityTypes.find(
-                                    (et) =>
-                                      et.name === groupName &&
-                                      et.fieldKind === "table",
-                                  );
-                                  const isTableActive =
-                                    !!tableEt &&
-                                    activeEntityTypeId === tableEt.id;
-                                  const toggleGroup = () => {
-                                    const next = new Set(expandedGroups);
-                                    if (next.has(groupName)) {
-                                      next.delete(groupName);
-                                    } else {
-                                      next.add(groupName);
-                                    }
-                                    setExpandedGroups(next);
-                                  };
-                                  return (
-                                    <div className="dl-entity-group-header flex items-center gap-0.5">
-                                      <button
-                                        type="button"
-                                        className="flex-shrink-0 p-1 rounded hover:bg-[var(--state-hover)]"
-                                        onClick={toggleGroup}
-                                        title={
-                                          isExpanded
-                                            ? "Collapse group"
-                                            : "Expand group"
-                                        }
-                                      >
-                                        <ChevronDown
-                                          size={13}
-                                          className={cn(
-                                            "transition-transform text-[var(--text-secondary)]",
-                                            !isExpanded && "-rotate-90",
-                                          )}
-                                        />
-                                      </button>
-                                      {tableEt ? (
+                              <div key={groupName} className="dl-entity-group">
+                                {!isRoot &&
+                                  (() => {
+                                    const tableEt = entityTypes.find(
+                                      (et) =>
+                                        et.name === groupName &&
+                                        et.fieldKind === "table",
+                                    );
+                                    const isTableActive =
+                                      !!tableEt &&
+                                      activeEntityTypeId === tableEt.id;
+                                    const toggleGroup = () => {
+                                      const next = new Set(expandedGroups);
+                                      if (next.has(groupName)) {
+                                        next.delete(groupName);
+                                      } else {
+                                        next.add(groupName);
+                                      }
+                                      setExpandedGroups(next);
+                                    };
+                                    return (
+                                      <div className="dl-entity-group-header flex items-center gap-0.5">
                                         <button
                                           type="button"
-                                          className={cn(
-                                            "flex flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-xs font-medium transition-colors",
-                                            isTableActive
-                                              ? "bg-[var(--dl-accent-soft)]"
-                                              : "hover:bg-[var(--state-hover)] text-[var(--text-secondary)]",
-                                          )}
-                                          style={
-                                            isTableActive
-                                              ? { color: tableEt.color }
-                                              : undefined
+                                          className="flex-shrink-0 p-1 rounded hover:bg-[var(--state-hover)]"
+                                          onClick={toggleGroup}
+                                          title={
+                                            isExpanded
+                                              ? "Collapse group"
+                                              : "Expand group"
                                           }
-                                          onClick={() =>
-                                            setActiveEntityTypeId(
-                                              isTableActive ? null : tableEt.id,
-                                            )
-                                          }
-                                          title="Select table field — then drag on the PDF to draw a bounding box"
                                         >
-                                          <Table2
-                                            size={12}
+                                          <ChevronDown
+                                            size={13}
+                                            className={cn(
+                                              "transition-transform text-[var(--text-secondary)]",
+                                              !isExpanded && "-rotate-90",
+                                            )}
+                                          />
+                                        </button>
+                                        {tableEt ? (
+                                          <button
+                                            type="button"
+                                            className={cn(
+                                              "flex flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-xs font-medium transition-colors",
+                                              isTableActive
+                                                ? "bg-[var(--dl-accent-soft)]"
+                                                : "hover:bg-[var(--state-hover)] text-[var(--text-secondary)]",
+                                            )}
                                             style={
                                               isTableActive
                                                 ? { color: tableEt.color }
                                                 : undefined
                                             }
-                                          />
-                                          <span>{groupName}</span>
-                                          <span
-                                            className="ml-auto"
-                                            style={{
-                                              fontSize: "10px",
-                                              opacity: 0.6,
-                                            }}
+                                            onClick={() =>
+                                              setActiveEntityTypeId(
+                                                isTableActive
+                                                  ? null
+                                                  : tableEt.id,
+                                              )
+                                            }
+                                            title="Select table field — then drag on the PDF to draw a bounding box"
                                           >
-                                            {groupTypes.length}
-                                          </span>
-                                        </button>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          className="flex flex-1 items-center gap-1 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--state-hover)] rounded px-1 py-1"
-                                          onClick={toggleGroup}
-                                        >
-                                          <span>{groupName}</span>
-                                          <span className="dl-entity-group-count">
-                                            {groupTypes.length}
-                                          </span>
-                                        </button>
-                                      )}
-                                    </div>
-                                  );
-                                })()}
+                                            <Table2
+                                              size={12}
+                                              style={
+                                                isTableActive
+                                                  ? { color: tableEt.color }
+                                                  : undefined
+                                              }
+                                            />
+                                            <span>{groupName}</span>
+                                            <span
+                                              className="ml-auto"
+                                              style={{
+                                                fontSize: "10px",
+                                                opacity: 0.6,
+                                              }}
+                                            >
+                                              {groupTypes.length}
+                                            </span>
+                                          </button>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            className="flex flex-1 items-center gap-1 text-left text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--state-hover)] rounded px-1 py-1"
+                                            onClick={toggleGroup}
+                                          >
+                                            <span>{groupName}</span>
+                                            <span className="dl-entity-group-count">
+                                              {groupTypes.length}
+                                            </span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
                                 {isExpanded &&
                                   groupTypes
                                     .filter((t) => t.fieldKind !== "table")
                                     .map((type) => {
-                                    const fieldName = type.name;
-                                    const displayName =
-                                      getFieldLeafName(fieldName);
-                                    const globalIndex =
-                                      entityTypes.findIndex(
+                                      const fieldName = type.name;
+                                      const displayName =
+                                        getFieldLeafName(fieldName);
+                                      const globalIndex = entityTypes.findIndex(
                                         (et) => et.id === type.id,
                                       );
-                                    return (
-                                      <button
-                                        key={type.id}
-                                        type="button"
-                                        className={cn(
-                                          "dl-entity-type-item",
-                                          activeEntityTypeId === type.id &&
-                                            "active",
-                                        )}
-                                        style={{
-                                          ...(activeEntityTypeId === type.id
-                                            ? { color: type.color }
-                                            : undefined),
-                                          paddingLeft: isRoot ? "8px" : "24px",
-                                        }}
-                                        onClick={() =>
-                                          setActiveEntityTypeId(
-                                            activeEntityTypeId === type.id
-                                              ? null
-                                              : type.id,
-                                          )
-                                        }
-                                      >
-                                        <div
-                                          className="dl-entity-color-dot"
-                                          style={{ background: type.color }}
-                                        />
-                                        <span className="dl-entity-type-name">
-                                          {displayName}
-                                        </span>
-                                        {globalIndex < 9 && (
-                                          <span className="dl-kbd">
-                                            {globalIndex + 1}
+                                      return (
+                                        <button
+                                          key={type.id}
+                                          type="button"
+                                          className={cn(
+                                            "dl-entity-type-item",
+                                            activeEntityTypeId === type.id &&
+                                              "active",
+                                          )}
+                                          style={{
+                                            ...(activeEntityTypeId === type.id
+                                              ? { color: type.color }
+                                              : undefined),
+                                            paddingLeft: isRoot
+                                              ? "8px"
+                                              : "24px",
+                                          }}
+                                          onClick={() =>
+                                            setActiveEntityTypeId(
+                                              activeEntityTypeId === type.id
+                                                ? null
+                                                : type.id,
+                                            )
+                                          }
+                                        >
+                                          <div
+                                            className="dl-entity-color-dot"
+                                            style={{ background: type.color }}
+                                          />
+                                          <span className="dl-entity-type-name">
+                                            {displayName}
                                           </span>
-                                        )}
-                                        <span className="dl-entity-type-count">
-                                          {entityCounts[fieldName] || 0}
-                                        </span>
-                                      </button>
-                                    );
-                                  })}
+                                          {globalIndex < 9 && (
+                                            <span className="dl-kbd">
+                                              {globalIndex + 1}
+                                            </span>
+                                          )}
+                                          <span className="dl-entity-type-count">
+                                            {entityCounts[fieldName] || 0}
+                                          </span>
+                                        </button>
+                                      );
+                                    })}
                               </div>
                             );
                           },
@@ -1455,14 +1453,18 @@ export function DataLabellerV2({ projectId: projectIdProp }: DataLabellerV2Props
                               .filter((et) => et.fieldKind === "table")
                               .map((et) => et.name),
                           );
-                          const tableGroupMap = new Map<string, typeof suggestions>();
+                          const tableGroupMap = new Map<
+                            string,
+                            typeof suggestions
+                          >();
                           const individualSugs: typeof suggestions = [];
                           for (const s of suggestions) {
                             const prefix = s.field_name.includes(".")
                               ? s.field_name.split(".")[0]
                               : null;
                             if (prefix && tableNames.has(prefix)) {
-                              if (!tableGroupMap.has(prefix)) tableGroupMap.set(prefix, []);
+                              if (!tableGroupMap.has(prefix))
+                                tableGroupMap.set(prefix, []);
                               tableGroupMap.get(prefix)!.push(s);
                             } else {
                               individualSugs.push(s);
@@ -1471,107 +1473,119 @@ export function DataLabellerV2({ projectId: projectIdProp }: DataLabellerV2Props
                           return (
                             <>
                               {/* Table group cards — one per table field */}
-                              {Array.from(tableGroupMap.entries()).map(([prefix, groupSugs]) => {
-                                const rowCount = new Set(
-                                  groupSugs.map(
-                                    (s) =>
-                                      (s.annotation_data as Record<string, unknown>)?.instance_num,
-                                  ),
-                                ).size;
-                                const color =
-                                  entityTypes.find((et) => et.name === prefix)?.color;
-                                return (
-                                  <div
-                                    key={`table-group-${prefix}`}
-                                    className="rounded-md border border-[var(--border-subtle)] bg-white p-2"
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="flex items-center gap-1.5 text-xs font-medium">
-                                        <span
-                                          className="inline-block h-2.5 w-2.5 rounded-full"
-                                          style={{ background: color }}
-                                        />
-                                        {prefix}
-                                      </span>
-                                      <Badge variant="outline">
-                                        {rowCount} row{rowCount !== 1 ? "s" : ""}
-                                      </Badge>
+                              {Array.from(tableGroupMap.entries()).map(
+                                ([prefix, groupSugs]) => {
+                                  const rowCount = new Set(
+                                    groupSugs.map(
+                                      (s) =>
+                                        (
+                                          s.annotation_data as Record<
+                                            string,
+                                            unknown
+                                          >
+                                        )?.instance_num,
+                                    ),
+                                  ).size;
+                                  const color = entityTypes.find(
+                                    (et) => et.name === prefix,
+                                  )?.color;
+                                  return (
+                                    <div
+                                      key={`table-group-${prefix}`}
+                                      className="rounded-md border border-[var(--border-subtle)] bg-white p-2"
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="flex items-center gap-1.5 text-xs font-medium">
+                                          <span
+                                            className="inline-block h-2.5 w-2.5 rounded-full"
+                                            style={{ background: color }}
+                                          />
+                                          {prefix}
+                                        </span>
+                                        <Badge variant="outline">
+                                          {rowCount} row
+                                          {rowCount !== 1 ? "s" : ""}
+                                        </Badge>
+                                      </div>
+                                      <div className="mt-2 flex gap-2">
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          className="h-7 flex-1 px-2 text-xs"
+                                          onClick={() =>
+                                            groupSugs.forEach((s) =>
+                                              handleSuggestionApprove(s),
+                                            )
+                                          }
+                                        >
+                                          Accept all rows
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 px-2 text-xs"
+                                          onClick={() =>
+                                            groupSugs.forEach((s) =>
+                                              handleSuggestionReject(s.id),
+                                            )
+                                          }
+                                        >
+                                          Reject
+                                        </Button>
+                                      </div>
                                     </div>
-                                    <div className="mt-2 flex gap-2">
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        className="h-7 flex-1 px-2 text-xs"
-                                        onClick={() =>
-                                          groupSugs.forEach((s) =>
-                                            handleSuggestionApprove(s),
-                                          )
-                                        }
-                                      >
-                                        Accept all rows
-                                      </Button>
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="outline"
-                                        className="h-7 px-2 text-xs"
-                                        onClick={() =>
-                                          groupSugs.forEach((s) =>
-                                            handleSuggestionReject(s.id),
-                                          )
-                                        }
-                                      >
-                                        Reject
-                                      </Button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
+                                  );
+                                },
+                              )}
                               {/* Individual (non-table) suggestion cards */}
                               {individualSugs.map((suggestion) => (
-                          <div
-                            key={suggestion.id}
-                            className="rounded-md border border-[var(--border-subtle)] bg-white p-2"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-medium">
-                                {getFieldLeafName(suggestion.field_name)}
-                              </span>
-                              <Badge variant="outline">
-                                {Math.round(
-                                  (suggestion.confidence || 0) * 100,
-                                )}
-                                %
-                              </Badge>
-                            </div>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {formatAnnotationValue(suggestion.value, 120)}
-                            </p>
-                            <div className="mt-2 flex gap-2">
-                              <Button
-                                type="button"
-                                size="sm"
-                                className="h-7 px-2 text-xs"
-                                onClick={() =>
-                                  handleSuggestionApprove(suggestion)
-                                }
-                              >
-                                Accept
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs"
-                                onClick={() =>
-                                  handleSuggestionReject(suggestion.id)
-                                }
-                              >
-                                Reject
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
+                                <div
+                                  key={suggestion.id}
+                                  className="rounded-md border border-[var(--border-subtle)] bg-white p-2"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-xs font-medium">
+                                      {getFieldLeafName(suggestion.field_name)}
+                                    </span>
+                                    <Badge variant="outline">
+                                      {Math.round(
+                                        (suggestion.confidence || 0) * 100,
+                                      )}
+                                      %
+                                    </Badge>
+                                  </div>
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    {formatAnnotationValue(
+                                      suggestion.value,
+                                      120,
+                                    )}
+                                  </p>
+                                  <div className="mt-2 flex gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs"
+                                      onClick={() =>
+                                        handleSuggestionApprove(suggestion)
+                                      }
+                                    >
+                                      Accept
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 px-2 text-xs"
+                                      onClick={() =>
+                                        handleSuggestionReject(suggestion.id)
+                                      }
+                                    >
+                                      Reject
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
                             </>
                           );
                         })()}
@@ -1589,108 +1603,141 @@ export function DataLabellerV2({ projectId: projectIdProp }: DataLabellerV2Props
                       <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-3 text-sm text-muted-foreground">
                         No annotations yet.
                       </div>
-                    ) : (() => {
-                      const tableNames = new Set(
-                        entityTypes
-                          .filter((et) => et.fieldKind === "table")
-                          .map((et) => et.name),
-                      );
-                      // Group table annotations (cell-level dots + whole-table bbox)
-                      const tableGroups = new Map<string, typeof annotations>();
-                      const leafAnnotations: typeof annotations = [];
-                      annotations.forEach((ann) => {
-                        const prefix = ann.field_name.includes(".")
-                          ? ann.field_name.split(".")[0]
-                          : ann.field_name;
-                        if (tableNames.has(prefix)) {
-                          const grp = tableGroups.get(prefix) ?? [];
-                          grp.push(ann);
-                          tableGroups.set(prefix, grp);
-                        } else {
-                          leafAnnotations.push(ann);
-                        }
-                      });
-                      return (
-                        <div className="dl-annotations-list max-h-[240px] overflow-y-auto pr-1">
-                          {Array.from(tableGroups.entries()).map(([tableName, grpAnns]) => {
-                            const et = entityTypes.find((e) => e.name === tableName);
-                            const color = et?.color || BEAZLEY_PALETTE.light;
-                            const rowNums = new Set(
-                              grpAnns
-                                .map((a) => Number((a.annotation_data as any)?.instance_num))
-                                .filter((n) => Number.isFinite(n) && n > 0),
-                            );
-                            const rowCount = rowNums.size || grpAnns.length;
-                            return (
-                              <div key={tableName} className="dl-annotation-item">
-                                <span
-                                  className="dl-annotation-label-chip"
-                                  style={{ background: `${color}30`, color }}
+                    ) : (
+                      (() => {
+                        const tableNames = new Set(
+                          entityTypes
+                            .filter((et) => et.fieldKind === "table")
+                            .map((et) => et.name),
+                        );
+                        // Group table annotations (cell-level dots + whole-table bbox)
+                        const tableGroups = new Map<
+                          string,
+                          typeof annotations
+                        >();
+                        const leafAnnotations: typeof annotations = [];
+                        annotations.forEach((ann) => {
+                          const prefix = ann.field_name.includes(".")
+                            ? ann.field_name.split(".")[0]
+                            : ann.field_name;
+                          if (tableNames.has(prefix)) {
+                            const grp = tableGroups.get(prefix) ?? [];
+                            grp.push(ann);
+                            tableGroups.set(prefix, grp);
+                          } else {
+                            leafAnnotations.push(ann);
+                          }
+                        });
+                        return (
+                          <div className="dl-annotations-list max-h-[240px] overflow-y-auto pr-1">
+                            {Array.from(tableGroups.entries()).map(
+                              ([tableName, grpAnns]) => {
+                                const et = entityTypes.find(
+                                  (e) => e.name === tableName,
+                                );
+                                const color =
+                                  et?.color || BEAZLEY_PALETTE.light;
+                                const rowNums = new Set(
+                                  grpAnns
+                                    .map((a) =>
+                                      Number(
+                                        (a.annotation_data as any)
+                                          ?.instance_num,
+                                      ),
+                                    )
+                                    .filter((n) => Number.isFinite(n) && n > 0),
+                                );
+                                const rowCount = rowNums.size || grpAnns.length;
+                                return (
+                                  <div
+                                    key={tableName}
+                                    className="dl-annotation-item"
+                                  >
+                                    <span
+                                      className="dl-annotation-label-chip"
+                                      style={{
+                                        background: `${color}30`,
+                                        color,
+                                      }}
+                                    >
+                                      {tableName}
+                                    </span>
+                                    <span className="dl-annotation-text-preview">
+                                      {rowCount}{" "}
+                                      {rowCount === 1 ? "row" : "rows"}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="dl-annotation-remove"
+                                      onClick={() =>
+                                        handleAnnotationsDeleteBulk(
+                                          grpAnns.map((a) => a.id),
+                                        )
+                                      }
+                                      title="Remove all"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                );
+                              },
+                            )}
+                            {leafAnnotations.map((ann) => {
+                              const entityType = entityTypes.find(
+                                (entity) => entity.name === ann.field_name,
+                              );
+                              const color =
+                                entityType?.color || BEAZLEY_PALETTE.light;
+                              const preview = formatAnnotationValue(
+                                ann.value,
+                                40,
+                              );
+                              const instanceNum = Number(
+                                (
+                                  ann.annotation_data as unknown as Record<
+                                    string,
+                                    unknown
+                                  >
+                                )?.instance_num,
+                              );
+                              return (
+                                <div
+                                  key={ann.id}
+                                  className="dl-annotation-item"
+                                  onClick={() => focusAnnotationInDocument(ann)}
                                 >
-                                  {tableName}
-                                </span>
-                                <span className="dl-annotation-text-preview">
-                                  {rowCount} {rowCount === 1 ? "row" : "rows"}
-                                </span>
-                                <button
-                                  type="button"
-                                  className="dl-annotation-remove"
-                                  onClick={() =>
-                                    handleAnnotationsDeleteBulk(grpAnns.map((a) => a.id))
-                                  }
-                                  title="Remove all"
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            );
-                          })}
-                          {leafAnnotations.map((ann) => {
-                            const entityType = entityTypes.find(
-                              (entity) => entity.name === ann.field_name,
-                            );
-                            const color = entityType?.color || BEAZLEY_PALETTE.light;
-                            const preview = formatAnnotationValue(ann.value, 40);
-                            const instanceNum = Number(
-                              (ann.annotation_data as unknown as Record<string, unknown>)?.instance_num,
-                            );
-                            return (
-                              <div
-                                key={ann.id}
-                                className="dl-annotation-item"
-                                onClick={() => focusAnnotationInDocument(ann)}
-                              >
-                                {Number.isFinite(instanceNum) && (
-                                  <span className="dl-annotation-label-chip dl-annotation-chip-meta">
-                                    {instanceNum}
+                                  {Number.isFinite(instanceNum) && (
+                                    <span className="dl-annotation-label-chip dl-annotation-chip-meta">
+                                      {instanceNum}
+                                    </span>
+                                  )}
+                                  <span
+                                    className="dl-annotation-label-chip"
+                                    style={{ background: `${color}30`, color }}
+                                  >
+                                    {getFieldLeafName(ann.field_name)}
                                   </span>
-                                )}
-                                <span
-                                  className="dl-annotation-label-chip"
-                                  style={{ background: `${color}30`, color }}
-                                >
-                                  {getFieldLeafName(ann.field_name)}
-                                </span>
-                                <span className="dl-annotation-text-preview">
-                                  "{preview}"
-                                </span>
-                                <button
-                                  type="button"
-                                  className="dl-annotation-remove"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    handleAnnotationDelete(ann.id);
-                                  }}
-                                  title="Remove"
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
+                                  <span className="dl-annotation-text-preview">
+                                    "{preview}"
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="dl-annotation-remove"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleAnnotationDelete(ann.id);
+                                    }}
+                                    title="Remove"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()
+                    )}
                   </div>
 
                   {/* Settings */}
@@ -1783,8 +1830,7 @@ export function DataLabellerV2({ projectId: projectIdProp }: DataLabellerV2Props
                                 setExportMenuVisible(!exportMenuVisible)
                               }
                             >
-                              Export{" "}
-                              <ChevronDown className="ml-1 h-3 w-3" />
+                              Export <ChevronDown className="ml-1 h-3 w-3" />
                             </Button>
                             <div
                               className={`dl-export-menu ${exportMenuVisible ? "visible" : ""}`}
@@ -1827,7 +1873,6 @@ export function DataLabellerV2({ projectId: projectIdProp }: DataLabellerV2Props
                     </CollapsibleContent>
                   </Collapsible>
                 </div>
-
               </CardContent>
             </Card>
           </div>

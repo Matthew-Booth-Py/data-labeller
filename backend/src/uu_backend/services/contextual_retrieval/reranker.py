@@ -55,16 +55,21 @@ class AzureCohereReranker:
         results: list[SearchResult],
         top_n: int = 20,
     ) -> list[SearchResult]:
-        """
-        Rerank search results using Azure Cohere.
+        """Rerank search results using the Azure-hosted Cohere API.
 
-        Args:
-            query: Search query
-            results: List of SearchResult objects to rerank
-            top_n: Number of top results to return
+        Parameters
+        ----------
+        query : str
+            Search query.
+        results : list[SearchResult]
+            Candidates to rerank.
+        top_n : int
+            Number of top results to return.
 
-        Returns:
-            Reranked list of SearchResult objects
+        Returns
+        -------
+        list[SearchResult]
+            Reranked results with updated relevance scores.
         """
         if not results:
             return []
@@ -113,7 +118,6 @@ class AzureCohereReranker:
         documents: list[str],
         top_n: int,
     ) -> list[dict]:
-        """Call the Azure Cohere rerank API."""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",

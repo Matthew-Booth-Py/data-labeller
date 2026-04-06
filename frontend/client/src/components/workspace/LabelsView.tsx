@@ -133,7 +133,10 @@ export function LabelsView({ projectId }: { projectId?: string }) {
       filtered = filtered.filter(
         (ann) =>
           ann.field_name.toLowerCase().includes(query) ||
-          (ann.value && formatAnnotationValue(ann.value, 0).toLowerCase().includes(query)) ||
+          (ann.value &&
+            formatAnnotationValue(ann.value, 0)
+              .toLowerCase()
+              .includes(query)) ||
           ann.documentName.toLowerCase().includes(query),
       );
     }
@@ -354,7 +357,9 @@ export function LabelsView({ projectId }: { projectId?: string }) {
                         <TableCell className="max-w-[300px]">
                           <div
                             className="truncate"
-                            title={formatAnnotationValue(ann.value, 0) || "No value"}
+                            title={
+                              formatAnnotationValue(ann.value, 0) || "No value"
+                            }
                           >
                             {formatAnnotationValue(ann.value, 200) || (
                               <span className="text-muted-foreground italic">

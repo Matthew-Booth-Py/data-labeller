@@ -32,11 +32,9 @@ class ChromaVectorStore:
         )
 
     def _get_collection_name(self, doc_id: str) -> str:
-        """Get collection name for a document."""
         return f"doc_{doc_id.replace('-', '_')}"
 
     def _get_or_create_collection(self, doc_id: str):
-        """Get or create collection for a document."""
         collection_name = self._get_collection_name(doc_id)
         return self.client.get_or_create_collection(
             name=collection_name,
@@ -48,12 +46,14 @@ class ChromaVectorStore:
         chunks: list[ContextualizedChunk],
         embeddings: list[list[float]],
     ) -> None:
-        """
-        Add contextualized chunks with their embeddings to the store.
+        """Add contextualized chunks with their embeddings to the store.
 
-        Args:
-            chunks: List of ContextualizedChunk objects
-            embeddings: Corresponding embedding vectors
+        Parameters
+        ----------
+        chunks : list[ContextualizedChunk]
+            List of ContextualizedChunk objects.
+        embeddings : list[list[float]]
+            Corresponding embedding vectors.
         """
         if not chunks or not embeddings:
             return
@@ -100,16 +100,21 @@ class ChromaVectorStore:
         top_k: int = 100,
         filter_doc_id: str | None = None,
     ) -> list[SearchResult]:
-        """
-        Search for similar chunks using vector similarity.
+        """Search for similar chunks using vector similarity.
 
-        Args:
-            query_embedding: Query embedding vector
-            top_k: Number of results to return
-            filter_doc_id: Optional document ID to search within (required for per-doc collections)
+        Parameters
+        ----------
+        query_embedding : list[float]
+            Query embedding vector.
+        top_k : int
+            Number of results to return.
+        filter_doc_id : str or None
+            Document ID to search within (required for per-doc collections).
 
-        Returns:
-            List of SearchResult objects sorted by similarity
+        Returns
+        -------
+        list[SearchResult]
+            List of SearchResult objects sorted by similarity.
         """
         if not filter_doc_id:
             import logging
@@ -149,7 +154,6 @@ class ChromaVectorStore:
             raise
 
     def _format_results(self, results: dict[str, Any]) -> list[SearchResult]:
-        """Convert ChromaDB results to SearchResult objects."""
         search_results: list[SearchResult] = []
 
         if not results["ids"] or not results["ids"][0]:
@@ -180,14 +184,17 @@ class ChromaVectorStore:
         return search_results
 
     def delete_document(self, doc_id: str) -> int:
-        """
-        Delete all chunks for a document by deleting its collection.
+        """Delete all chunks for a document by deleting its collection.
 
-        Args:
-            doc_id: Document ID to delete
+        Parameters
+        ----------
+        doc_id : str
+            Document ID to delete.
 
-        Returns:
-            Number of chunks deleted
+        Returns
+        -------
+        int
+            Number of chunks deleted.
         """
         try:
             collection_name = self._get_collection_name(doc_id)
@@ -199,14 +206,17 @@ class ChromaVectorStore:
             return 0
 
     def get_document_chunks(self, doc_id: str) -> list[dict[str, Any]]:
-        """
-        Get all chunks for a document.
+        """Get all chunks for a document.
 
-        Args:
-            doc_id: Document ID
+        Parameters
+        ----------
+        doc_id : str
+            Document ID.
 
-        Returns:
-            List of chunk data dictionaries
+        Returns
+        -------
+        list[dict[str, Any]]
+            List of chunk data dictionaries.
         """
         try:
             collection = self._get_or_create_collection(doc_id)

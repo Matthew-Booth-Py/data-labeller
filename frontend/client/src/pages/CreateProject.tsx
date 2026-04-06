@@ -87,7 +87,8 @@ export default function CreateProject() {
             </p>
             <div className="space-y-2">
               <Label htmlFor="name" className="text-sm font-medium">
-                Project Name <span className="text-[var(--status-error)]">*</span>
+                Project Name{" "}
+                <span className="text-[var(--status-error)]">*</span>
               </Label>
               <Input
                 id="name"

@@ -197,10 +197,7 @@ class ExtractTableRegionView(APIView):
     """Extract table data from a user-drawn bbox region and return suggestions."""
 
     def post(self, request, document_id: str):
-        """
-        Body: { field_name, page, x, y, width, height, schema_subfields? }
-        Returns: { suggestions: [...], total: N }
-        """
+        """Extract table data from a region defined by a bounding box."""
         try:
             data = request.data
             field_name = data.get("field_name")
@@ -211,8 +208,16 @@ class ExtractTableRegionView(APIView):
             height = data.get("height")
             schema_subfields = data.get("schema_subfields") or []
 
-            if not all([field_name, page is not None, x is not None, y is not None,
-                        width is not None, height is not None]):
+            if not all(
+                [
+                    field_name,
+                    page is not None,
+                    x is not None,
+                    y is not None,
+                    width is not None,
+                    height is not None,
+                ]
+            ):
                 return Response(
                     {"detail": "field_name, page, x, y, width, height are required"},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -238,6 +243,7 @@ class ExtractTableRegionView(APIView):
         except Exception as e:
             logger.error("Error extracting table region for document %s: %s", document_id, e)
             import traceback
+
             traceback.print_exc()
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -246,11 +252,13 @@ class SuggestFieldView(APIView):
     """Run retrieval-based extraction for a single field and return suggestions."""
 
     def post(self, request, document_id: str):
-        """Body: { field_name }. Returns: { suggestions: [...], total: N }"""
+        """Run retrieval-based extraction for a single field and return suggestions."""
         try:
             field_name = request.data.get("field_name")
             if not field_name:
-                return Response({"detail": "field_name is required"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {"detail": "field_name is required"}, status=status.HTTP_400_BAD_REQUEST
+                )
 
             document = get_document_repository().get_document(document_id)
             if not document:
@@ -259,11 +267,15 @@ class SuggestFieldView(APIView):
             doc_repo = DjangoORMRepository()
             classification = doc_repo.get_classification(document_id)
             if not classification:
-                return Response({"detail": "Document not classified"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {"detail": "Document not classified"}, status=status.HTTP_400_BAD_REQUEST
+                )
 
             document_type = doc_repo.get_document_type(classification.document_type_id)
             if not document_type:
-                return Response({"detail": "Document type not found"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {"detail": "Document type not found"}, status=status.HTTP_400_BAD_REQUEST
+                )
 
             suggestion_service = get_annotation_suggestion_service()
             suggestions = suggestion_service.suggest_field(
@@ -273,12 +285,14 @@ class SuggestFieldView(APIView):
             )
 
             from uu_backend.models.annotation import AnnotationSuggestionResponse
+
             response = AnnotationSuggestionResponse(suggestions=suggestions, total=len(suggestions))
             return Response(response.model_dump(mode="json"))
 
         except Exception as e:
             logger.error("Error in suggest_field for document %s: %s", document_id, e)
             import traceback
+
             traceback.print_exc()
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

@@ -46,11 +46,17 @@ class SchemaField(BaseModel):
     extraction_prompt: str | None = Field(None, description="LLM prompt for extracting this field")
     extraction_method: ExtractionMethod | None = Field(
         None,
-        description="Extraction strategy: 'llm' (default) or 'retrieval_table' (parse markdown from retrieval chunk)",
+        description=(
+            "Extraction strategy: 'llm' (default) or 'retrieval_table' "
+            "(parse markdown from retrieval chunk)"
+        ),
     )
     retrieval_query: str | None = Field(
         None,
-        description="Search query used to locate the table chunk when extraction_method='retrieval_table'",
+        description=(
+            "Search query used to locate the table chunk "
+            "when extraction_method='retrieval_table'"
+        ),
     )
     order: int | None = Field(
         None, description="Display order for nested properties (lower = first)"

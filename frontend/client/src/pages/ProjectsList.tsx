@@ -288,10 +288,10 @@ export default function ProjectsList() {
                           <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
                             Docs
                           </p>
-                            <div className="flex items-center gap-2 font-mono text-sm font-medium">
-                              <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                              {(project.doc_count || 0).toLocaleString()}
-                            </div>
+                          <div className="flex items-center gap-2 font-mono text-sm font-medium">
+                            <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                            {(project.doc_count || 0).toLocaleString()}
+                          </div>
                         </div>
                         <div className="space-y-1">
                           <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
@@ -317,12 +317,12 @@ export default function ProjectsList() {
                     </CardContent>
 
                     <CardFooter className="pt-3 pb-3 bg-muted/5 flex justify-between items-center text-xs text-muted-foreground border-t border-muted">
-                        <div className="flex items-center gap-1.5">
-                          <Clock className="h-3.5 w-3.5" />
-                          {project.created_at
-                            ? `Created: ${new Date(project.created_at).toLocaleDateString()}`
-                            : `Last eval: ${display.lastEval}`}
-                        </div>
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5" />
+                        {project.created_at
+                          ? `Created: ${new Date(project.created_at).toLocaleDateString()}`
+                          : `Last eval: ${display.lastEval}`}
+                      </div>
 
                       <Button
                         size="sm"

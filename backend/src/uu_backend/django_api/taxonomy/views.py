@@ -94,6 +94,7 @@ class TaxonomyPrefixView(APIView):
     permission_classes: list = []
 
     def get(self, request, subpath: str):
+        """Handle GET requests for taxonomy prefix routes."""
         repository = get_repository()
         parts = [part for part in subpath.strip("/").split("/") if part]
         if not parts:
@@ -190,6 +191,7 @@ class TaxonomyPrefixView(APIView):
         return Response({"detail": "Not Found"}, status=404)
 
     def post(self, request, subpath: str):
+        """Handle POST requests for taxonomy prefix routes."""
         repository = get_repository()
         parts = [part for part in subpath.strip("/").split("/") if part]
         body = request.data if isinstance(request.data, dict) else {}
@@ -653,6 +655,7 @@ class TaxonomyPrefixView(APIView):
         return Response({"detail": "Not Found"}, status=404)
 
     def put(self, request, subpath: str):
+        """Handle PUT requests for taxonomy prefix routes."""
         repository = get_repository()
         parts = [part for part in subpath.strip("/").split("/") if part]
         body = request.data if isinstance(request.data, dict) else {}
@@ -695,6 +698,7 @@ class TaxonomyPrefixView(APIView):
         return Response({"detail": "Not Found"}, status=404)
 
     def delete(self, request, subpath: str):
+        """Handle DELETE requests for taxonomy prefix routes."""
         repository = get_repository()
         parts = [part for part in subpath.strip("/").split("/") if part]
 
@@ -725,6 +729,7 @@ class ClassifyDocumentView(APIView):
     permission_classes: list = []
 
     def post(self, request, document_id: str):
+        """Classify a document into a document type."""
         repository = get_repository()
         body = request.data if isinstance(request.data, dict) else {}
         try:
@@ -751,6 +756,7 @@ class AutoClassifyDocumentView(APIView):
     permission_classes: list = []
 
     def post(self, request, document_id: str):
+        """Auto-classify a document using the classification service."""
         import traceback
 
         save = _bool_query_param(request.query_params.get("save"), default=True)
@@ -796,6 +802,7 @@ class DocumentClassificationView(APIView):
     permission_classes: list = []
 
     def get(self, request, document_id: str):
+        """Get the classification for a document."""
         repository = get_repository()
         classification = repository.get_classification(document_id)
         if not classification:
@@ -805,6 +812,7 @@ class DocumentClassificationView(APIView):
         return Response({"classification": _jsonable(classification)})
 
     def delete(self, request, document_id: str):
+        """Delete the classification for a document."""
         repository = get_repository()
         deleted = repository.delete_classification(document_id)
         if not deleted:
@@ -819,6 +827,7 @@ class ExtractDocumentView(APIView):
     permission_classes: list = []
 
     def post(self, request, document_id: str):
+        """Run extraction on a document and return the result."""
         use_llm = _bool_query_param(request.query_params.get("use_llm"), default=True)
         use_structured_output = _bool_query_param(
             request.query_params.get("use_structured_output"), default=False
@@ -853,17 +862,20 @@ class ExtractDocumentView(APIView):
                     status=400,
                 )
 
-            logger.warning(
-                f"[EXTRACTION API] Calling extract_auto for {document_id}"
-            )
+            logger.warning(f"[EXTRACTION API] Calling extract_auto for {document_id}")
             result = service.extract_auto(document_id)
 
+            field_summary = [
+                {"field_name": f.field_name, "value": f.value, "confidence": f.confidence}
+                for f in result.fields
+            ]
             logger.warning(
-                f"[EXTRACTION API] Extraction completed for {document_id}\n"
-                f"[EXTRACTION API]   Fields returned: "
-                f"{[f.field_name for f in result.fields]}\n"
-                f"[EXTRACTION API]   Full result:\n"
-                f"{json.dumps([{'field_name': f.field_name, 'value': f.value, 'confidence': f.confidence} for f in result.fields], indent=2)}"
+                "[EXTRACTION API] Extraction completed for %s\n"
+                "[EXTRACTION API]   Fields returned: %s\n"
+                "[EXTRACTION API]   Full result:\n%s",
+                document_id,
+                [f.field_name for f in result.fields],
+                json.dumps(field_summary, indent=2),
             )
 
             repository = get_repository()
@@ -883,6 +895,7 @@ class DocumentExtractionView(APIView):
     permission_classes: list = []
 
     def get(self, request, document_id: str):
+        """Get the extraction result for a document."""
         repository = get_repository()
         result = repository.get_extraction(document_id)
         if not result:
@@ -892,6 +905,7 @@ class DocumentExtractionView(APIView):
         return Response(_jsonable(result))
 
     def delete(self, request, document_id: str):
+        """Delete the extraction result for a document."""
         repository = get_repository()
         deleted = repository.delete_extraction(document_id)
         if not deleted:

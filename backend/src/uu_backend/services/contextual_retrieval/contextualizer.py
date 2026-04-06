@@ -109,6 +109,7 @@ class ChunkContextualizer:
         return self._cached_system_prompt
 
     def contextualize(self, document: str, chunk: str) -> str:
+        """Generate a one-sentence context string that situates a chunk within a document."""
         system_prompt = self._get_cached_system_prompt(document)
 
         response = self.client.chat.completions.create(
@@ -128,6 +129,7 @@ class ChunkContextualizer:
         document: str,
         chunk: str,
     ) -> str:
+        """Async variant of contextualize with exponential-backoff retry on rate limits."""
         system_prompt = self._get_cached_system_prompt(document)
 
         @retry(
@@ -160,6 +162,7 @@ class ChunkContextualizer:
                     self._total_cached_tokens += details.cached_tokens or 0
 
     def get_cache_stats(self) -> dict:
+        """Return prompt-token usage and cache hit rate statistics."""
         return {
             "total_prompt_tokens": self._total_prompt_tokens,
             "total_cached_tokens": self._total_cached_tokens,
@@ -171,6 +174,7 @@ class ChunkContextualizer:
         }
 
     def reset_stats(self) -> None:
+        """Reset token usage counters and clear cached document excerpts."""
         self._total_cached_tokens = 0
         self._total_prompt_tokens = 0
         self._completed_count = 0
@@ -182,6 +186,7 @@ class ChunkContextualizer:
         document: str,
         chunk: Chunk,
     ) -> ContextualizedChunk:
+        """Contextualize a single chunk and return a ContextualizedChunk."""
         context = self.contextualize(document, chunk.text)
 
         return ContextualizedChunk(
@@ -202,6 +207,7 @@ class ChunkContextualizer:
         progress_callback: Callable[[int, int], None] | None = None,
         total: int = 0,
     ) -> ContextualizedChunk:
+        """Async variant of contextualize_chunk that respects a concurrency semaphore."""
         async with semaphore:
             context = await self.acontextualize(document, chunk.text)
 
@@ -225,6 +231,7 @@ class ChunkContextualizer:
         chunks: list[Chunk],
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[ContextualizedChunk]:
+        """Contextualize a list of chunks synchronously with optional progress reporting."""
         contextualized = []
         total = len(chunks)
 
@@ -243,6 +250,7 @@ class ChunkContextualizer:
         chunks: list[Chunk],
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[ContextualizedChunk]:
+        """Contextualize all chunks concurrently up to max_concurrency, returning sorted results."""
         self._completed_count = 0
         total = len(chunks)
         semaphore = asyncio.Semaphore(self.max_concurrency)
@@ -263,6 +271,7 @@ class ChunkContextualizer:
         chunks: list[Chunk],
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[ContextualizedChunk]:
+        """Sync entry point for async contextualization; works with already-running event loops."""
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:

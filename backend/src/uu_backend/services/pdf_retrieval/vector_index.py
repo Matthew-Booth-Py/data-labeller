@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 
@@ -52,6 +50,7 @@ class PDFVectorIndex:
         chunks: list[orm.RetrievalChunkModel],
         embeddings: list[list[float]],
     ) -> None:
+        """Upsert chunk embeddings into the per-document Qdrant collection."""
         if not chunks or not embeddings:
             return
         collection_name = self._ensure_collection(document_id, len(embeddings[0]))
@@ -73,9 +72,7 @@ class PDFVectorIndex:
                         "asset_id": asset.id if asset else None,
                         "asset_type": asset.asset_type if asset else None,
                         "asset_label": asset.label if asset else None,
-                        "preview_artifact_id": (
-                            citation.preview_artifact_id if citation else None
-                        ),
+                        "preview_artifact_id": (citation.preview_artifact_id if citation else None),
                         "citation_id": citation.id if citation else None,
                         "citation_regions": citation.regions if citation else [],
                         "content": chunk.content,
@@ -99,6 +96,7 @@ class PDFVectorIndex:
         filter_doc_id: str | None = None,
         asset_types: set[str] | None = None,
     ) -> list[SearchResult]:
+        """Query Qdrant for the top-k most similar chunks across one or all documents."""
         document_ids: list[str]
         if filter_doc_id:
             document_ids = [filter_doc_id]
@@ -120,7 +118,7 @@ class PDFVectorIndex:
                     limit=top_k * 3,
                     with_payload=True,
                 )
-            except Exception:
+            except Exception:  # nosec B112
                 continue
 
             for point in response.points:
@@ -175,6 +173,7 @@ class PDFVectorIndex:
         return all_results[:top_k]
 
     def delete_document(self, document_id: str) -> int:
+        """Delete the Qdrant collection for a document and return the number of points removed."""
         collection_name = self._collection_name(document_id)
         try:
             collection = self.client.get_collection(collection_name)
@@ -188,6 +187,7 @@ class PDFVectorIndex:
         return points_count
 
     def count(self) -> int:
+        """Return the total number of indexed vector points across all PDF documents."""
         total = 0
         for document_id in orm.DocumentModel.objects.filter(
             retrieval_index_status="completed",
@@ -196,6 +196,6 @@ class PDFVectorIndex:
             try:
                 info = self.client.get_collection(self._collection_name(str(document_id)))
                 total += int(info.points_count or 0)
-            except Exception:
+            except Exception:  # nosec B112
                 continue
         return total

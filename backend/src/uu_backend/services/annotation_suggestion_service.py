@@ -26,12 +26,19 @@ class AnnotationSuggestionService:
     def suggest_annotations(
         self, document_id: str, document_type: DocumentType
     ) -> list[AnnotationSuggestion]:
-        """
-        Generate AI annotation suggestions for a document.
+        """Generate AI annotation suggestions for a document.
 
-        Uses retrieval-vision extraction to get field values and the relevant
-        page numbers, then uses pdfplumber on those pages to get word-level
-        bounding boxes for positioning the suggestion overlays.
+        Parameters
+        ----------
+        document_id : str
+            The document to generate suggestions for.
+        document_type : DocumentType
+            The document type with schema field definitions.
+
+        Returns
+        -------
+        list of AnnotationSuggestion
+            Bbox-based annotation suggestions for each extracted field value.
         """
         logger.info(f"Generating annotation suggestions for document {document_id}")
 
@@ -46,9 +53,7 @@ class AnnotationSuggestionService:
             # retrieved chunk; remaining fields use retrieval-vision LLM extraction.
             # Both paths populate source_page_numbers and field_evidence_regions so
             # pdfplumber can place bbox highlights on the right pages.
-            extraction_result = self.extraction_service.extract_auto(
-                document_id=document_id
-            )
+            extraction_result = self.extraction_service.extract_auto(document_id=document_id)
 
             logger.info(f"Extraction returned {len(extraction_result.fields)} fields")
             logger.info(f"Source pages from extraction: {extraction_result.source_page_numbers}")
@@ -99,7 +104,11 @@ class AnnotationSuggestionService:
 
             # Flatten nested extraction results, skipping retrieval_table fields
             flat_fields = self._flatten_extraction_fields(
-                [f for f in extraction_result.fields if f.field_name not in retrieval_table_field_names]
+                [
+                    f
+                    for f in extraction_result.fields
+                    if f.field_name not in retrieval_table_field_names
+                ]
             )
             logger.info(f"Flattened to {len(flat_fields)} LLM field values")
 
@@ -145,7 +154,22 @@ class AnnotationSuggestionService:
     def suggest_field(
         self, document_id: str, document_type: "DocumentType", field_name: str
     ) -> list["AnnotationSuggestion"]:
-        """Run retrieval-based extraction for a single retrieval_table field and return suggestions."""
+        """Run retrieval-based extraction for a single retrieval_table field.
+
+        Parameters
+        ----------
+        document_id : str
+            The document to extract from.
+        document_type : DocumentType
+            The document type with schema field definitions.
+        field_name : str
+            Name of the field to suggest annotations for.
+
+        Returns
+        -------
+        list of AnnotationSuggestion
+            Suggestions derived from the matching table chunk.
+        """
         from uu_backend.models.taxonomy import ExtractionMethod
 
         schema_fields = document_type.schema_fields or []
@@ -236,8 +260,6 @@ class AnnotationSuggestionService:
         retrieval_table_field_names: set[str],
         field_region_constraints: dict[str, list[dict]],
     ) -> list[AnnotationSuggestion]:
-        """Create a single bbox suggestion per retrieval_table field using the table's
-        citation region bbox rather than pdfplumber text matching."""
         suggestions = []
         field_page_map: dict[str, int] = (
             (extraction_result.request_metadata or {}).get("retrieval_table_field_pages", {})
@@ -315,9 +337,6 @@ class AnnotationSuggestionService:
         file_type: str,
         page_numbers: list[int],
     ) -> list[dict]:
-        """
-        Extract word-level text and bounding boxes from selected PDF pages.
-        """
         if not page_numbers or file_type.lower() != "pdf":
             return []
 
@@ -339,10 +358,6 @@ class AnnotationSuggestionService:
             return []
 
     def _extract_with_pdfplumber(self, file_path: Path, page_numbers: list[int]) -> list[dict]:
-        """Extract text + bounding boxes using pdfplumber (for selectable text PDFs).
-
-        Returns word-level bounding boxes (not line-level) for more precise matching.
-        """
         import pdfplumber
 
         all_words = []
@@ -383,16 +398,6 @@ class AnnotationSuggestionService:
         return all_words
 
     def _flatten_extraction_fields(self, fields: list) -> list[tuple[str, Any, int]]:
-        """
-        Flatten nested extraction fields into (field_name, value, instance_num) tuples.
-
-        E.g., line_items: [{quantity: 1, description: "foo"}, {quantity: 2}]
-        becomes: [("line_items.quantity", "1", 1), ("line_items.description", "foo", 1),
-                  ("line_items.quantity", "2", 2)]
-
-        Also handles deeply nested structures like:
-        policy_coverages_table[0].limits[0].amount
-        """
         result: list[tuple[str, Any, int]] = []
 
         for field in fields:
@@ -486,22 +491,6 @@ class AnnotationSuggestionService:
         result: list[tuple[str, Any, int]],
         is_row_item: bool = False,
     ) -> None:
-        """
-        Recursively flatten a value into field tuples.
-
-        Key distinction:
-        - "Row arrays" (array of objects/dicts): Each item is a row, flatten into
-          separate instances
-        - "Leaf arrays" (array of primitives within a row): Keep as atomic value
-          (e.g., hierarchy_path)
-
-        Args:
-            prefix: Field name prefix (e.g., "table.field")
-            value: The value to flatten
-            instance_num: Current instance/row number
-            result: Output list of (field_name, value, instance_num) tuples
-            is_row_item: True if we're processing fields within a row (changes array handling)
-        """
         if value is None or value == "":
             return
 
@@ -551,13 +540,6 @@ class AnnotationSuggestionService:
         used_line_indices: set[int],
         allowed_regions: list[dict[str, float | int | str | None]] | None = None,
     ) -> AnnotationSuggestion | None:
-        """
-        Create an annotation suggestion by finding the value in positioned words.
-
-        For array values (like hierarchy_path), uses the LEAF element (last in array)
-        to find the bounding box, but stores the FULL array as the annotation value.
-        This ensures ground truth matches the extraction schema exactly.
-        """
         try:
             # Determine search text and stored value
             # For arrays, search using leaf element but store full array
@@ -651,15 +633,6 @@ class AnnotationSuggestionService:
         used_line_indices: set[int],
         allowed_regions: list[dict[str, float | int | str | None]] | None = None,
     ) -> tuple[dict | None, int | None]:
-        """
-        Find bounding box for text, supporting both word-level and phrase matching.
-
-        For multi-word search text, finds consecutive words and merges their bounding boxes.
-        Skips words/phrases that have already been used to avoid duplicates.
-
-        Returns:
-            Tuple of (bbox_dict, line_index) or (None, None) if not found
-        """
         if not search_text or not lines:
             return None, None
 
@@ -814,12 +787,29 @@ class AnnotationSuggestionService:
     ) -> list[AnnotationSuggestion]:
         """Extract table data from a specific bbox region drawn by the user.
 
-        Primary path: spatial overlap query against the retrieval index.
-        Finds any indexed table asset on the given page that overlaps with the
-        drawn bbox, parses its markdown content, and returns a single table-level
-        suggestion (same shape as suggest_field / suggest_annotations).
+        Parameters
+        ----------
+        document_id : str
+            The document to extract from.
+        field_name : str
+            Name of the schema field being populated.
+        page : int
+            1-based page number of the drawn region.
+        x : float
+            Left edge of the region as a percentage of page width.
+        y : float
+            Top edge of the region as a percentage of page height.
+        width : float
+            Width of the region as a percentage of page width.
+        height : float
+            Height of the region as a percentage of page height.
+        schema_subfields : list of dict or None, optional
+            Sub-field definitions to guide LLM column extraction.
 
-        Fallback: pdfplumber extraction + LLM parsing when no indexed asset is found.
+        Returns
+        -------
+        list of AnnotationSuggestion
+            Table-level suggestion with parsed rows.
         """
         # ------------------------------------------------------------------
         # Primary path — look up overlapping table asset in the retrieval index
@@ -828,9 +818,7 @@ class AnnotationSuggestionService:
             document_id, field_name, page, x, y, width, height
         )
         if indexed_suggestion is not None:
-            logger.info(
-                "[REGION EXTRACT] Returning indexed asset suggestion for '%s'", field_name
-            )
+            logger.info("[REGION EXTRACT] Returning indexed asset suggestion for '%s'", field_name)
             return [indexed_suggestion]
 
         # ------------------------------------------------------------------
@@ -847,7 +835,9 @@ class AnnotationSuggestionService:
             return []
 
         if document.file_type.lower() != "pdf":
-            logger.warning("extract_table_from_region only supports PDF, got %s", document.file_type)
+            logger.warning(
+                "extract_table_from_region only supports PDF, got %s", document.file_type
+            )
             return []
 
         file_path = Path(f"{settings.file_storage_path}/{document_id}.{document.file_type.lower()}")
@@ -903,13 +893,21 @@ class AnnotationSuggestionService:
                 for w in raw_words
             ]
 
-            table_text = self._format_table_grid(table_grid) if table_grid else self._words_to_lines(positioned_words)
+            table_text = (
+                self._format_table_grid(table_grid)
+                if table_grid
+                else self._words_to_lines(positioned_words)
+            )
 
             if not table_text.strip():
                 logger.warning("No text extracted from region for %s", field_name)
                 return []
 
-            logger.info("[REGION EXTRACT] Fallback pdfplumber: %d chars for '%s'", len(table_text), field_name)
+            logger.info(
+                "[REGION EXTRACT] Fallback pdfplumber: %d chars for '%s'",
+                len(table_text),
+                field_name,
+            )
 
             rows = self._llm_extract_table(table_text, field_name, [])
             if not rows:
@@ -931,7 +929,9 @@ class AnnotationSuggestionService:
             ]
 
         except Exception as e:
-            logger.error("extract_table_from_region failed for %s: %s", document_id, e, exc_info=True)
+            logger.error(
+                "extract_table_from_region failed for %s: %s", document_id, e, exc_info=True
+            )
             return []
 
     def _extract_from_indexed_asset(
@@ -944,13 +944,6 @@ class AnnotationSuggestionService:
         width: float,
         height: float,
     ) -> "AnnotationSuggestion | None":
-        """Find the indexed table asset that overlaps most with the drawn bbox.
-
-        Converts the percentage bbox to pixel space using the stored page dimensions,
-        then queries RetrievalAssetModel for table assets on that page, computes the
-        intersection-over-union (IoU) overlap, and returns a table-level suggestion
-        built from the asset's chunk content if any overlap is found.
-        """
         from uu_backend.django_data import models as orm
 
         try:
@@ -995,38 +988,43 @@ class AnnotationSuggestionService:
                     continue
 
                 intersection = (ix1 - ix0) * (iy1 - iy0)
-                # Overlap relative to the drawn region so a small draw over a large table still matches
+                # Overlap relative to the drawn region so a small draw over a large table
+                # still matches
                 overlap_ratio = intersection / drawn_area
-                logger.info(
-                    "[REGION EXTRACT] Asset '%s' overlap=%.3f", asset.label, overlap_ratio
-                )
+                logger.info("[REGION EXTRACT] Asset '%s' overlap=%.3f", asset.label, overlap_ratio)
                 if overlap_ratio > best_overlap:
                     best_overlap = overlap_ratio
                     best_asset = asset
 
             if best_asset is None or best_overlap < 0.05:
                 logger.info(
-                    "[REGION EXTRACT] No sufficiently overlapping indexed table found (best=%.3f)", best_overlap
+                    "[REGION EXTRACT] No sufficiently overlapping indexed table found (best=%.3f)",
+                    best_overlap,
                 )
                 return None
 
             # Get chunk content — prefer the table-type chunk attached to this asset
             chunk = best_asset.chunks.order_by("chunk_index").first()
             if not chunk or not chunk.content.strip():
-                logger.info("[REGION EXTRACT] Matched asset '%s' has no chunk content", best_asset.label)
+                logger.info(
+                    "[REGION EXTRACT] Matched asset '%s' has no chunk content", best_asset.label
+                )
                 return None
 
             rows = self.extraction_service._parse_markdown_table(chunk.content)
             if not rows:
                 logger.info(
-                    "[REGION EXTRACT] Could not parse markdown table from asset '%s'", best_asset.label
+                    "[REGION EXTRACT] Could not parse markdown table from asset '%s'",
+                    best_asset.label,
                 )
                 return None
 
             # Use the indexed asset's tight bbox (in % coords) for the annotation
             ax0, ay0, ax1, ay1 = (
-                float(best_asset.bbox[0]), float(best_asset.bbox[1]),
-                float(best_asset.bbox[2]), float(best_asset.bbox[3]),
+                float(best_asset.bbox[0]),
+                float(best_asset.bbox[1]),
+                float(best_asset.bbox[2]),
+                float(best_asset.bbox[3]),
             )
             annotation_data = {
                 "page": page,
@@ -1038,7 +1036,9 @@ class AnnotationSuggestionService:
 
             logger.info(
                 "[REGION EXTRACT] Indexed asset '%s' matched with overlap=%.3f, %d row(s)",
-                best_asset.label, best_overlap, len(rows),
+                best_asset.label,
+                best_overlap,
+                len(rows),
             )
             return AnnotationSuggestion(
                 id=str(uuid4()),
@@ -1060,7 +1060,6 @@ class AnnotationSuggestionService:
     # ------------------------------------------------------------------
 
     def _format_table_grid(self, table_grid: list[list[str | None]]) -> str:
-        """Format pdfplumber table grid as tab-separated text for the LLM."""
         lines = []
         for row in table_grid:
             cells = [str(c).strip() if c is not None else "" for c in row]
@@ -1068,7 +1067,6 @@ class AnnotationSuggestionService:
         return "\n".join(lines)
 
     def _words_to_lines(self, words: list[dict]) -> str:
-        """Group positioned words into approximate text lines."""
         if not words:
             return ""
         by_y: dict[int, list[dict]] = {}
@@ -1087,7 +1085,6 @@ class AnnotationSuggestionService:
         field_name: str,
         schema_subfields: list[dict],
     ) -> list[dict]:
-        """Call the LLM to extract structured rows from raw table text."""
         from uu_backend.llm.openai_client import get_openai_client
 
         if schema_subfields:
@@ -1095,9 +1092,7 @@ class AnnotationSuggestionService:
                 f'  - "{sf["name"]}": {sf.get("description") or sf["name"]}'
                 for sf in schema_subfields
             )
-            schema_block = (
-                f'Extract each row into an object with these exact keys:\n{field_list}'
-            )
+            schema_block = f"Extract each row into an object with these exact keys:\n{field_list}"
         else:
             schema_block = (
                 "Use the first row as column headers (keys) and extract the remaining rows as data."
@@ -1126,7 +1121,6 @@ Rules:
             return []
 
     def _normalize_text(self, text: str) -> str:
-        """Normalize text for comparison (remove punctuation, lowercase)."""
         return re.sub(r"[^\w]", "", text.lower())
 
 
@@ -1135,7 +1129,13 @@ _suggestion_service: AnnotationSuggestionService | None = None
 
 
 def get_annotation_suggestion_service() -> AnnotationSuggestionService:
-    """Get or create annotation suggestion service singleton."""
+    """Get or create the annotation suggestion service singleton.
+
+    Returns
+    -------
+    AnnotationSuggestionService
+        Shared singleton instance.
+    """
     global _suggestion_service
     if _suggestion_service is None:
         _suggestion_service = AnnotationSuggestionService()

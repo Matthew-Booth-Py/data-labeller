@@ -8,12 +8,15 @@ import pytest
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "uu_backend.django_project.settings.test")
 django.setup()
 
-from uu_backend.models.taxonomy import FieldType, SchemaField, VisualContentType
-from uu_backend.services.contextual_retrieval.models import SearchResult
-from uu_backend.services.extraction_service import ExtractionService
-from uu_backend.services.pdf_retrieval import PDF_RETRIEVAL_BACKEND
-from uu_backend.services.pdf_retrieval.document_intelligence import NormalizedLine, NormalizedPage
-from uu_backend.services.pdf_retrieval.service import PDFRetrievalService
+from uu_backend.models.taxonomy import FieldType, SchemaField, VisualContentType  # noqa: E402
+from uu_backend.services.contextual_retrieval.models import SearchResult  # noqa: E402
+from uu_backend.services.extraction_service import ExtractionService  # noqa: E402
+from uu_backend.services.pdf_retrieval import PDF_RETRIEVAL_BACKEND  # noqa: E402
+from uu_backend.services.pdf_retrieval.document_intelligence import (  # noqa: E402
+    NormalizedLine,
+    NormalizedPage,
+)
+from uu_backend.services.pdf_retrieval.service import PDFRetrievalService  # noqa: E402
 
 
 @pytest.fixture
@@ -117,12 +120,14 @@ def test_agentic_retrieval_loop_retries_until_field_is_covered(extraction_servic
         "_generate_follow_up_queries",
         return_value=["exact legal entity name"],
     ):
-        evidence_by_field, coverage_by_field, retry_count = extraction_service._run_agentic_retrieval_loop(
-            document_id="doc-1",
-            doc_type=doc_type,
-            schema_fields=[field],
-            retrieval_service=retrieval_service,
-            top_k_per_field=2,
+        evidence_by_field, coverage_by_field, retry_count = (
+            extraction_service._run_agentic_retrieval_loop(
+                document_id="doc-1",
+                doc_type=doc_type,
+                schema_fields=[field],
+                retrieval_service=retrieval_service,
+                top_k_per_field=2,
+            )
         )
 
     assert retry_count == 1

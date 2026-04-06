@@ -58,19 +58,20 @@ class ClassificationService:
         self.model = settings.effective_tagging_model
 
     async def classify_document(self, document_id: str, auto_save: bool = True) -> dict:
-        """
-        Classify a document using LLM.
+        """Classify a document using LLM.
 
-        Args:
-            document_id: The document to classify
-            auto_save: If True, save the classification to database
+        Parameters
+        ----------
+        document_id : str
+            The document to classify.
+        auto_save : bool
+            If True, save the classification to the database.
 
-        Returns:
-            Dictionary with classification result including:
-            - document_type_id: The assigned type ID
-            - document_type_name: The assigned type name
-            - confidence: Confidence score
-            - reasoning: Explanation for the classification
+        Returns
+        -------
+        dict
+            Classification result with document_type_id, document_type_name,
+            confidence, and reasoning.
         """
         repository = get_repository()
         document_repo = get_document_repository()
@@ -319,11 +320,17 @@ Classify this document into one of the available types based on its content and 
             raise
 
     async def suggest_classification(self, document_id: str) -> dict:
-        """
-        Suggest a classification without saving it.
+        """Suggest a classification without saving it.
 
-        This is useful for showing the user what the LLM thinks
-        before they confirm.
+        Parameters
+        ----------
+        document_id : str
+            The document to classify.
+
+        Returns
+        -------
+        dict
+            Classification suggestion result.
         """
         return await self.classify_document(document_id, auto_save=False)
 

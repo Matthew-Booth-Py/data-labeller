@@ -40,6 +40,22 @@ class PageAwareChunker:
         content: str,
         metadata: dict,
     ) -> list["Chunk"]:
+        """Split document into page-aware chunks with attached metadata.
+
+        Parameters
+        ----------
+        document_id : str
+            Unique identifier for the document.
+        content : str
+            Full text content with optional '## Page N' markers.
+        metadata : dict
+            Metadata to attach to each chunk.
+
+        Returns
+        -------
+        list[Chunk]
+            List of Chunk objects, one per page (sub-split if page exceeds limit).
+        """
         if not content or not content.strip():
             return []
 
@@ -93,6 +109,20 @@ class PageAwareChunker:
         return chunks
 
     def chunk(self, document_id: str, content: str) -> list["Chunk"]:
+        """Split document into page-aware chunks.
+
+        Parameters
+        ----------
+        document_id : str
+            Unique identifier for the document.
+        content : str
+            Full text content with optional '## Page N' markers.
+
+        Returns
+        -------
+        list[Chunk]
+            List of Chunk objects.
+        """
         return self.chunk_with_metadata(document_id, content, {})
 
 
@@ -122,15 +152,19 @@ class DocumentChunker:
         )
 
     def chunk(self, document_id: str, content: str) -> list[Chunk]:
-        """
-        Split document content into chunks.
+        """Split document content into chunks.
 
-        Args:
-            document_id: Unique identifier for the document
-            content: Full text content of the document
+        Parameters
+        ----------
+        document_id : str
+            Unique identifier for the document.
+        content : str
+            Full text content of the document.
 
-        Returns:
-            List of Chunk objects
+        Returns
+        -------
+        list[Chunk]
+            List of Chunk objects.
         """
         if not content or not content.strip():
             return []
@@ -156,16 +190,21 @@ class DocumentChunker:
         content: str,
         metadata: dict,
     ) -> list[Chunk]:
-        """
-        Split document and attach metadata to each chunk.
+        """Split document and attach metadata to each chunk.
 
-        Args:
-            document_id: Unique identifier for the document
-            content: Full text content
-            metadata: Metadata to attach to each chunk
+        Parameters
+        ----------
+        document_id : str
+            Unique identifier for the document.
+        content : str
+            Full text content.
+        metadata : dict
+            Metadata to attach to each chunk.
 
-        Returns:
-            List of Chunk objects with metadata
+        Returns
+        -------
+        list[Chunk]
+            List of Chunk objects with metadata.
         """
         chunks = self.chunk(document_id, content)
 

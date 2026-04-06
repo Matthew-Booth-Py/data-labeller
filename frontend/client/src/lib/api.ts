@@ -823,7 +823,9 @@ class ApiClient {
     documents: number;
     classified_documents?: number;
   }> {
-    const params = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+    const params = projectId
+      ? `?project_id=${encodeURIComponent(projectId)}`
+      : "";
     return this.request(`${API_PREFIX}/ingest/status${params}`);
   }
 
@@ -905,8 +907,12 @@ class ApiClient {
   // }
 
   // Taxonomy - Document Types
-  async listDocumentTypes(projectId?: string): Promise<{ types: DocumentType[]; total: number }> {
-    const params = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  async listDocumentTypes(
+    projectId?: string,
+  ): Promise<{ types: DocumentType[]; total: number }> {
+    const params = projectId
+      ? `?project_id=${encodeURIComponent(projectId)}`
+      : "";
     return this.request(`${API_PREFIX}/taxonomy/types${params}`);
   }
 
@@ -1049,7 +1055,11 @@ class ApiClient {
     query: string,
     documentId?: string,
     topK: number = 8,
-  ): Promise<{ results: RetrievalSearchResult[]; total: number; query: string }> {
+  ): Promise<{
+    results: RetrievalSearchResult[];
+    total: number;
+    query: string;
+  }> {
     const params = new URLSearchParams({ q: query, top_k: String(topK) });
     if (documentId) params.append("document_id", documentId);
     return this.request(`${API_PREFIX}/search?${params.toString()}`);
@@ -1258,14 +1268,11 @@ class ApiClient {
     documentId: string,
     fieldName: string,
   ): Promise<{ suggestions: AnnotationSuggestion[]; total: number }> {
-    return this.request(
-      `${API_PREFIX}/documents/${documentId}/suggest-field`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ field_name: fieldName }),
-      },
-    );
+    return this.request(`${API_PREFIX}/documents/${documentId}/suggest-field`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ field_name: fieldName }),
+    });
   }
 
   async approveAnnotation(

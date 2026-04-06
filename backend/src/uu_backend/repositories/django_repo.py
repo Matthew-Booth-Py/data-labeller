@@ -17,8 +17,8 @@ if not apps.ready:
 
 from uu_backend.config import get_settings
 from uu_backend.django_data import models as orm
-from uu_backend.models.prompt import FieldPromptVersion, PromptVersion
 from uu_backend.models.project import Project, ProjectCreate, ProjectUpdate
+from uu_backend.models.prompt import FieldPromptVersion, PromptVersion
 from uu_backend.models.taxonomy import (
     Classification,
     DocumentType,
@@ -110,7 +110,9 @@ class DjangoORMRepository:
 
     def _project_from_model(self, model: orm.ProjectModel) -> Project:
         document_ids = list(
-            model.project_documents.order_by("created_at", "id").values_list("document_id", flat=True)
+            model.project_documents.order_by("created_at", "id").values_list(
+                "document_id", flat=True
+            )
         )
         return Project(
             id=model.id,
@@ -182,6 +184,7 @@ class DjangoORMRepository:
         return self._format_incremental_version(next_minor)
 
     def health(self) -> dict:
+        """Return a health status dict for the database connection."""
         return {
             "backend": "django",
             "status": "connected",
@@ -190,6 +193,7 @@ class DjangoORMRepository:
 
     @transaction.atomic
     def create_project(self, data: ProjectCreate) -> Project:
+        """Create and persist a new project."""
         now = timezone.now()
         row = orm.ProjectModel.objects.create(
             id=data.id,
@@ -203,15 +207,18 @@ class DjangoORMRepository:
         return self._project_from_model(row)
 
     def get_project(self, project_id: str) -> Project | None:
+        """Retrieve a project by ID, or None if not found."""
         row = orm.ProjectModel.objects.filter(id=project_id).first()
         return self._project_from_model(row) if row else None
 
     def list_projects(self) -> list[Project]:
+        """Return all projects ordered by name."""
         rows = orm.ProjectModel.objects.order_by("name")
         return [self._project_from_model(row) for row in rows]
 
     @transaction.atomic
     def update_project(self, project_id: str, data: ProjectUpdate) -> Project | None:
+        """Update mutable fields on a project, returning None if not found."""
         row = orm.ProjectModel.objects.filter(id=project_id).first()
         if not row:
             return None
@@ -239,6 +246,7 @@ class DjangoORMRepository:
 
     @transaction.atomic
     def delete_project(self, project_id: str) -> bool:
+        """Delete a project and cascade-delete its exclusive documents and orphaned types."""
         project_row = orm.ProjectModel.objects.filter(id=project_id).first()
         if not project_row:
             return False
@@ -276,9 +284,9 @@ class DjangoORMRepository:
 
         # Delete document types that are now completely unreferenced
         still_used_type_ids = set(
-            orm.ClassificationModel.objects.filter(document_type_id__in=type_ids_referenced).values_list(
-                "document_type_id", flat=True
-            )
+            orm.ClassificationModel.objects.filter(
+                document_type_id__in=type_ids_referenced
+            ).values_list("document_type_id", flat=True)
         )
         orphaned_type_ids = type_ids_referenced - still_used_type_ids
         if orphaned_type_ids:
@@ -288,6 +296,7 @@ class DjangoORMRepository:
 
     @transaction.atomic
     def add_documents_to_project(self, project_id: str, document_ids: list[str]) -> Project | None:
+        """Add documents to a project, skipping any IDs that do not exist."""
         row = orm.ProjectModel.objects.filter(id=project_id).first()
         if not row:
             return None
@@ -309,6 +318,7 @@ class DjangoORMRepository:
 
     @transaction.atomic
     def remove_document_from_project(self, project_id: str, document_id: str) -> Project | None:
+        """Remove a document from a project, returning None if the project is not found."""
         row = orm.ProjectModel.objects.filter(id=project_id).first()
         if not row:
             return None
@@ -320,6 +330,7 @@ class DjangoORMRepository:
 
     @transaction.atomic
     def create_document_type(self, data: DocumentTypeCreate) -> DocumentType:
+        """Create a new document type with an initial schema version."""
         now = timezone.now()
         schema_version_id = str(uuid4())
 
@@ -350,20 +361,24 @@ class DjangoORMRepository:
         return self._document_type_from_model(row)
 
     def get_document_type(self, type_id: str) -> DocumentType | None:
+        """Retrieve a document type by ID, or None if not found."""
         row = orm.DocumentTypeModel.objects.filter(id=type_id).first()
         return self._document_type_from_model(row) if row else None
 
     def get_document_type_by_name(self, name: str) -> DocumentType | None:
+        """Retrieve a document type by name, or None if not found."""
         row = orm.DocumentTypeModel.objects.filter(name=name).first()
         return self._document_type_from_model(row) if row else None
 
     def list_document_types(self) -> list[DocumentType]:
+        """Return all document types ordered by name."""
         rows = orm.DocumentTypeModel.objects.order_by("name")
         types = [self._document_type_from_model(row) for row in rows]
         return types
 
     @transaction.atomic
     def update_document_type(self, type_id: str, data: DocumentTypeUpdate) -> DocumentType | None:
+        """Update a document type, creating a new schema version when schema fields change."""
         existing = orm.DocumentTypeModel.objects.filter(id=type_id).first()
         if not existing:
             return None
@@ -421,11 +436,13 @@ class DjangoORMRepository:
 
     @transaction.atomic
     def delete_document_type(self, type_id: str) -> bool:
+        """Delete a document type and its associated classifications."""
         orm.ClassificationModel.objects.filter(document_type_id=type_id).delete()
         deleted, _ = orm.DocumentTypeModel.objects.filter(id=type_id).delete()
         return deleted > 0
 
     def list_schema_versions(self, document_type_id: str) -> list[dict[str, Any]]:
+        """Return schema version history for a document type, newest first."""
         rows = orm.SchemaVersionModel.objects.filter(document_type_id=document_type_id).order_by(
             "-created_at"
         )
@@ -453,6 +470,7 @@ class DjangoORMRepository:
         created_by: str | None = None,
         set_active: bool = True,
     ) -> dict[str, Any]:
+        """Snapshot the current schema and prompts into a new deployment version."""
         doc_type = self.get_document_type(document_type_id)
         if not doc_type:
             raise ValueError(f"Document type {document_type_id} not found")
@@ -500,24 +518,28 @@ class DjangoORMRepository:
         return self._deployment_from_model(created)
 
     def get_deployment_version(self, deployment_version_id: str) -> dict[str, Any] | None:
+        """Retrieve a deployment version by ID, or None if not found."""
         row = orm.DeploymentVersionModel.objects.filter(id=deployment_version_id).first()
         return self._deployment_from_model(row) if row else None
 
     def get_deployment_version_by_name(
         self, project_id: str, version: str
     ) -> dict[str, Any] | None:
+        """Retrieve a deployment version by project ID and version name, or None if not found."""
         row = orm.DeploymentVersionModel.objects.filter(
             project_id=project_id, version=version
         ).first()
         return self._deployment_from_model(row) if row else None
 
     def list_deployment_versions(self, project_id: str) -> list[dict[str, Any]]:
+        """Return all deployment versions for a project, newest first."""
         rows = orm.DeploymentVersionModel.objects.filter(project_id=project_id).order_by(
             "-created_at", "-id"
         )
         return [self._deployment_from_model(row) for row in rows]
 
     def get_active_deployment_version(self, project_id: str) -> dict[str, Any] | None:
+        """Return the active deployment version for a project, or None if none is active."""
         row = (
             orm.DeploymentVersionModel.objects.filter(project_id=project_id, is_active=True)
             .order_by("-created_at", "-id")
@@ -529,6 +551,7 @@ class DjangoORMRepository:
     def activate_deployment_version(
         self, project_id: str, deployment_version_id: str
     ) -> dict[str, Any] | None:
+        """Set a deployment version as active, deactivating all others for the project."""
         row = orm.DeploymentVersionModel.objects.filter(
             id=deployment_version_id, project_id=project_id
         ).first()
@@ -541,6 +564,7 @@ class DjangoORMRepository:
         return self._deployment_from_model(row)
 
     def create_global_field(self, data: GlobalFieldCreate) -> GlobalField:
+        """Create and persist a new global field."""
         now = timezone.now()
         row = orm.GlobalFieldModel.objects.create(
             id=str(uuid4()),
@@ -556,6 +580,7 @@ class DjangoORMRepository:
         return self._global_field_from_model(row)
 
     def list_global_fields(self, search: str | None = None) -> list[GlobalField]:
+        """Return all global fields, optionally filtered by a search string."""
         query = orm.GlobalFieldModel.objects.all()
         if search:
             query = query.filter(
@@ -567,14 +592,17 @@ class DjangoORMRepository:
         return [self._global_field_from_model(row) for row in rows]
 
     def get_global_field(self, field_id: str) -> GlobalField | None:
+        """Retrieve a global field by ID, or None if not found."""
         row = orm.GlobalFieldModel.objects.filter(id=field_id).first()
         return self._global_field_from_model(row) if row else None
 
     def get_global_field_by_name(self, name: str) -> GlobalField | None:
+        """Retrieve a global field by name, or None if not found."""
         row = orm.GlobalFieldModel.objects.filter(name=name).first()
         return self._global_field_from_model(row) if row else None
 
     def update_global_field(self, field_id: str, data: GlobalFieldUpdate) -> GlobalField | None:
+        """Update a global field's mutable attributes, returning None if not found."""
         row = orm.GlobalFieldModel.objects.filter(id=field_id).first()
         if not row:
             return None
@@ -605,6 +633,7 @@ class DjangoORMRepository:
         return self._global_field_from_model(row)
 
     def delete_global_field(self, field_id: str) -> bool:
+        """Delete a global field by ID, returning True if deleted."""
         deleted, _ = orm.GlobalFieldModel.objects.filter(id=field_id).delete()
         return deleted > 0
 
@@ -615,6 +644,7 @@ class DjangoORMRepository:
         confidence: float | None = None,
         labeled_by: str | None = None,
     ) -> Classification:
+        """Assign or update the document type classification for a document."""
         doc_type = self.get_document_type(document_type_id)
         if not doc_type:
             raise ValueError(f"Document type {document_type_id} not found")
@@ -640,6 +670,7 @@ class DjangoORMRepository:
         )
 
     def get_classification(self, document_id: str) -> Classification | None:
+        """Retrieve the classification for a document, or None if not classified."""
         row = orm.ClassificationModel.objects.filter(document_id=document_id).first()
         if not row:
             return None
@@ -659,10 +690,12 @@ class DjangoORMRepository:
         )
 
     def delete_classification(self, document_id: str) -> bool:
+        """Delete the classification for a document, returning True if deleted."""
         deleted, _ = orm.ClassificationModel.objects.filter(document_id=document_id).delete()
         return deleted > 0
 
     def get_documents_by_type(self, document_type_id: str) -> list[str]:
+        """Return the IDs of all documents classified under a given document type."""
         return list(
             orm.ClassificationModel.objects.filter(document_type_id=document_type_id).values_list(
                 "document_id", flat=True
@@ -670,6 +703,7 @@ class DjangoORMRepository:
         )
 
     def save_extraction_result(self, result) -> None:
+        """Persist an extraction result, merging request logs with any existing record."""
         fields_data = [
             {
                 "field_name": field.field_name,
@@ -737,6 +771,7 @@ class DjangoORMRepository:
         )
 
     def get_extraction(self, document_id: str) -> dict[str, Any] | None:
+        """Retrieve the extraction result for a document, or None if not found."""
         row = orm.ExtractionModel.objects.filter(document_id=document_id).first()
         if not row:
             return None
@@ -754,15 +789,18 @@ class DjangoORMRepository:
         }
 
     def delete_extraction(self, document_id: str) -> bool:
+        """Delete the extraction result for a document, returning True if deleted."""
         deleted, _ = orm.ExtractionModel.objects.filter(document_id=document_id).delete()
         return deleted > 0
 
     def get_prompt_version(self, version_id: str) -> PromptVersion | None:
+        """Retrieve a prompt version by ID, or None if not found."""
         row = orm.PromptVersionModel.objects.filter(id=version_id).first()
         return self._prompt_version_from_model(row) if row else None
 
     @transaction.atomic
     def create_field_prompt_version(self, field_prompt_version: FieldPromptVersion) -> str:
+        """Create a new field prompt version, deactivating prior active versions if needed."""
         version_name = self._next_field_prompt_version_name(
             field_prompt_version.document_type_id,
             field_prompt_version.field_name,
@@ -788,12 +826,14 @@ class DjangoORMRepository:
         return field_prompt_version.id
 
     def get_field_prompt_version(self, version_id: str) -> FieldPromptVersion | None:
+        """Retrieve a field prompt version by ID, or None if not found."""
         row = orm.FieldPromptVersionModel.objects.filter(id=version_id).first()
         return self._field_prompt_version_from_model(row) if row else None
 
     def get_active_field_prompt_version(
         self, document_type_id: str, field_name: str
     ) -> FieldPromptVersion | None:
+        """Retrieve the active field prompt version for a given document type and field."""
         row = (
             orm.FieldPromptVersionModel.objects.filter(
                 is_active=True,
@@ -806,6 +846,7 @@ class DjangoORMRepository:
         return self._field_prompt_version_from_model(row) if row else None
 
     def list_active_field_prompt_versions(self, document_type_id: str) -> dict[str, str]:
+        """Return a mapping of field name to active extraction prompt for a document type."""
         rows = (
             orm.FieldPromptVersionModel.objects.filter(
                 is_active=True, document_type_id=document_type_id
@@ -821,6 +862,7 @@ class DjangoORMRepository:
         return prompts_by_field
 
     def list_active_field_prompt_version_names(self, document_type_id: str) -> dict[str, str]:
+        """Return a mapping of field name to active version name for a document type."""
         rows = (
             orm.FieldPromptVersionModel.objects.filter(
                 is_active=True, document_type_id=document_type_id
@@ -836,6 +878,7 @@ class DjangoORMRepository:
         return versions_by_field
 
     def list_active_field_prompt_version_timestamps(self, document_type_id: str) -> dict[str, str]:
+        """Return a mapping of field name to active version timestamp for a document type."""
         rows = (
             orm.FieldPromptVersionModel.objects.filter(
                 is_active=True, document_type_id=document_type_id
@@ -856,6 +899,7 @@ class DjangoORMRepository:
         field_name: str | None = None,
         is_active: bool | None = None,
     ) -> list[FieldPromptVersion]:
+        """List field prompt versions with optional filters on document type, field, and status."""
         query = orm.FieldPromptVersionModel.objects.all()
         if document_type_id is not None:
             query = query.filter(document_type_id=document_type_id)
@@ -869,6 +913,7 @@ class DjangoORMRepository:
 
     @transaction.atomic
     def update_field_prompt_version(self, version_id: str, updates: dict[str, Any]) -> bool:
+        """Apply arbitrary field updates to a field prompt version."""
         row = orm.FieldPromptVersionModel.objects.filter(id=version_id).first()
         if not row:
             return False
@@ -891,6 +936,7 @@ class DjangoORMRepository:
         return True
 
     def delete_field_prompt_version(self, version_id: str) -> bool:
+        """Delete a field prompt version by ID, returning True if deleted."""
         deleted, _ = orm.FieldPromptVersionModel.objects.filter(id=version_id).delete()
         return deleted > 0
 
@@ -914,6 +960,7 @@ class DjangoORMRepository:
         )
 
     def save_ground_truth_annotation(self, annotation_data: dict[str, Any]) -> str:
+        """Upsert a ground truth annotation and return its ID."""
         annotation_id = annotation_data.get("id") or str(uuid4())
 
         orm.GroundTruthAnnotationModel.objects.update_or_create(
@@ -933,10 +980,12 @@ class DjangoORMRepository:
         return annotation_id
 
     def get_ground_truth_annotation(self, annotation_id: str):
+        """Retrieve a ground truth annotation by ID, or None if not found."""
         model = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).first()
         return self._ground_truth_annotation_from_model(model) if model else None
 
     def get_ground_truth_annotations(self, document_id: str) -> list:
+        """Return all ground truth annotations for a document, ordered by creation time."""
         models = orm.GroundTruthAnnotationModel.objects.filter(document_id=document_id).order_by(
             "created_at"
         )
@@ -944,6 +993,7 @@ class DjangoORMRepository:
         return [self._ground_truth_annotation_from_model(model) for model in models]
 
     def get_ground_truth_by_field(self, document_id: str, field_name: str) -> list:
+        """Return ground truth annotations for a specific field of a document."""
         models = orm.GroundTruthAnnotationModel.objects.filter(
             document_id=document_id, field_name=field_name
         ).order_by("created_at")
@@ -951,6 +1001,7 @@ class DjangoORMRepository:
         return [self._ground_truth_annotation_from_model(model) for model in models]
 
     def update_ground_truth_annotation(self, annotation_id: str, updates: dict[str, Any]) -> bool:
+        """Apply field updates to a ground truth annotation, returning True on success."""
         model = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).first()
         if not model:
             return False
@@ -968,10 +1019,12 @@ class DjangoORMRepository:
         return False
 
     def delete_ground_truth_annotation(self, annotation_id: str) -> bool:
+        """Delete a ground truth annotation by ID, returning True if deleted."""
         deleted, _ = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).delete()
         return deleted > 0
 
     def approve_annotation(self, annotation_id: str, edited_value: Any | None = None) -> bool:
+        """Mark an annotation as approved, optionally updating its value."""
         model = orm.GroundTruthAnnotationModel.objects.filter(id=annotation_id).first()
         if not model:
             return False

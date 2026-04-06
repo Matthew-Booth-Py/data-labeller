@@ -9,33 +9,34 @@ const Table = React.forwardRef<
   <div className="relative w-full overflow-auto">
     <table
       ref={ref}
-      className={cn("w-full caption-bottom text-sm text-[var(--text-primary)]", className)}
+      className={cn(
+        "w-full caption-bottom text-sm text-[var(--text-primary)]",
+        className,
+      )}
       {...props}
     />
   </div>
 ));
 Table.displayName = "Table";
 
-interface TableHeaderProps
-  extends React.HTMLAttributes<HTMLTableSectionElement> {
+interface TableHeaderProps extends React.HTMLAttributes<HTMLTableSectionElement> {
   sticky?: boolean;
 }
 
-const TableHeader = React.forwardRef<
-  HTMLTableSectionElement,
-  TableHeaderProps
->(({ className, sticky = false, ...props }, ref) => (
-  <thead
-    ref={ref}
-    className={cn(
-      "[&_tr]:border-b [&_tr]:border-[var(--border-subtle)]",
-      sticky &&
-        "[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-[var(--surface-elevated)] [&_th]:backdrop-blur",
-      className,
-    )}
-    {...props}
-  />
-));
+const TableHeader = React.forwardRef<HTMLTableSectionElement, TableHeaderProps>(
+  ({ className, sticky = false, ...props }, ref) => (
+    <thead
+      ref={ref}
+      className={cn(
+        "[&_tr]:border-b [&_tr]:border-[var(--border-subtle)]",
+        sticky &&
+          "[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-[var(--surface-elevated)] [&_th]:backdrop-blur",
+        className,
+      )}
+      {...props}
+    />
+  ),
+);
 TableHeader.displayName = "TableHeader";
 
 const TableBody = React.forwardRef<

@@ -10,13 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api, type ProjectSummary, type SchemaField } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Cpu,
-  Download,
-  Info,
-  RefreshCw,
-  Upload,
-} from "lucide-react";
+import { Cpu, Download, Info, RefreshCw, Upload } from "lucide-react";
 import { useRef, useState, type ChangeEvent } from "react";
 
 type SettingsTab = "llm" | "workspace";
@@ -264,7 +258,8 @@ function parseWorkspaceBundle(raw: unknown): WorkspaceBundle {
       name: field.name,
       type: field.type,
       prompt: field.prompt,
-      description: typeof field.description === "string" ? field.description : "",
+      description:
+        typeof field.description === "string" ? field.description : "",
       extraction_model:
         typeof field.extraction_model === "string"
           ? field.extraction_model
@@ -301,16 +296,18 @@ export default function Settings() {
     setIsExportingWorkspace(true);
     try {
       const projectResponse = await api.listProjects();
-      const projects = projectResponse.projects.map((project: ProjectSummary) => ({
-        id: project.id,
-        name: project.name,
-        description: project.description || "",
-        type: project.type || "",
-        docCount: project.doc_count || 0,
-        model: project.model || "",
-        createdAt: project.created_at,
-        documentIds: project.document_ids || [],
-      }));
+      const projects = projectResponse.projects.map(
+        (project: ProjectSummary) => ({
+          id: project.id,
+          name: project.name,
+          description: project.description || "",
+          type: project.type || "",
+          docCount: project.doc_count || 0,
+          model: project.model || "",
+          createdAt: project.created_at,
+          documentIds: project.document_ids || [],
+        }),
+      );
       const selectedProjectId = localStorage.getItem(SELECTED_PROJECT_KEY);
       const selectedSchemaByProject: Record<string, string> = {};
       for (const project of projects) {
@@ -377,7 +374,9 @@ export default function Settings() {
     importFileInputRef.current?.click();
   };
 
-  const handleImportWorkspace = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleImportWorkspace = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
@@ -513,7 +512,10 @@ export default function Settings() {
       )) {
         const resolvedTypeId =
           importedTypeIdToResolvedId.get(importedTypeId) || importedTypeId;
-        localStorage.setItem(`uu-schema-selected-type:${projectId}`, resolvedTypeId);
+        localStorage.setItem(
+          `uu-schema-selected-type:${projectId}`,
+          resolvedTypeId,
+        );
       }
       toast({
         title: "Workspace imported",
@@ -611,7 +613,6 @@ export default function Settings() {
             </>
           )}
 
-
           {activeTab === "workspace" && (
             <Card>
               <CardHeader>
@@ -652,9 +653,7 @@ export default function Settings() {
                       ) : (
                         <Download className="h-4 w-4" />
                       )}
-                      {isExportingWorkspace
-                        ? "Exporting..."
-                        : "Export Bundle"}
+                      {isExportingWorkspace ? "Exporting..." : "Export Bundle"}
                     </Button>
                   </div>
 
@@ -675,24 +674,20 @@ export default function Settings() {
                       ) : (
                         <Upload className="h-4 w-4" />
                       )}
-                      {isImportingWorkspace
-                        ? "Importing..."
-                        : "Import Bundle"}
+                      {isImportingWorkspace ? "Importing..." : "Import Bundle"}
                     </Button>
                   </div>
                 </div>
 
                 <div className="rounded-lg border border-dashed border-[var(--border-strong)] p-4 text-sm text-muted-foreground space-y-1">
-                  <p className="font-medium text-foreground">
-                    Import behavior
+                  <p className="font-medium text-foreground">Import behavior</p>
+                  <p>
+                    Document types and global fields are upserted by ID, then by
+                    name if ID is not found.
                   </p>
                   <p>
-                    Document types and global fields are upserted by ID, then
-                    by name if ID is not found.
-                  </p>
-                  <p>
-                    Projects are merged by project ID into the backend
-                    workspace store.
+                    Projects are merged by project ID into the backend workspace
+                    store.
                   </p>
                 </div>
               </CardContent>

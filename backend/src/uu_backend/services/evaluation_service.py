@@ -38,7 +38,20 @@ class EvaluationService:
     async def evaluate_document(
         self, document_id: str, run_extraction: bool = True
     ) -> EvaluationResult:
-        """Evaluate extraction quality for a document."""
+        """Evaluate extraction quality for a document.
+
+        Parameters
+        ----------
+        document_id : str
+            The document to evaluate.
+        run_extraction : bool, optional
+            When True, re-runs extraction before comparison.
+
+        Returns
+        -------
+        EvaluationResult
+            Metrics and per-field comparisons.
+        """
         logger.info(f"[EVAL] Starting evaluation for document {document_id}")
         start_time = time.time()
 
@@ -157,7 +170,6 @@ class EvaluationService:
         )
 
     async def _get_ground_truth(self, document_id: str) -> list[dict[str, Any]]:
-        """Get ground truth annotations."""
         from uu_backend.django_data.models import GroundTruthAnnotationModel
 
         queryset = GroundTruthAnnotationModel.objects.filter(document_id=document_id)
@@ -186,19 +198,11 @@ class EvaluationService:
         return result
 
     async def _get_cached_extraction(self, document_id: str):
-        """Get cached extraction result."""
         return await sync_to_async(self.extraction_service.extract_auto)(document_id)
 
-    def _expand_retrieval_table_gt(self, ground_truth: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """
-        Expand whole-table GT annotations into per-row positional entries.
-
-        Retrieval-table fields are annotated as a single ground-truth entry whose
-        value is a list of row-dicts.  We expand each row into a single schema entry
-        keyed as ``{field_name}.__row_{i}`` whose value is the sorted tuple of
-        non-empty cell values in that row.  This makes the comparison insensitive
-        to column naming — only the *values* matter.
-        """
+    def _expand_retrieval_table_gt(
+        self, ground_truth: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         expanded: list[dict[str, Any]] = []
         for gt in ground_truth:
             value = gt["value"]
@@ -206,8 +210,10 @@ class EvaluationService:
                 for idx, row in enumerate(value):
                     row_values = tuple(
                         sorted(
-                            str(v).strip() for v in row.values()
-                            if v is not None and str(v).strip() not in ("", "-", "—", "–", "null", "none")
+                            str(v).strip()
+                            for v in row.values()
+                            if v is not None
+                            and str(v).strip() not in ("", "-", "—", "–", "null", "none")
                         )
                     )
                     expanded.append(
@@ -224,16 +230,6 @@ class EvaluationService:
     def _collapse_cell_gt_to_rows(
         self, ground_truth: list[dict[str, Any]], schema: dict
     ) -> list[dict[str, Any]]:
-        """Convert cell-level GT annotations for table fields into row-level entries.
-
-        When GT was labeled with old column names (e.g. ``table.col_2``, ``table.GAAP``),
-        group those cell annotations by instance_num and emit a single ``table.__row_N``
-        entry per row whose value is the sorted tuple of non-empty cell values — exactly
-        matching the format produced by ``_expand_retrieval_table_gt`` and
-        ``_flatten_to_schema`` for predictions.
-
-        Cell-level GT annotations for non-table fields are passed through unchanged.
-        """
         # Identify table parent fields by looking for .__row_N prediction keys in schema.
         table_parents: set[str] = set()
         for key in schema:
@@ -260,7 +256,14 @@ class EvaluationService:
                     val = gt.get("value")
                     inst = gt.get("instance_num") or 1
                     cell_gt_by_parent.setdefault(parent, {}).setdefault(inst, [])
-                    if val is not None and str(val).strip() not in ("", "-", "—", "–", "null", "none"):
+                    if val is not None and str(val).strip() not in (
+                        "",
+                        "-",
+                        "—",
+                        "–",
+                        "null",
+                        "none",
+                    ):
                         cell_gt_by_parent[parent][inst].append(str(val).strip())
                     continue
 
@@ -284,13 +287,6 @@ class EvaluationService:
     def _normalize_gt_table_column_names(
         self, ground_truth: list[dict[str, Any]], schema: dict
     ) -> list[dict[str, Any]]:
-        """Remap GT cell-level column names that no longer match prediction column names.
-
-        When the markdown parser is updated, auto-generated column names change (e.g.
-        ``col_2`` → ``GAAP_1``).  Both old and new parsers produce columns in the same
-        left-to-right order, so we can positionally remap ``col_N`` GT names to the
-        prediction column that sits at position N.
-        """
         # Build ordered list of predicted column names per table parent (insertion order
         # reflects the column order from the extractor).
         table_pred_cols: dict[str, list[str]] = {}
@@ -336,7 +332,11 @@ class EvaluationService:
                         remapped_gt = {**gt, "field_name": f"{parent}.{pred_cols[pos]}"}
                         logger.debug(
                             "[EVAL] Remapped GT column '%s.%s' → '%s.%s' (position %d)",
-                            parent, gt_col, parent, pred_cols[pos], pos,
+                            parent,
+                            gt_col,
+                            parent,
+                            pred_cols[pos],
+                            pos,
                         )
                 except ValueError:
                     pass
@@ -348,20 +348,6 @@ class EvaluationService:
     def _build_comparison_schema(
         self, ground_truth: list[dict[str, Any]], extraction: Any
     ) -> dict[str, dict[str, Any]]:
-        """
-        Build comparison schema grouping GT and predictions by field.
-
-        For array fields (tables), intelligently groups GT annotations into rows
-        by matching field values, not relying on instance_num.
-
-        Returns:
-            {
-                "field_name": {
-                    "ground_truth": [{"value": x, "instance": 1}, ...],
-                    "predicted": [{"value": y, "instance": 1}, ...]
-                }
-            }
-        """
         # Expand whole-table GT annotations (retrieval_table fields) into dotted field entries
         # so they align with how the extraction side is flattened.
         ground_truth = self._expand_retrieval_table_gt(ground_truth)
@@ -433,12 +419,6 @@ class EvaluationService:
         return dict(schema)
 
     def _assign_gt_instances(self, ground_truth: list[dict], schema: dict) -> list[dict]:
-        """
-        Intelligently assign instance numbers to GT annotations for array fields.
-
-        Groups GT annotations into rows by matching their values against extracted
-        array items, without relying on pre-assigned instance_num.
-        """
         # Group GT by parent field (e.g., "forward_looking_reconciliations")
         gt_by_parent: dict[str, list[dict]] = defaultdict(list)
         for gt in ground_truth:
@@ -476,7 +456,6 @@ class EvaluationService:
         return result
 
     def _extract_predicted_rows(self, parent: str, schema: dict) -> list[dict]:
-        """Extract predicted array rows for a parent field."""
         # Collect all child field predictions
         rows_dict: dict[int, dict] = defaultdict(dict)
 
@@ -500,16 +479,6 @@ class EvaluationService:
         return rows
 
     def _normalize_hierarchy_fields(self, fields: dict) -> dict:
-        """
-        Normalize hierarchical field representations to a common format.
-
-        Converts both old-style (category/subcategory/line_item/level_N) and new-style
-        (hierarchy_path array) to a comparable format.
-
-        IMPORTANT: Only includes non-empty hierarchy values to create the path.
-        This distinguishes parent rows (e.g., ["GAAP R&D"]) from child rows
-        (e.g., ["GAAP R&D", "Acquisition-related adjustments"]).
-        """
         # Check if this row uses hierarchy_path array
         if "hierarchy_path" in fields and isinstance(fields.get("hierarchy_path"), list):
             # Already normalized, return as-is
@@ -533,7 +502,6 @@ class EvaluationService:
     def _match_gt_to_predicted_rows(
         self, gt_list: list[dict], predicted_rows: list[dict]
     ) -> list[dict]:
-        """Match GT annotations to predicted rows based on field values."""
         # Extract field names (remove parent prefix)
         parent = gt_list[0]["field_name"].split(".")[0] if gt_list else ""
 
@@ -570,11 +538,6 @@ class EvaluationService:
         return matched
 
     def _group_gt_by_similarity(self, gt_list: list[dict], parent: str) -> list[list[dict]]:
-        """
-        Group GT annotations that likely belong to the same table row.
-
-        Uses heuristics like proximity of annotation IDs and field value patterns.
-        """
         if not gt_list:
             return []
 
@@ -605,7 +568,6 @@ class EvaluationService:
     def _should_group_together(
         self, curr: dict, prev: dict, current_group: list[dict], parent: str
     ) -> bool:
-        """Determine if GT annotation should be grouped with current group."""
         curr_field = curr["field_name"].replace(f"{parent}.", "")
         group_fields = {gt["field_name"].replace(f"{parent}.", "") for gt in current_group}
 
@@ -624,11 +586,6 @@ class EvaluationService:
         return True
 
     def _is_hierarchy_field(self, field_name: str, field_value: Any = None) -> bool:
-        """
-        Check if a field represents hierarchy (structural/categorical) vs data (measurements).
-
-        Uses schema structure and value patterns, NOT hardcoded field names.
-        """
         # Explicit hierarchy_path field
         if field_name == "hierarchy_path":
             return True
@@ -658,7 +615,6 @@ class EvaluationService:
     def _calculate_row_match_score(
         self, gt_group: list[dict], pred_row: dict, parent: str
     ) -> float:
-        """Calculate how well a GT group matches a predicted row."""
         score = 0.0
         total_fields = 0
 
@@ -790,7 +746,6 @@ class EvaluationService:
         return score / total_fields if total_fields > 0 else 0.0
 
     def _flatten_to_schema(self, prefix: str, value: Any, schema: dict, instance_num: int = None):
-        """Flatten extracted values into schema."""
         if value is None or value == "":
             return
 
@@ -814,8 +769,10 @@ class EvaluationService:
                 for idx, item in enumerate(value):
                     row_values = tuple(
                         sorted(
-                            str(v).strip() for v in item.values()
-                            if v is not None and str(v).strip() not in ("", "-", "—", "–", "null", "none")
+                            str(v).strip()
+                            for v in item.values()
+                            if v is not None
+                            and str(v).strip() not in ("", "-", "—", "–", "null", "none")
                         )
                     )
                     schema[f"{prefix}.__row_{idx}"]["predicted"].append(
@@ -837,19 +794,6 @@ class EvaluationService:
             schema[prefix]["predicted"].append({"value": value, "instance": instance_num})
 
     async def _evaluate_with_llm(self, comparison_schema: dict) -> dict:
-        """
-        Evaluate all fields in a single LLM call.
-
-        Returns:
-            {
-                "field_name": {
-                    "matches": [{"gt_idx": 0, "pred_idx": 0, "is_match": true,
-                                 "confidence": 1.0, "reason": "..."}],
-                    "missing": [0, 1],  # GT indices with no match
-                    "extra": [2]  # Pred indices with no match
-                }
-            }
-        """
         logger.info("[EVAL] _evaluate_with_llm: building prompt...")
 
         # Log the full comparison schema for debugging
@@ -868,11 +812,21 @@ class EvaluationService:
         for k, v in comparison_schema.items():
             serialisable_schema[k] = {
                 "ground_truth": [
-                    {**item, "value": list(item["value"]) if isinstance(item["value"], tuple) else item["value"]}
+                    {
+                        **item,
+                        "value": list(item["value"])
+                        if isinstance(item["value"], tuple)
+                        else item["value"],
+                    }
                     for item in v["ground_truth"]
                 ],
                 "predicted": [
-                    {**item, "value": list(item["value"]) if isinstance(item["value"], tuple) else item["value"]}
+                    {
+                        **item,
+                        "value": list(item["value"])
+                        if isinstance(item["value"], tuple)
+                        else item["value"],
+                    }
                     for item in v["predicted"]
                 ],
             }
@@ -931,7 +885,6 @@ class EvaluationService:
             return self._fallback_exact_match(comparison_schema)
 
     def _build_evaluation_prompt(self, comparison_schema: dict) -> str:
-        """Build the evaluation prompt for LLM."""
         # Simplify schema for prompt (remove empty fields)
         simplified = {}
         for field_name, data in comparison_schema.items():
@@ -998,22 +951,10 @@ class EvaluationService:
         return prompt
 
     def _is_empty_value(self, value: Any) -> bool:
-        """
-        Check if a value represents "no value" / "not applicable".
-
-        Treats the following as empty:
-        - None
-        - Empty string or whitespace-only string
-        - "-" (dash, commonly used for "no value")
-        - "null" (string representation)
-        - "N/A", "n/a", "NA", "na"
-        - "None" (string representation)
-        - Empty list
-        """
         if value is None:
             return True
 
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, list | tuple):
             return len(value) == 0
 
         if isinstance(value, str):
@@ -1040,7 +981,6 @@ class EvaluationService:
         return False
 
     def _normalize_value_for_comparison(self, value: Any) -> str:
-        """Normalize a value for comparison (handles arrays, strings, etc.)."""
         if value is None:
             return ""
         if isinstance(value, list):
@@ -1049,13 +989,6 @@ class EvaluationService:
         return str(value).strip()
 
     def _hierarchy_matches_string(self, hierarchy_array: list, search_value: str) -> bool:
-        """
-        Check if a hierarchy path array matches a single string GT label.
-
-        Matches when:
-        1. Array has exactly one element that matches the string (exact match)
-        2. The last element (leaf node) of the array matches the string (partial match)
-        """
         if not hierarchy_array or not search_value:
             return False
 
@@ -1069,7 +1002,6 @@ class EvaluationService:
         return str(hierarchy_array[-1]).strip().lower() == search_lower
 
     def _fallback_exact_match(self, comparison_schema: dict) -> dict:
-        """Fallback to simple exact matching if LLM fails."""
         evaluations = {}
 
         for field_name, data in comparison_schema.items():
@@ -1136,14 +1068,6 @@ class EvaluationService:
         return evaluations
 
     def _compare_hierarchy_values(self, gt_val: Any, pred_val: Any) -> bool:
-        """
-        Compare hierarchy_path values with backwards compatibility.
-
-        Handles multiple GT formats:
-        1. String (leaf only): "Child" matches ["Parent", "Child"]
-        2. Comma-separated string: "Parent,Child" matches ["Parent", "Child"]
-        3. Array: ["Parent", "Child"] matches ["Parent", "Child"]
-        """
         # Normalize both values to arrays for comparison
         gt_array = self._normalize_hierarchy_to_array(gt_val)
         pred_array = self._normalize_hierarchy_to_array(pred_val)
@@ -1170,20 +1094,6 @@ class EvaluationService:
         return False
 
     def _normalize_hierarchy_to_array(self, value: Any) -> list[str]:
-        """
-        Normalize a hierarchy_path value to an array of strings.
-
-        Handles:
-        - Array: ["A", "B"] -> ["A", "B"]
-        - Comma-separated string (no space after comma): "A,B" -> ["A", "B"]
-        - Single string: "A" -> ["A"]
-        - Text with comma (space after): "Partner contributions, net" ->
-          ["Partner contributions, net"]
-        - None/empty: -> []
-
-        The key distinction: separator commas have NO space after them (e.g., "A,B"),
-        while commas that are part of text have a space (e.g., "A, B").
-        """
         import re
 
         if value is None:
@@ -1215,7 +1125,6 @@ class EvaluationService:
     def _build_field_comparisons(
         self, comparison_schema: dict, eval_results: dict
     ) -> list[FieldComparison]:
-        """Build FieldComparison objects from evaluation results."""
         comparisons = []
 
         for field_name, data in comparison_schema.items():
@@ -1350,9 +1259,12 @@ class EvaluationService:
         gt_value: Any,
         pred_value: Any,
     ) -> tuple[bool, MatchType, str]:
-        """Apply deterministic matching rules for a GT/pred value pair."""
         # Row-level table comparison: both values are sorted tuples of cell values.
-        if ".__row_" in field_name and isinstance(gt_value, tuple) and isinstance(pred_value, tuple):
+        if (
+            ".__row_" in field_name
+            and isinstance(gt_value, tuple)
+            and isinstance(pred_value, tuple)
+        ):
             gt_set = set(v.lower() for v in gt_value)
             pred_set = set(v.lower() for v in pred_value)
             if gt_set == pred_set:
@@ -1390,7 +1302,6 @@ class EvaluationService:
         gt_indices: list[int],
         pred_indices: list[int],
     ) -> tuple[list[FieldComparison], list[int], list[int]]:
-        """Pair unmatched values sharing the same instance number."""
         from collections import defaultdict
 
         gt_by_instance: dict[int, list[int]] = defaultdict(list)
@@ -1448,7 +1359,6 @@ class EvaluationService:
         gt_indices: list[int],
         pred_indices: list[int],
     ) -> tuple[list[FieldComparison], list[int], list[int]]:
-        """Pair unmatched values by deterministic true-match rules."""
         remaining_pred = set(pred_indices)
         matched_gt = set()
         comparisons: list[FieldComparison] = []
@@ -1487,7 +1397,6 @@ class EvaluationService:
     def _build_instance_comparisons(
         self, field_comparisons: list[FieldComparison]
     ) -> dict[str, list[InstanceComparison]]:
-        """Build instance comparisons from field comparisons, grouped by parent and row."""
         from collections import defaultdict
 
         # Group by parent field (e.g., "forward_looking_reconciliations")
@@ -1542,7 +1451,6 @@ class EvaluationService:
         comparisons: list[FieldComparison],
         instance_comparisons: dict[str, list[InstanceComparison]],
     ) -> EvaluationMetrics:
-        """Calculate evaluation metrics."""
         # Filter out header fields from flattened metrics
         value_comparisons = [c for c in comparisons if "_header" not in c.field_name.split(".")[-1]]
 
@@ -1555,18 +1463,11 @@ class EvaluationService:
         )
 
     def _counts_as_predicted(self, comparison: FieldComparison) -> bool:
-        """
-        Count a comparison as a prediction for precision denominators.
-
-        Null predictions can be legitimate/correct for empty GT markers (for example "-"),
-        so include those matched-null cases as predicted.
-        """
         return comparison.predicted_value is not None or (
             comparison.predicted_value is None and comparison.is_correct
         )
 
     def _calculate_flattened_metrics(self, comparisons: list[FieldComparison]) -> FlattenedMetrics:
-        """Calculate flattened metrics."""
         total_gt = sum(1 for c in comparisons if c.ground_truth_value is not None)
         total_pred = sum(1 for c in comparisons if self._counts_as_predicted(c))
         correct = sum(1 for c in comparisons if c.is_correct)
@@ -1604,7 +1505,6 @@ class EvaluationService:
     def _calculate_instance_metrics(
         self, instance_comparisons: dict[str, list[InstanceComparison]]
     ) -> dict[str, InstanceMetrics]:
-        """Calculate instance-level metrics (row-based)."""
         metrics = {}
 
         for parent, instances in instance_comparisons.items():
@@ -1664,7 +1564,6 @@ class EvaluationService:
     def _calculate_field_metrics(
         self, comparisons: list[FieldComparison]
     ) -> dict[str, FieldMetrics]:
-        """Calculate per-field metrics."""
         field_groups: dict[str, list[FieldComparison]] = defaultdict(list)
         for comp in comparisons:
             field_groups[comp.field_name].append(comp)
@@ -1713,7 +1612,13 @@ _evaluation_service: EvaluationService | None = None
 
 
 def get_evaluation_service() -> EvaluationService:
-    """Get or create evaluation service singleton."""
+    """Get or create the evaluation service singleton.
+
+    Returns
+    -------
+    EvaluationService
+        Shared singleton instance.
+    """
     global _evaluation_service
     if _evaluation_service is None:
         _evaluation_service = EvaluationService()

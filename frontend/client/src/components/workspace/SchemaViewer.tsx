@@ -579,7 +579,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   >([]);
   const [aiFieldInput, setAiFieldInput] = useState("");
   const [aiScreenshot, setAiScreenshot] = useState<string | null>(null);
-  const [extractionMethod, setExtractionMethod] = useState<ExtractionMethod>("llm");
+  const [extractionMethod, setExtractionMethod] =
+    useState<ExtractionMethod>("llm");
   const [retrievalQuery, setRetrievalQuery] = useState("");
 
   // Visual analysis state
@@ -874,7 +875,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       data: {
         system_prompt: systemPrompt,
         post_processing: postProcessing,
-
       },
     });
   };
@@ -977,22 +977,30 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     const isTableType = newFieldType === "table";
     const effectiveFieldType: FieldType = isTableType ? "array" : newFieldType;
     const isRetrievalTable =
-      (effectiveFieldType === "array" && extractionMethod === "retrieval_table") ||
+      (effectiveFieldType === "array" &&
+        extractionMethod === "retrieval_table") ||
       isTableType;
 
     const newField: SchemaField = {
       name: normalizedFieldName,
       type: effectiveFieldType,
       description: newFieldDescription || undefined,
-      extraction_prompt: isRetrievalTable ? undefined : newFieldPrompt.trim() || undefined,
+      extraction_prompt: isRetrievalTable
+        ? undefined
+        : newFieldPrompt.trim() || undefined,
       extraction_method: isRetrievalTable ? "retrieval_table" : undefined,
-      retrieval_query: isRetrievalTable ? retrievalQuery.trim() || undefined : undefined,
+      retrieval_query: isRetrievalTable
+        ? retrievalQuery.trim() || undefined
+        : undefined,
       visual_content_type: visualAnalysis?.visual_content_type,
       visual_guidance: visualAnalysis?.extraction_guidance,
       visual_features: visualAnalysis?.distinguishing_features,
     };
 
-    if (effectiveFieldType === "object" && newFieldObjectProperties.length > 0) {
+    if (
+      effectiveFieldType === "object" &&
+      newFieldObjectProperties.length > 0
+    ) {
       newField.properties = nestedPropertiesToSchemaProperties(
         newFieldObjectProperties,
       );
@@ -1003,7 +1011,11 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
         name: "item",
         type: "object",
         ...(newFieldObjectProperties.length > 0
-          ? { properties: nestedPropertiesToSchemaProperties(newFieldObjectProperties) }
+          ? {
+              properties: nestedPropertiesToSchemaProperties(
+                newFieldObjectProperties,
+              ),
+            }
           : {}),
       };
     } else if (effectiveFieldType === "array") {
@@ -1238,7 +1250,10 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
 
   return (
     <div className="h-full flex flex-col min-h-0">
-      <Tabs defaultValue="document-types" className="flex-1 flex flex-col min-h-0">
+      <Tabs
+        defaultValue="document-types"
+        className="flex-1 flex flex-col min-h-0"
+      >
         <div className="mb-2 shrink-0">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
             Schema Workspace
@@ -1255,7 +1270,10 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="document-types" className="flex-1 min-h-0 data-[state=inactive]:hidden">
+        <TabsContent
+          value="document-types"
+          className="flex-1 min-h-0 data-[state=inactive]:hidden"
+        >
           <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(200px,280px)_1fr] gap-4 h-full min-h-0">
             {/* Col 1: Settings rail */}
             <div className="flex flex-col gap-3 overflow-y-auto no-scrollbar min-w-0 min-h-0">
@@ -1266,7 +1284,12 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                     Document Type
                   </span>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setIsCreating(true)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => setIsCreating(true)}
+                    >
                       <Plus className="h-3.5 w-3.5" />
                     </Button>
                     {selectedType && (
@@ -1277,7 +1300,9 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                           className="h-6 w-6"
                           onClick={() => {
                             setEditTypeName(selectedType.name);
-                            setEditTypeDescription(selectedType.description || "");
+                            setEditTypeDescription(
+                              selectedType.description || "",
+                            );
                             setIsEditingType(true);
                           }}
                         >
@@ -1287,7 +1312,9 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 text-destructive/70 hover:text-destructive"
-                          onClick={() => deleteTypeMutation.mutate(selectedTypeId!)}
+                          onClick={() =>
+                            deleteTypeMutation.mutate(selectedTypeId!)
+                          }
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -1316,9 +1343,12 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
 
               {selectedType ? (
                 <>
-
                   {/* System Prompt — collapsible */}
-                  <Collapsible open={promptOpen} onOpenChange={setPromptOpen} className="rounded-lg border bg-[var(--surface-panel)]">
+                  <Collapsible
+                    open={promptOpen}
+                    onOpenChange={setPromptOpen}
+                    className="rounded-lg border bg-[var(--surface-panel)]"
+                  >
                     <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-xs font-bold uppercase tracking-wider text-primary hover:bg-muted/20 rounded-lg transition-colors">
                       <span className="flex items-center gap-2">
                         <MessageSquare className="h-3.5 w-3.5" /> System Prompt
@@ -1328,7 +1358,12 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                           </span>
                         )}
                       </span>
-                      <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", promptOpen && "rotate-180")} />
+                      <ChevronDown
+                        className={cn(
+                          "h-3.5 w-3.5 transition-transform",
+                          promptOpen && "rotate-180",
+                        )}
+                      />
                     </CollapsibleTrigger>
                     <CollapsibleContent className="px-4 pb-4">
                       <Textarea
@@ -1341,15 +1376,26 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                   </Collapsible>
 
                   {/* Post-Processing — collapsible */}
-                  <Collapsible open={postProcOpen} onOpenChange={setPostProcOpen} className="rounded-lg border bg-[var(--surface-panel)]">
+                  <Collapsible
+                    open={postProcOpen}
+                    onOpenChange={setPostProcOpen}
+                    className="rounded-lg border bg-[var(--surface-panel)]"
+                  >
                     <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-xs font-bold uppercase tracking-wider text-primary hover:bg-muted/20 rounded-lg transition-colors">
                       <span className="flex items-center gap-2">
                         <Code className="h-3.5 w-3.5" /> Post-Processing
                         {postProcessing && (
-                          <span className="text-[10px] font-normal normal-case text-muted-foreground">set</span>
+                          <span className="text-[10px] font-normal normal-case text-muted-foreground">
+                            set
+                          </span>
                         )}
                       </span>
-                      <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", postProcOpen && "rotate-180")} />
+                      <ChevronDown
+                        className={cn(
+                          "h-3.5 w-3.5 transition-transform",
+                          postProcOpen && "rotate-180",
+                        )}
+                      />
                     </CollapsibleTrigger>
                     <CollapsibleContent className="px-4 pb-4">
                       <Textarea
@@ -1685,7 +1731,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                       onValueChange={(v) => {
                         const t = v as FieldType;
                         setNewFieldType(t);
-                        if (t === "table") setExtractionMethod("retrieval_table");
+                        if (t === "table")
+                          setExtractionMethod("retrieval_table");
                       }}
                     >
                       <SelectTrigger>
@@ -1751,8 +1798,8 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                             Object Properties
                           </label>
                           <p className="text-xs text-muted-foreground">
-                            Properties can be nested up to 3 levels deep.
-                            Select "Object" as a type to add nested properties.
+                            Properties can be nested up to 3 levels deep. Select
+                            "Object" as a type to add nested properties.
                           </p>
                           <PropertyEditor
                             properties={newFieldObjectProperties}
@@ -1821,9 +1868,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                           <Input
                             placeholder="e.g. financial highlights table"
                             value={retrievalQuery}
-                            onChange={(e) =>
-                              setRetrievalQuery(e.target.value)
-                            }
+                            onChange={(e) => setRetrievalQuery(e.target.value)}
                             className="text-sm"
                           />
                           <p className="text-xs text-muted-foreground">
@@ -1838,18 +1883,18 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                   {newFieldType !== "table" &&
                     (newFieldType !== "array" ||
                       extractionMethod === "llm") && (
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">
-                        Extraction Prompt
-                      </label>
-                      <Textarea
-                        placeholder="Extract this field exactly as it appears in the document."
-                        value={newFieldPrompt}
-                        onChange={(e) => setNewFieldPrompt(e.target.value)}
-                        className="min-h-[120px]"
-                      />
-                    </div>
-                  )}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">
+                          Extraction Prompt
+                        </label>
+                        <Textarea
+                          placeholder="Extract this field exactly as it appears in the document."
+                          value={newFieldPrompt}
+                          onChange={(e) => setNewFieldPrompt(e.target.value)}
+                          className="min-h-[120px]"
+                        />
+                      </div>
+                    )}
 
                   {(newFieldType === "object" ||
                     (newFieldType === "array" &&
@@ -2034,7 +2079,6 @@ ${generateExampleOutput(newFieldObjectProperties, 3)}
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-
 
             <Dialog
               open={!!editingField}

@@ -6,6 +6,7 @@ def get_contextual_retrieval_service():
 
     return _get_contextual_retrieval_service()
 
+
 __all__ = [
     "get_contextual_retrieval_service",
     "Chunk",

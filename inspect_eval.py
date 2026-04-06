@@ -18,4 +18,3 @@ for ann in anns:
     else:
         val_preview = str(val)[:80]
     print(f'  {ann.field_name}: type={val_type} val={val_preview}')
-

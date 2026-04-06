@@ -49,14 +49,17 @@ class DateExtractor:
         ]
 
     def extract_all(self, content: str) -> list[ExtractedDate]:
-        """
-        Extract all dates from content.
+        """Extract all dates from content.
 
-        Args:
-            content: The text to extract dates from
+        Parameters
+        ----------
+        content : str
+            The text to extract dates from.
 
-        Returns:
-            List of ExtractedDate objects, sorted by position
+        Returns
+        -------
+        list[ExtractedDate]
+            List of ExtractedDate objects, sorted by position.
         """
         dates: list[ExtractedDate] = []
         seen_positions: set[int] = set()
@@ -100,19 +103,19 @@ class DateExtractor:
         return sorted(dates, key=lambda d: d.position)
 
     def extract_primary(self, content: str) -> datetime | None:
-        """
-        Extract the primary (most relevant) date from content.
+        """Extract the primary (most relevant) date from content.
 
-        Heuristics:
-        - Prefer dates near the beginning of the document
-        - Prefer more specific formats (with day)
-        - Consider confidence scores
+        Prefers dates near the start of the document and higher-confidence formats.
 
-        Args:
-            content: The text to extract dates from
+        Parameters
+        ----------
+        content : str
+            The text to extract dates from.
 
-        Returns:
-            The primary date or None if no dates found
+        Returns
+        -------
+        datetime or None
+            The primary date, or None if no dates found.
         """
         dates = self.extract_all(content)
 
@@ -136,7 +139,6 @@ class DateExtractor:
         return scored_dates[0][1].date
 
     def _is_reasonable_date(self, date: datetime) -> bool:
-        """Check if a date is within a reasonable range."""
         now = datetime.now()
 
         # Accept dates from 1900 to 10 years in the future

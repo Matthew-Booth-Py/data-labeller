@@ -12,12 +12,16 @@ import pytest
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "uu_backend.django_project.settings.test")
 django.setup()
 
-from django.utils import timezone
-from rest_framework.test import APIRequestFactory
+from django.utils import timezone  # noqa: E402
+from rest_framework.test import APIRequestFactory  # noqa: E402
 
-from uu_backend.django_api.taxonomy.views import ExtractDocumentView
-from uu_backend.models.document import Document, DocumentMetadata
-from uu_backend.models.taxonomy import (
+from uu_backend.django_api.taxonomy.views import ExtractDocumentView  # noqa: E402
+from uu_backend.ingestion.converter import (  # noqa: E402
+    extract_pdf_with_tables,
+    postprocess_markdown,
+)
+from uu_backend.models.document import Document, DocumentMetadata  # noqa: E402
+from uu_backend.models.taxonomy import (  # noqa: E402
     ExtractedField,
     ExtractionRequestMetrics,
     ExtractionResult,
@@ -25,12 +29,13 @@ from uu_backend.models.taxonomy import (
     SchemaField,
     VisualContentType,
 )
-from uu_backend.repositories.django_repo import DjangoORMRepository
-from uu_backend.ingestion.converter import extract_pdf_with_tables, postprocess_markdown
-from uu_backend.services.contextual_retrieval.models import SearchResult
-from uu_backend.services.extraction_service import ExtractionService
-from uu_backend.services.pdf_retrieval import PDF_RETRIEVAL_BACKEND
-from uu_backend.tasks.contextual_retrieval_tasks import _load_document_content_for_retrieval
+from uu_backend.repositories.django_repo import DjangoORMRepository  # noqa: E402
+from uu_backend.services.contextual_retrieval.models import SearchResult  # noqa: E402
+from uu_backend.services.extraction_service import ExtractionService  # noqa: E402
+from uu_backend.services.pdf_retrieval import PDF_RETRIEVAL_BACKEND  # noqa: E402
+from uu_backend.tasks.contextual_retrieval_tasks import (  # noqa: E402
+    _load_document_content_for_retrieval,
+)
 
 
 @pytest.fixture
@@ -427,9 +432,12 @@ def test_extract_structured_with_retrieval_vision_selects_page_17_and_returns_ro
     assert result.request_metadata["source_page_numbers"] == [16, 17]
     assert result.request_metadata["retry_count"] == 0
     assert result.request_metadata["coverage_by_field"]["company_name"]["status"] == "covered"
-    assert result.request_metadata["coverage_by_field"][
-        "supplemental_forward_looking_estimates"
-    ]["status"] == "covered"
+    assert (
+        result.request_metadata["coverage_by_field"]["supplemental_forward_looking_estimates"][
+            "status"
+        ]
+        == "covered"
+    )
     assert 2 <= len(rendered_pages) <= 4
     assert 17 in rendered_pages
 
@@ -627,11 +635,13 @@ def test_extract_document_view_returns_retrieval_result_for_indexed_document():
     ("message", "expected"),
     [
         (
-            "Contextual retrieval indexing is required before extraction. Index or reindex this document and retry.",
+            "Contextual retrieval indexing is required before extraction. "
+            "Index or reindex this document and retry.",
             "required before extraction",
         ),
         (
-            "Contextual retrieval indexing failed for this document. Reindex the document before running extraction.",
+            "Contextual retrieval indexing failed for this document. "
+            "Reindex the document before running extraction.",
             "failed for this document",
         ),
     ],
