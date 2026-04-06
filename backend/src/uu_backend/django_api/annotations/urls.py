@@ -5,9 +5,11 @@ from django.urls import path
 from .views import (
     AnnotationSuggestionView,
     ApproveAnnotationView,
+    ExtractTableRegionView,
     GroundTruthAnnotationDetailView,
     GroundTruthAnnotationListView,
     RejectAnnotationView,
+    SuggestFieldView,
 )
 
 urlpatterns = [
@@ -22,6 +24,18 @@ urlpatterns = [
         "documents/<str:document_id>/suggest-annotations",
         AnnotationSuggestionView.as_view(),
         name="suggest-annotations",
+    ),
+    # Table extraction from a user-drawn bbox region
+    path(
+        "documents/<str:document_id>/extract-table-region",
+        ExtractTableRegionView.as_view(),
+        name="extract-table-region",
+    ),
+    # Retrieval-based extraction for a single field (used after bbox draw)
+    path(
+        "documents/<str:document_id>/suggest-field",
+        SuggestFieldView.as_view(),
+        name="suggest-field",
     ),
     # Individual annotation operations
     path(

@@ -633,7 +633,12 @@ class ExtractionService:
         return metadata
 
     def _parse_markdown_table(self, text: str) -> list[dict] | None:
-        """Parse a markdown table embedded in chunk text into a list of row dicts."""
+        """Parse a markdown table embedded in chunk text into a list of row dicts.
+
+        Handles single-level and two-level (spanning group) headers. Empty cells in
+        a header row are forward-filled so that GAAP/Non-GAAP spanning groups produce
+        keys like 'GAAP_2025', 'GAAP_2024', 'GAAP_vs. 2024' instead of col_2, col_3.
+        """
         lines = [
             l.strip()
             for l in text.split("\n")
@@ -648,17 +653,28 @@ class ExtractionService:
         def is_sep(line: str) -> bool:
             return bool(re.match(r"^\|[\s\-:|]+\|$", line))
 
+        def fill_spans(headers: list[str]) -> list[str]:
+            """Forward-fill non-empty values to cover empty 'colspan' placeholder cells."""
+            filled: list[str] = []
+            last = ""
+            for h in headers:
+                if h:
+                    last = h
+                filled.append(last if not h else h)
+            return filled
+
         sep_idx = next((i for i, l in enumerate(lines) if is_sep(l)), None)
         if sep_idx is None or sep_idx < 1:
             return None
 
         group_headers = parse_cells(lines[sep_idx - 1])
-        post_sep = lines[sep_idx + 1 :]
+        post_sep = lines[sep_idx + 1:]
         next_sep_idx = next((i for i, l in enumerate(post_sep) if is_sep(l)), None)
 
-        if next_sep_idx is not None and next_sep_idx > 0:
+        two_level = next_sep_idx is not None and next_sep_idx > 0
+        if two_level:
             col_headers = parse_cells(post_sep[0])
-            data_lines = post_sep[next_sep_idx + 1 :]
+            data_lines = post_sep[next_sep_idx + 1:]
         elif next_sep_idx == 0:
             col_headers = parse_cells(post_sep[1]) if len(post_sep) > 1 else group_headers
             data_lines = post_sep[2:]
@@ -674,12 +690,45 @@ class ExtractionService:
         if not rows:
             return None
 
-        keys = [
-            h if h else (group_headers[i] if i < len(group_headers) and group_headers[i] else f"col_{i}")
-            for i, h in enumerate(col_headers)
-        ]
-        n_cols = max(len(keys), max((len(r) for r in rows), default=0))
-        padded_keys = keys + [f"col_{i}" for i in range(len(keys), n_cols)]
+        if two_level:
+            # Combine spanning group headers with sub-column headers.
+            # Forward-fill the group row so that empty colspan placeholders inherit
+            # their parent label (e.g. ['', 'GAAP', '', '', 'Non-GAAP', '', '']
+            # → ['', 'GAAP', 'GAAP', 'GAAP', 'Non-GAAP', 'Non-GAAP', 'Non-GAAP']).
+            filled_groups = fill_spans(group_headers)
+            keys: list[str] = []
+            for i, h in enumerate(col_headers):
+                g = filled_groups[i] if i < len(filled_groups) else ""
+                if h and g and h != g:
+                    keys.append(f"{g}_{h}")
+                elif h:
+                    keys.append(h)
+                elif g:
+                    keys.append(g)
+                else:
+                    keys.append(f"col_{i}")
+        else:
+            # Single-level headers. Forward-fill spans so grouped columns
+            # (e.g. GAAP covering multiple year columns) propagate correctly.
+            filled_groups = fill_spans(group_headers)
+            keys = [
+                h if h else (filled_groups[i] if i < len(filled_groups) and filled_groups[i] else f"col_{i}")
+                for i, h in enumerate(col_headers)
+            ]
+
+        # Deduplicate keys by appending a suffix when the same name appears more than once.
+        seen: dict[str, int] = {}
+        unique_keys: list[str] = []
+        for k in keys:
+            if k not in seen:
+                seen[k] = 0
+                unique_keys.append(k)
+            else:
+                seen[k] += 1
+                unique_keys.append(f"{k}_{seen[k]}")
+
+        n_cols = max(len(unique_keys), max((len(r) for r in rows), default=0))
+        padded_keys = unique_keys + [f"col_{i}" for i in range(len(unique_keys), n_cols)]
 
         return [
             {padded_keys[i]: (row[i] if i < len(row) else "") for i in range(n_cols)}
@@ -758,7 +807,21 @@ class ExtractionService:
                             ).order_by("id")
                         )
                         if table_assets:
-                            asset = table_assets[0]
+                            # Prefer the asset whose label matches the retrieved chunk label
+                            # (avoids grabbing the wrong table when a page has multiple tables)
+                            chunk_label = str(getattr(matched_result, "asset_label", "") or "")
+                            matched_asset = next(
+                                (a for a in table_assets if a.label and a.label == chunk_label),
+                                None,
+                            )
+                            # Fall back: try partial label match
+                            if matched_asset is None and chunk_label:
+                                matched_asset = next(
+                                    (a for a in table_assets if a.label and chunk_label in a.label),
+                                    None,
+                                )
+                            # Last resort: take the first asset on the page
+                            asset = matched_asset or table_assets[0]
                             field_evidence_regions[field.name] = [
                                 {
                                     "page_number": page_num,
@@ -770,10 +833,12 @@ class ExtractionService:
                                 }
                             ]
                             logger.info(
-                                "[RETRIEVAL TABLE] Using table asset bbox %s on page %s for field '%s'",
+                                "[RETRIEVAL TABLE] Using table asset '%s' bbox %s on page %s for field '%s' (chunk_label=%r)",
+                                asset.label,
                                 asset.bbox,
                                 page_num,
                                 field.name,
+                                chunk_label,
                             )
                         else:
                             # No table asset found — fall back to full-page
@@ -841,14 +906,17 @@ class ExtractionService:
         schema_fields = doc_type.schema_fields or []
 
         # --- Retrieval-table fields: bypass LLM, parse markdown directly ---
-        retrieval_table_fields = [
-            f for f in schema_fields
-            if getattr(f, "extraction_method", None) == ExtractionMethod.RETRIEVAL_TABLE
-        ]
-        llm_fields = [
-            f for f in schema_fields
-            if getattr(f, "extraction_method", None) != ExtractionMethod.RETRIEVAL_TABLE
-        ]
+        # Also treat array-of-object fields with no defined properties as retrieval_table
+        # fields — they cannot produce a valid OpenAI strict schema (no additionalProperties).
+        def _is_retrieval_table(f: SchemaField) -> bool:
+            if getattr(f, "extraction_method", None) == ExtractionMethod.RETRIEVAL_TABLE:
+                return True
+            if f.type == FieldType.ARRAY and f.items and f.items.type == FieldType.OBJECT:
+                return not f.items.properties
+            return False
+
+        retrieval_table_fields = [f for f in schema_fields if _is_retrieval_table(f)]
+        llm_fields = [f for f in schema_fields if not _is_retrieval_table(f)]
 
         retrieval_table_extracted: list[ExtractedField] = []
         retrieval_table_pages: list[int] = []
@@ -933,6 +1001,9 @@ class ExtractionService:
                 existing_pages.update(retrieval_table_field_pages)
                 metadata["retrieval_table_field_pages"] = existing_pages
             llm_result.request_metadata = metadata
+
+        # Persist the fully merged result so subsequent reads see all fields.
+        self._save_extraction(llm_result)
 
         return llm_result
 

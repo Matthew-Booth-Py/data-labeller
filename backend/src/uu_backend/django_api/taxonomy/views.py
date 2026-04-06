@@ -111,7 +111,36 @@ class TaxonomyPrefixView(APIView):
             return Response(_jsonable(field))
 
         if parts == ["types"]:
-            types = repository.list_document_types()
+            project_id = request.query_params.get("project_id")
+            if project_id:
+                from uu_backend.django_data import models as orm
+
+                doc_ids = set(
+                    orm.ProjectDocumentModel.objects.filter(project_id=project_id).values_list(
+                        "document_id", flat=True
+                    )
+                )
+                type_ids = set(
+                    orm.ClassificationModel.objects.filter(document_id__in=doc_ids).values_list(
+                        "document_type_id", flat=True
+                    )
+                )
+                types = [t for t in repository.list_document_types() if t.id in type_ids]
+            else:
+                # Default: only types used by documents in some project
+                from uu_backend.django_data import models as orm
+
+                project_doc_ids = set(
+                    orm.ProjectDocumentModel.objects.values_list("document_id", flat=True)
+                )
+                type_ids = set(
+                    orm.ClassificationModel.objects.filter(
+                        document_id__in=project_doc_ids
+                    ).values_list("document_type_id", flat=True)
+                )
+                all_types = repository.list_document_types()
+                # Include all types if none are linked yet (fresh setup), else only project-linked
+                types = [t for t in all_types if t.id in type_ids] if type_ids else all_types
             return Response({"types": _jsonable(types), "total": len(types)})
 
         if len(parts) == 2 and parts[0] == "types":
@@ -825,10 +854,9 @@ class ExtractDocumentView(APIView):
                 )
 
             logger.warning(
-                f"[EXTRACTION API] Calling extract_structured_with_retrieval_vision "
-                f"for {document_id}"
+                f"[EXTRACTION API] Calling extract_auto for {document_id}"
             )
-            result = service.extract_structured_with_retrieval_vision(document_id)
+            result = service.extract_auto(document_id)
 
             logger.warning(
                 f"[EXTRACTION API] Extraction completed for {document_id}\n"

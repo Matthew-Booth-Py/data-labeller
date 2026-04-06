@@ -392,11 +392,8 @@ export function EvaluateView({ projectId }: { projectId?: string }) {
         <div className="bg-gradient-to-r from-primary to-[var(--interactive-primary-hover)] px-6 py-6 text-primary-foreground">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-2">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-primary-foreground/80">
-                model quality assurance
-              </p>
               <h3 className="text-2xl font-semibold leading-tight text-primary-foreground">
-                Evaluate extraction performance
+                Evaluate Extraction Performance
               </h3>
               <p className="max-w-2xl text-sm text-primary-foreground/80">
                 Compare extraction output against labeled ground truth, inspect

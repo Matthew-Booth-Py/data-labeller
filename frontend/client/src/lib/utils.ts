@@ -24,8 +24,15 @@ export function formatAnnotationValue(
   let displayStr: string;
 
   if (Array.isArray(value)) {
-    // For arrays (like hierarchy_path), join with " > " for display
-    displayStr = value.map((v) => String(v)).join(" > ");
+    if (value.length > 0 && value[0] !== null && typeof value[0] === "object") {
+      // Array of row-objects (table annotation) — show compact row count summary
+      displayStr = `[table: ${value.length} row${value.length === 1 ? "" : "s"}]`;
+    } else {
+      // For primitive arrays (like hierarchy_path), join with " > " for display
+      displayStr = value.map((v) => String(v)).join(" > ");
+    }
+  } else if (value !== null && typeof value === "object") {
+    displayStr = JSON.stringify(value);
   } else {
     displayStr = String(value);
   }

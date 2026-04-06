@@ -180,35 +180,159 @@ class EvaluationService:
 
     def _expand_retrieval_table_gt(self, ground_truth: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
-        Expand whole-table GT annotations into per-field dotted annotations.
+        Expand whole-table GT annotations into per-row positional entries.
 
         Retrieval-table fields are annotated as a single ground-truth entry whose
-        value is a list of row-dicts, e.g.:
-            {"field_name": "financial_highlights_table",
-             "value": [{"Revenue ($B)": "13.3", ...}, ...]}
-
-        The extraction side flattens those into dotted keys like
-        "financial_highlights_table.Revenue ($B)".  This method expands the GT
-        to the same dotted representation so the two sides are comparable.
+        value is a list of row-dicts.  We expand each row into a single schema entry
+        keyed as ``{field_name}.__row_{i}`` whose value is the sorted tuple of
+        non-empty cell values in that row.  This makes the comparison insensitive
+        to column naming — only the *values* matter.
         """
         expanded: list[dict[str, Any]] = []
         for gt in ground_truth:
             value = gt["value"]
             if isinstance(value, list) and value and all(isinstance(r, dict) for r in value):
-                # Whole-table annotation — expand each row into dotted child fields.
                 for idx, row in enumerate(value):
-                    instance_num = idx + 1
-                    for col_key, col_val in row.items():
-                        expanded.append(
-                            {
-                                "field_name": f"{gt['field_name']}.{col_key}",
-                                "value": col_val,
-                                "instance_num": instance_num,
-                            }
+                    row_values = tuple(
+                        sorted(
+                            str(v).strip() for v in row.values()
+                            if v is not None and str(v).strip() not in ("", "-", "—", "–", "null", "none")
                         )
+                    )
+                    expanded.append(
+                        {
+                            "field_name": f"{gt['field_name']}.__row_{idx}",
+                            "value": row_values,
+                            "instance_num": idx + 1,
+                        }
+                    )
             else:
                 expanded.append(gt)
         return expanded
+
+    def _collapse_cell_gt_to_rows(
+        self, ground_truth: list[dict[str, Any]], schema: dict
+    ) -> list[dict[str, Any]]:
+        """Convert cell-level GT annotations for table fields into row-level entries.
+
+        When GT was labeled with old column names (e.g. ``table.col_2``, ``table.GAAP``),
+        group those cell annotations by instance_num and emit a single ``table.__row_N``
+        entry per row whose value is the sorted tuple of non-empty cell values — exactly
+        matching the format produced by ``_expand_retrieval_table_gt`` and
+        ``_flatten_to_schema`` for predictions.
+
+        Cell-level GT annotations for non-table fields are passed through unchanged.
+        """
+        # Identify table parent fields by looking for .__row_N prediction keys in schema.
+        table_parents: set[str] = set()
+        for key in schema:
+            if ".__row_" in key:
+                table_parents.add(key.split(".__row_")[0])
+
+        if not table_parents:
+            return ground_truth
+
+        # Separate cell-level table GT from everything else.
+        passthrough: list[dict[str, Any]] = []
+        cell_gt_by_parent: dict[str, dict[int, list[Any]]] = {}  # parent → {instance → [values]}
+
+        for gt in ground_truth:
+            fn = gt["field_name"]
+            # Already converted to row-level by _expand_retrieval_table_gt
+            if ".__row_" in fn:
+                passthrough.append(gt)
+                continue
+
+            if "." in fn:
+                parent = fn.split(".", 1)[0]
+                if parent in table_parents:
+                    val = gt.get("value")
+                    inst = gt.get("instance_num") or 1
+                    cell_gt_by_parent.setdefault(parent, {}).setdefault(inst, [])
+                    if val is not None and str(val).strip() not in ("", "-", "—", "–", "null", "none"):
+                        cell_gt_by_parent[parent][inst].append(str(val).strip())
+                    continue
+
+            passthrough.append(gt)
+
+        # Emit one row-level entry per (parent, instance).
+        row_entries: list[dict[str, Any]] = []
+        for parent, rows in cell_gt_by_parent.items():
+            for inst, values in sorted(rows.items()):
+                row_idx = inst - 1
+                row_entries.append(
+                    {
+                        "field_name": f"{parent}.__row_{row_idx}",
+                        "value": tuple(sorted(values)),
+                        "instance_num": inst,
+                    }
+                )
+
+        return passthrough + row_entries
+
+    def _normalize_gt_table_column_names(
+        self, ground_truth: list[dict[str, Any]], schema: dict
+    ) -> list[dict[str, Any]]:
+        """Remap GT cell-level column names that no longer match prediction column names.
+
+        When the markdown parser is updated, auto-generated column names change (e.g.
+        ``col_2`` → ``GAAP_1``).  Both old and new parsers produce columns in the same
+        left-to-right order, so we can positionally remap ``col_N`` GT names to the
+        prediction column that sits at position N.
+        """
+        # Build ordered list of predicted column names per table parent (insertion order
+        # reflects the column order from the extractor).
+        table_pred_cols: dict[str, list[str]] = {}
+        for field_name in schema:
+            if "." not in field_name:
+                continue
+            parent, col_name = field_name.split(".", 1)
+            if schema[field_name]["predicted"]:
+                table_pred_cols.setdefault(parent, [])
+                if col_name not in table_pred_cols[parent]:
+                    table_pred_cols[parent].append(col_name)
+
+        if not table_pred_cols:
+            return ground_truth
+
+        # Find which GT column names are missing from predictions (need remapping).
+        gt_cols_by_parent: dict[str, set[str]] = {}
+        for gt in ground_truth:
+            if "." in gt["field_name"]:
+                parent, col = gt["field_name"].split(".", 1)
+                gt_cols_by_parent.setdefault(parent, set()).add(col)
+
+        remapped: list[dict[str, Any]] = []
+        for gt in ground_truth:
+            if "." not in gt["field_name"]:
+                remapped.append(gt)
+                continue
+
+            parent, gt_col = gt["field_name"].split(".", 1)
+            pred_cols = table_pred_cols.get(parent)
+
+            if pred_cols is None or gt_col in pred_cols:
+                # No mismatch — keep as-is.
+                remapped.append(gt)
+                continue
+
+            # Try positional remap for ``col_N`` style names.
+            remapped_gt = gt
+            if gt_col.startswith("col_"):
+                try:
+                    pos = int(gt_col[4:])
+                    if 0 <= pos < len(pred_cols):
+                        remapped_gt = {**gt, "field_name": f"{parent}.{pred_cols[pos]}"}
+                        logger.debug(
+                            "[EVAL] Remapped GT column '%s.%s' → '%s.%s' (position %d)",
+                            parent, gt_col, parent, pred_cols[pos], pos,
+                        )
+                except ValueError:
+                    pass
+
+            remapped.append(remapped_gt)
+
+        return remapped
 
     def _build_comparison_schema(
         self, ground_truth: list[dict[str, Any]], extraction: Any
@@ -238,6 +362,11 @@ class EvaluationService:
         # First pass: add predicted values to understand structure
         for extracted_field in extraction.fields:
             self._flatten_to_schema(extracted_field.field_name, extracted_field.value, schema)
+
+        # For table fields: convert any surviving cell-level GT annotations
+        # (field_name like "table.col_name") into row-level entries so they align
+        # with the row-based prediction entries we just created.
+        ground_truth = self._collapse_cell_gt_to_rows(ground_truth, schema)
 
         # Check if either predictions OR ground truth use hierarchy_path (dotted field names)
         pred_uses_hierarchy_path = any(
@@ -668,6 +797,21 @@ class EvaluationService:
                 return
 
         if isinstance(value, list):
+            # Check if this is a table (list of row-dicts). If so use row-level comparison
+            # so that column naming is irrelevant — only the *values* in each row matter.
+            if value and all(isinstance(item, dict) for item in value):
+                for idx, item in enumerate(value):
+                    row_values = tuple(
+                        sorted(
+                            str(v).strip() for v in item.values()
+                            if v is not None and str(v).strip() not in ("", "-", "—", "–", "null", "none")
+                        )
+                    )
+                    schema[f"{prefix}.__row_{idx}"]["predicted"].append(
+                        {"value": row_values, "instance": idx + 1}
+                    )
+                return
+
             for idx, item in enumerate(value):
                 item_instance = idx + 1
                 if isinstance(item, dict):
@@ -707,6 +851,21 @@ class EvaluationService:
                 f"[EVAL DEBUG]     GT ({len(gt_values)}): {gt_values}\n"
                 f"[EVAL DEBUG]     Pred ({len(pred_values)}): {pred_values}"
             )
+
+        # Convert tuples to lists for JSON serialisation (row-value sets).
+        serialisable_schema: dict = {}
+        for k, v in comparison_schema.items():
+            serialisable_schema[k] = {
+                "ground_truth": [
+                    {**item, "value": list(item["value"]) if isinstance(item["value"], tuple) else item["value"]}
+                    for item in v["ground_truth"]
+                ],
+                "predicted": [
+                    {**item, "value": list(item["value"]) if isinstance(item["value"], tuple) else item["value"]}
+                    for item in v["predicted"]
+                ],
+            }
+        comparison_schema = serialisable_schema
 
         prompt = self._build_evaluation_prompt(comparison_schema)
         field_names = list(comparison_schema.keys())
@@ -843,7 +1002,7 @@ class EvaluationService:
         if value is None:
             return True
 
-        if isinstance(value, list):
+        if isinstance(value, (list, tuple)):
             return len(value) == 0
 
         if isinstance(value, str):
@@ -1181,6 +1340,19 @@ class EvaluationService:
         pred_value: Any,
     ) -> tuple[bool, MatchType, str]:
         """Apply deterministic matching rules for a GT/pred value pair."""
+        # Row-level table comparison: both values are sorted tuples of cell values.
+        if ".__row_" in field_name and isinstance(gt_value, tuple) and isinstance(pred_value, tuple):
+            gt_set = set(v.lower() for v in gt_value)
+            pred_set = set(v.lower() for v in pred_value)
+            if gt_set == pred_set:
+                return True, MatchType.EXACT, "All row values match"
+            # Partial: all GT values present in pred (pred may have extra empty columns)
+            if gt_set and gt_set.issubset(pred_set):
+                return True, MatchType.SEMANTIC, "All GT row values found in prediction row"
+            if pred_set and pred_set.issubset(gt_set):
+                return True, MatchType.SEMANTIC, "All predicted row values found in GT row"
+            return False, MatchType.NO_MATCH, f"Row value mismatch: GT={gt_set - pred_set} missing"
+
         gt_is_empty = self._is_empty_value(gt_value)
         pred_is_empty = self._is_empty_value(pred_value)
         if gt_is_empty and pred_is_empty:

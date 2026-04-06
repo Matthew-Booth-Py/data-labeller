@@ -129,13 +129,35 @@ class IngestStatusView(APIView):
     permission_classes: list = []
 
     def get(self, request):
-        document_repo = get_document_repository()
-        total_count = document_repo.count()
-
-        # Also count classified documents (those actively in use)
         from uu_backend.django_data import models as orm
 
-        classified_count = orm.ClassificationModel.objects.count()
+        project_id = request.query_params.get("project_id")
+
+        if project_id:
+            doc_ids = set(
+                orm.ProjectDocumentModel.objects.filter(project_id=project_id).values_list(
+                    "document_id", flat=True
+                )
+            )
+            total_count = len(doc_ids)
+            classified_count = (
+                orm.ClassificationModel.objects.filter(document_id__in=doc_ids)
+                .values("document_id")
+                .distinct()
+                .count()
+            )
+        else:
+            # Scope to documents that belong to at least one project
+            project_doc_ids = set(
+                orm.ProjectDocumentModel.objects.values_list("document_id", flat=True)
+            )
+            total_count = len(project_doc_ids)
+            classified_count = (
+                orm.ClassificationModel.objects.filter(document_id__in=project_doc_ids)
+                .values("document_id")
+                .distinct()
+                .count()
+            )
 
         return Response(
             {

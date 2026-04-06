@@ -6,7 +6,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Document, Page, pdfjs } from "react-pdf";
-import { ZoomIn, ZoomOut, Loader2 } from "lucide-react";
+import { ZoomIn, ZoomOut, Loader2, Trash2 } from "lucide-react";
 import type {
   GroundTruthAnnotation,
   BoundingBoxData,
@@ -38,6 +38,7 @@ interface PdfTextAnnotatorProps {
     data: BoundingBoxData,
   ) => void;
   onAnnotationDelete: (annotationId: string) => void;
+  onAnnotationsDeleteBulk?: (ids: string[]) => void;
   onActiveEntityChange: (id: string | null) => void;
   suggestions?: AnnotationSuggestion[];
   onSuggestionApprove?: (suggestion: AnnotationSuggestion) => void;
@@ -69,6 +70,14 @@ interface SelectionSnapshot extends SelectionExtraction {
   capturedAt: number;
 }
 
+interface DrawState {
+  pageNum: number;
+  startXPct: number;
+  startYPct: number;
+  currentXPct: number;
+  currentYPct: number;
+}
+
 interface TablePreviewRow {
   rowNumber: number;
   values: Record<string, unknown>;
@@ -94,6 +103,10 @@ interface TableOverlay {
   columns: string[];
   totalRows: number;
   totalColumns: number;
+  /** Set for whole-table bbox annotations so the overlay can trigger delete */
+  annotationId?: string;
+  /** All annotation IDs that make up this overlay (bbox + all cells) */
+  allAnnotationIds: string[];
 }
 
 const MAX_TABLE_PREVIEW_COLUMNS = 10;
@@ -244,6 +257,7 @@ export function PdfTextAnnotator({
   preferredFieldIds = [],
   onAnnotationCreate,
   onAnnotationDelete,
+  onAnnotationsDeleteBulk,
   onActiveEntityChange,
   suggestions = [],
   onSuggestionApprove,
@@ -268,15 +282,27 @@ export function PdfTextAnnotator({
   const hasAutoScrolledToAnnotationRef = useRef(false);
   const latestSelectionRef = useRef<SelectionSnapshot | null>(null);
 
+  const [drawState, setDrawState] = useState<DrawState | null>(null);
+  const drawStateRef = useRef<DrawState | null>(null);
+  const drawPageElRef = useRef<HTMLElement | null>(null);
+  const activeEntityTypeRef = useRef<typeof activeEntityType>(undefined);
+
   // Get active entity type
   const activeEntityType = entityTypes.find(
     (et) => et.id === activeEntityTypeId,
   );
 
+  // Keep ref in sync so draw handlers can access it without stale closures
+  useEffect(() => {
+    activeEntityTypeRef.current = activeEntityType;
+  }, [activeEntityType]);
+
   const popupEntityTypes = useMemo(() => {
-    if (preferredFieldIds.length === 0) return entityTypes;
+    // Table-kind fields are bbox-drawn, not selected via text popup
+    const leafTypes = entityTypes.filter((et) => et.fieldKind !== "table");
+    if (preferredFieldIds.length === 0) return leafTypes;
     const rank = new Map(preferredFieldIds.map((id, index) => [id, index]));
-    return [...entityTypes].sort((a, b) => {
+    return [...leafTypes].sort((a, b) => {
       const rankA = rank.has(a.id) ? rank.get(a.id)! : Number.MAX_SAFE_INTEGER;
       const rankB = rank.has(b.id) ? rank.get(b.id)! : Number.MAX_SAFE_INTEGER;
       if (rankA !== rankB) return rankA - rankB;
@@ -390,6 +416,8 @@ export function PdfTextAnnotator({
         maxY: number;
       }
     >();
+    // Track all annotation IDs per overlayKey for bulk deletion
+    const overlayAnnotationIds = new Map<string, string[]>();
 
     annotations.forEach((annotation) => {
       if (annotation.annotation_type !== "bbox") return;
@@ -437,6 +465,11 @@ export function PdfTextAnnotator({
           : bbox.y + bbox.height,
       };
       pageOverlays.set(overlayKey, nextBounds);
+
+      // Track annotation ID for bulk deletion
+      const existing = overlayAnnotationIds.get(overlayKey) ?? [];
+      existing.push(annotation.id);
+      overlayAnnotationIds.set(overlayKey, existing);
     });
 
     const overlaysByPage: Record<number, TableOverlay[]> = {};
@@ -467,12 +500,74 @@ export function PdfTextAnnotator({
         columns: orderedColumns,
         totalRows: sortedRows.length,
         totalColumns: orderedColumns.length,
+        allAnnotationIds: overlayAnnotationIds.get(overlayKey) ?? [],
       };
 
       if (!overlaysByPage[overlay.pageNum]) {
         overlaysByPage[overlay.pageNum] = [];
       }
       overlaysByPage[overlay.pageNum]?.push(overlay);
+    });
+
+    // Whole-table bbox annotations (field_name has no dot) that have no
+    // corresponding cell-level overlay yet still deserve a hover card so the
+    // user gets feedback immediately after drawing.
+    const tableEntityNames = new Set(
+      entityTypes
+        .filter((et) => et.fieldKind === "table")
+        .map((et) => et.name),
+    );
+    annotations.forEach((annotation) => {
+      if (annotation.annotation_type !== "bbox") return;
+      if (annotation.field_name.includes(".")) return;
+      if (!tableEntityNames.has(annotation.field_name)) return;
+
+      const bboxData = annotation.annotation_data as BoundingBoxData;
+      const bbox = normalizeBBox(bboxData);
+      const pageNum = getAnnotationPage(annotation);
+      if (!bbox || !pageNum) return;
+
+      const overlayKey = `${pageNum}:${annotation.field_name}`;
+      // Only add if no cell-level overlay already covers this group
+      if (overlaysByPage[pageNum]?.some((o) => o.groupName === annotation.field_name)) {
+        return;
+      }
+
+      // Parse value: may be an array of row objects or null
+      const rawValue = annotation.value;
+      const valueRows: Array<Record<string, unknown>> = Array.isArray(rawValue)
+        ? rawValue.filter((r) => r && typeof r === "object")
+        : [];
+      const valueColumns = valueRows.length > 0
+        ? Array.from(new Set(valueRows.flatMap((r) => Object.keys(r))))
+        : [];
+      const previewRows: TablePreviewRow[] = valueRows.map((vals, i) => ({
+        rowNumber: i + 1,
+        values: vals,
+      }));
+
+      const overlay: TableOverlay = {
+        id: overlayKey,
+        pageNum,
+        groupName: annotation.field_name,
+        label: formatGroupLabel(annotation.field_name),
+        color: getEntityColor(annotation.field_name),
+        leftPct: bbox.x,
+        topPct: bbox.y,
+        widthPct: Math.max(bbox.width, 1.2),
+        heightPct: Math.max(bbox.height, 1.2),
+        rows: previewRows,
+        columns: valueColumns,
+        totalRows: previewRows.length,
+        totalColumns: valueColumns.length,
+        annotationId: annotation.id,
+        allAnnotationIds: [annotation.id],
+      };
+
+      if (!overlaysByPage[pageNum]) {
+        overlaysByPage[pageNum] = [];
+      }
+      overlaysByPage[pageNum]?.push(overlay);
     });
 
     Object.values(overlaysByPage).forEach((overlays) => {
@@ -484,7 +579,7 @@ export function PdfTextAnnotator({
     });
 
     return overlaysByPage;
-  }, [annotations, getAnnotationPage, getEntityColor, normalizeBBox]);
+  }, [annotations, entityTypes, getAnnotationPage, getEntityColor, normalizeBBox]);
 
   useEffect(() => {
     setHoveredTableOverlayId(null);
@@ -661,11 +756,65 @@ export function PdfTextAnnotator({
   // Handle text selection
   const handleMouseUp = useCallback(
     (event: MouseEvent) => {
+      // Complete or cancel draw mode — table bbox draw is handled here so it
+      // works even when the mouse is released outside the page element.
+      if (drawStateRef.current) {
+        const state = drawStateRef.current;
+        const pageEl = drawPageElRef.current;
+        setDrawState(null);
+        drawStateRef.current = null;
+        drawPageElRef.current = null;
+
+        if (pageEl && activeEntityTypeRef.current) {
+          const rect = pageEl.getBoundingClientRect();
+          const xPct = Math.max(
+            0,
+            Math.min(
+              100,
+              ((event.clientX - rect.left) / rect.width) * 100,
+            ),
+          );
+          const yPct = Math.max(
+            0,
+            Math.min(
+              100,
+              ((event.clientY - rect.top) / rect.height) * 100,
+            ),
+          );
+          const x = Math.min(state.startXPct, xPct);
+          const y = Math.min(state.startYPct, yPct);
+          const w = Math.abs(xPct - state.startXPct);
+          const h = Math.abs(yPct - state.startYPct);
+          if (w > 1 && h > 1) {
+            const bbox: BoundingBoxData = {
+              page: state.pageNum,
+              x,
+              y,
+              width: w,
+              height: h,
+              text: "",
+            };
+            onAnnotationCreate(
+              activeEntityTypeRef.current.name,
+              activeEntityTypeRef.current.name,
+              bbox,
+            );
+          }
+        }
+        return;
+      }
+
       const targetNode = event.target as Node | null;
 
       // Let the browser finalize text selection before reading range rects.
       requestAnimationFrame(() => {
         if (targetNode && popupRef.current?.contains(targetNode)) {
+          return;
+        }
+
+        // Table fields use draw mode, not text selection
+        if (activeEntityTypeRef.current?.fieldKind === "table") {
+          window.getSelection()?.removeAllRanges();
           return;
         }
 
@@ -800,13 +949,19 @@ export function PdfTextAnnotator({
         }
       }
 
-      // Escape to deselect
+      // Escape to deselect or cancel draw
       if (e.key === "Escape") {
-        onActiveEntityChange(null);
-        setPopupPosition(null);
-        setPendingSelection(null);
-        window.getSelection()?.removeAllRanges();
-        latestSelectionRef.current = null;
+        if (drawStateRef.current) {
+          setDrawState(null);
+          drawStateRef.current = null;
+          drawPageElRef.current = null;
+        } else {
+          onActiveEntityChange(null);
+          setPopupPosition(null);
+          setPendingSelection(null);
+          window.getSelection()?.removeAllRanges();
+          latestSelectionRef.current = null;
+        }
       }
 
       // Enter confirms pending popup selection.
@@ -867,14 +1022,19 @@ export function PdfTextAnnotator({
 
   // Render annotation highlights on a page
   const renderAnnotationHighlights = (pageNum: number) => {
+    const tableEntityNames = new Set(
+      entityTypes
+        .filter((et) => et.fieldKind === "table")
+        .map((et) => et.name),
+    );
     const pageAnnotations = annotations.filter(
       (a) =>
         a.annotation_type === "bbox" &&
         getAnnotationPage(a) === pageNum &&
-        !(
-          a.field_name.includes(".") &&
-          getAnnotationInstanceNumber(a) !== null
-        ),
+        // Exclude cell-level annotations (handled by table overlays)
+        !(a.field_name.includes(".") && getAnnotationInstanceNumber(a) !== null) &&
+        // Exclude whole-table bbox annotations (also handled by table overlays now)
+        !tableEntityNames.has(a.field_name),
     );
 
     return pageAnnotations.map((ann) => {
@@ -975,7 +1135,9 @@ export function PdfTextAnnotator({
           >
             {overlay.label}
             <span className="dl-table-hover-label-meta">
-              {overlay.totalRows} row{overlay.totalRows === 1 ? "" : "s"}
+              {overlay.totalRows === 0
+                ? "table boundary"
+                : `${overlay.totalRows} row${overlay.totalRows === 1 ? "" : "s"}`}
             </span>
           </div>
 
@@ -984,18 +1146,67 @@ export function PdfTextAnnotator({
               <div className="dl-table-preview-header">
                 <div>
                   <div className="dl-table-preview-title">
-                    Extracted table
+                    {overlay.totalRows === 0
+                      ? "Table boundary"
+                      : "Extracted table"}
                   </div>
                   <div className="dl-table-preview-subtitle">
                     {overlay.label}
                   </div>
                 </div>
-                <div className="dl-table-preview-meta">
-                  Page {overlay.pageNum}
+                <div className="flex items-center gap-2">
+                  <div className="dl-table-preview-meta">
+                    Page {overlay.pageNum}
+                  </div>
+                  {overlay.allAnnotationIds.length > 0 && (
+                    <button
+                      type="button"
+                      title="Delete all annotations for this table"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onAnnotationsDeleteBulk) {
+                          onAnnotationsDeleteBulk(overlay.allAnnotationIds);
+                        } else {
+                          overlay.allAnnotationIds.forEach((id) =>
+                            onAnnotationDelete(id),
+                          );
+                        }
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 24,
+                        height: 24,
+                        borderRadius: 4,
+                        border: "1px solid rgba(200,60,60,0.3)",
+                        background: "rgba(220,60,60,0.08)",
+                        color: "rgba(200,60,60,0.8)",
+                        cursor: "pointer",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div className="dl-table-preview-scroll">
+              {overlay.totalRows === 0 ? (
+                <div
+                  style={{
+                    padding: "12px 14px",
+                    fontSize: "12px",
+                    color: "rgba(79,2,89,0.55)",
+                    fontStyle: "italic",
+                  }}
+                >
+                  No rows labeled yet — select a column field below and
+                  highlight cells to label individual rows.
+                </div>
+              ) : null}
+
+              {overlay.totalRows > 0 && <div className="dl-table-preview-scroll">
                 <table className="dl-table-preview-table">
                   <thead>
                     <tr>
@@ -1058,9 +1269,9 @@ export function PdfTextAnnotator({
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </div>}
 
-              {hiddenColumnCount > 0 && (
+              {overlay.totalRows > 0 && hiddenColumnCount > 0 && (
                 <div className="dl-table-preview-footnote">
                   {`+${hiddenColumnCount} more column${hiddenColumnCount === 1 ? "" : "s"}`}
                   {hiddenRowCount > 0 && hiddenColumnCount > 0 ? " • " : null}
@@ -1076,8 +1287,54 @@ export function PdfTextAnnotator({
     });
   };
 
+  const handlePageMouseDown = useCallback(
+    (pageNum: number, event: React.MouseEvent<HTMLDivElement>) => {
+      if (activeEntityTypeRef.current?.fieldKind !== "table") return;
+      if ((event.target as HTMLElement).closest("[data-annotation-id]")) return;
+      event.preventDefault();
+      const pageEl = event.currentTarget;
+      const rect = pageEl.getBoundingClientRect();
+      const xPct = ((event.clientX - rect.left) / rect.width) * 100;
+      const yPct = ((event.clientY - rect.top) / rect.height) * 100;
+      const state: DrawState = {
+        pageNum,
+        startXPct: xPct,
+        startYPct: yPct,
+        currentXPct: xPct,
+        currentYPct: yPct,
+      };
+      setDrawState(state);
+      drawStateRef.current = state;
+      drawPageElRef.current = pageEl;
+      window.getSelection()?.removeAllRanges();
+    },
+    [],
+  );
+
   const handlePageMouseMove = useCallback(
     (pageNum: number, event: React.MouseEvent<HTMLDivElement>) => {
+      const pageRect = event.currentTarget.getBoundingClientRect();
+      const xPct =
+        pageRect.width > 0
+          ? ((event.clientX - pageRect.left) / pageRect.width) * 100
+          : 0;
+      const yPct =
+        pageRect.height > 0
+          ? ((event.clientY - pageRect.top) / pageRect.height) * 100
+          : 0;
+
+      // Update live draw rectangle
+      if (drawStateRef.current && drawStateRef.current.pageNum === pageNum) {
+        const next: DrawState = {
+          ...drawStateRef.current,
+          currentXPct: xPct,
+          currentYPct: yPct,
+        };
+        drawStateRef.current = next;
+        setDrawState(next);
+      }
+
+      // Table overlay hover detection
       const overlays = tableOverlaysByPage[pageNum] ?? [];
       if (overlays.length === 0) {
         if (hoveredTableOverlayId !== null) {
@@ -1086,13 +1343,6 @@ export function PdfTextAnnotator({
         return;
       }
 
-      const pageRect = event.currentTarget.getBoundingClientRect();
-      if (pageRect.width === 0 || pageRect.height === 0) {
-        return;
-      }
-
-      const xPct = ((event.clientX - pageRect.left) / pageRect.width) * 100;
-      const yPct = ((event.clientY - pageRect.top) / pageRect.height) * 100;
       const hoveredOverlay =
         overlays.find(
           (overlay) =>
@@ -1120,13 +1370,39 @@ export function PdfTextAnnotator({
       return Number.isFinite(parsedPage) && parsedPage === pageNum;
     });
 
-    return pageSuggestions.map((suggestion) => {
+    // Entity names that represent whole-table fields
+    const tableEntityNames = new Set(
+      entityTypes
+        .filter((et) => et.fieldKind === "table")
+        .map((et) => et.name),
+    );
+
+    // Separate table-cell suggestions (grouped) from individual field suggestions
+    const tableGroups = new Map<string, typeof pageSuggestions>();
+    const individualSuggestions: typeof pageSuggestions = [];
+
+    for (const s of pageSuggestions) {
+      const prefix = s.field_name.includes(".")
+        ? s.field_name.split(".")[0]
+        : null;
+      if (prefix && tableEntityNames.has(prefix)) {
+        if (!tableGroups.has(prefix)) tableGroups.set(prefix, []);
+        tableGroups.get(prefix)!.push(s);
+      } else {
+        individualSuggestions.push(s);
+      }
+    }
+
+    const result: React.ReactNode[] = [];
+
+    // Individual suggestions — existing per-chip rendering
+    for (const suggestion of individualSuggestions) {
       const bbox = normalizeBBox(suggestion.annotation_data as BoundingBoxData);
-      if (!bbox) return null;
+      if (!bbox) continue;
       const label =
         suggestion.field_name.split(".").pop() || suggestion.field_name;
 
-      return (
+      result.push(
         <div
           key={suggestion.id}
           className="absolute pointer-events-auto group dl-suggestion-box"
@@ -1138,7 +1414,6 @@ export function PdfTextAnnotator({
           }}
           title={`AI suggestion (${Math.round((suggestion.confidence || 0) * 100)}%): ${suggestion.field_name}\n"${suggestion.value}"`}
         >
-          {/* Label tag */}
           <div className="dl-overlay-label dl-suggestion-label">
             ✦ {label}
             <span className="dl-suggestion-confidence">
@@ -1161,9 +1436,76 @@ export function PdfTextAnnotator({
               ✕
             </button>
           </div>
-        </div>
+        </div>,
       );
-    });
+    }
+
+    // Table groups — one aggregate overlay per group
+    for (const [prefix, groupSugs] of Array.from(tableGroups.entries())) {
+      const bboxes = groupSugs
+        .map((sug) => normalizeBBox(sug.annotation_data as BoundingBoxData))
+        .filter(Boolean) as NonNullable<ReturnType<typeof normalizeBBox>>[];
+
+      if (bboxes.length === 0) continue;
+
+      const unionX = Math.min(...bboxes.map((b) => b.x));
+      const unionY = Math.min(...bboxes.map((b) => b.y));
+      const unionRight = Math.max(...bboxes.map((b) => b.x + b.width));
+      const unionBottom = Math.max(...bboxes.map((b) => b.y + b.height));
+      const rowCount = new Set(
+        groupSugs.map(
+          (sug) => (sug.annotation_data as Record<string, unknown>)?.instance_num,
+        ),
+      ).size;
+      const color =
+        entityTypes.find((et) => et.name === prefix)?.color ?? "#9333ea";
+
+      result.push(
+        <div
+          key={`table-group-${prefix}`}
+          className="absolute pointer-events-auto dl-suggestion-box"
+          style={{
+            left: `${unionX}%`,
+            top: `${unionY}%`,
+            width: `${Math.max(unionRight - unionX, 1)}%`,
+            height: `${Math.max(unionBottom - unionY, 1)}%`,
+            border: `2px solid ${color}`,
+            backgroundColor: `${color}1a`,
+            borderRadius: "3px",
+          }}
+        >
+          <div
+            className="dl-overlay-label dl-suggestion-label"
+            style={{ background: color, color: "#fff", borderColor: color }}
+          >
+            ✦ {prefix}
+            <span className="dl-suggestion-confidence">
+              {rowCount} row{rowCount !== 1 ? "s" : ""}
+            </span>
+            <button
+              type="button"
+              onClick={() => groupSugs.forEach((sug) => onSuggestionApprove?.(sug))}
+              className="dl-popup-action approve"
+              title="Accept all rows"
+            >
+              ✓
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                groupSugs.forEach((sug) => onSuggestionReject?.(sug.id))
+              }
+              className="dl-popup-action reject"
+              title="Reject all rows"
+            >
+              ✕
+            </button>
+          </div>
+        </div>,
+      );
+    }
+
+    return result;
   };
 
   return (
@@ -1311,7 +1653,22 @@ export function PdfTextAnnotator({
                 <div
                   key={`page_${index + 1}`}
                   className="relative dl-viewer-surface"
-                  onMouseMove={(event) => handlePageMouseMove(index + 1, event)}
+                  style={{
+                    cursor:
+                      activeEntityType?.fieldKind === "table"
+                        ? "crosshair"
+                        : undefined,
+                    userSelect:
+                      activeEntityType?.fieldKind === "table"
+                        ? "none"
+                        : undefined,
+                  }}
+                  onMouseDown={(event) =>
+                    handlePageMouseDown(index + 1, event)
+                  }
+                  onMouseMove={(event) =>
+                    handlePageMouseMove(index + 1, event)
+                  }
                   onMouseLeave={() => setHoveredTableOverlayId(null)}
                 >
                   <Page
@@ -1340,6 +1697,39 @@ export function PdfTextAnnotator({
                       {renderSuggestionOverlays(index + 1)}
                     </div>
                   </div>
+
+                  {/* Live draw rectangle for table bbox */}
+                  {drawState &&
+                    drawState.pageNum === index + 1 && (() => {
+                      const x = Math.min(
+                        drawState.startXPct,
+                        drawState.currentXPct,
+                      );
+                      const y = Math.min(
+                        drawState.startYPct,
+                        drawState.currentYPct,
+                      );
+                      const w = Math.abs(
+                        drawState.currentXPct - drawState.startXPct,
+                      );
+                      const h = Math.abs(
+                        drawState.currentYPct - drawState.startYPct,
+                      );
+                      return (
+                        <div
+                          className="absolute pointer-events-none z-[15]"
+                          style={{
+                            left: `${x}%`,
+                            top: `${y}%`,
+                            width: `${w}%`,
+                            height: `${h}%`,
+                            border: `2px dashed ${activeEntityType?.color ?? "#9333ea"}`,
+                            backgroundColor: `${activeEntityType?.color ?? "#9333ea"}22`,
+                            borderRadius: "2px",
+                          }}
+                        />
+                      );
+                    })()}
 
                   {/* Page label */}
                   <div className="dl-viewer-page-label absolute right-3 top-3 z-20 whitespace-nowrap">

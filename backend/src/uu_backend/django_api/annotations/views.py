@@ -193,6 +193,98 @@ class AnnotationSuggestionView(APIView):
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class ExtractTableRegionView(APIView):
+    """Extract table data from a user-drawn bbox region and return suggestions."""
+
+    def post(self, request, document_id: str):
+        """
+        Body: { field_name, page, x, y, width, height, schema_subfields? }
+        Returns: { suggestions: [...], total: N }
+        """
+        try:
+            data = request.data
+            field_name = data.get("field_name")
+            page = data.get("page")
+            x = data.get("x")
+            y = data.get("y")
+            width = data.get("width")
+            height = data.get("height")
+            schema_subfields = data.get("schema_subfields") or []
+
+            if not all([field_name, page is not None, x is not None, y is not None,
+                        width is not None, height is not None]):
+                return Response(
+                    {"detail": "field_name, page, x, y, width, height are required"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            suggestion_service = get_annotation_suggestion_service()
+            suggestions = suggestion_service.extract_table_from_region(
+                document_id=document_id,
+                field_name=str(field_name),
+                page=int(page),
+                x=float(x),
+                y=float(y),
+                width=float(width),
+                height=float(height),
+                schema_subfields=schema_subfields,
+            )
+
+            from uu_backend.models.annotation import AnnotationSuggestionResponse
+
+            response = AnnotationSuggestionResponse(suggestions=suggestions, total=len(suggestions))
+            return Response(response.model_dump(mode="json"))
+
+        except Exception as e:
+            logger.error("Error extracting table region for document %s: %s", document_id, e)
+            import traceback
+            traceback.print_exc()
+            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class SuggestFieldView(APIView):
+    """Run retrieval-based extraction for a single field and return suggestions."""
+
+    def post(self, request, document_id: str):
+        """Body: { field_name }. Returns: { suggestions: [...], total: N }"""
+        try:
+            field_name = request.data.get("field_name")
+            if not field_name:
+                return Response({"detail": "field_name is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+            doc_repo = DjangoORMRepository()
+            document = doc_repo.get_document(document_id)
+            if not document:
+                return Response({"detail": "Document not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            classification = doc_repo.get_document_classification(document_id)
+            if not classification:
+                return Response({"detail": "Document not classified"}, status=status.HTTP_400_BAD_REQUEST)
+
+            from uu_backend.services.taxonomy_service import get_taxonomy_service
+            taxonomy_service = get_taxonomy_service()
+            document_type = taxonomy_service.get_document_type(classification.document_type_id)
+            if not document_type:
+                return Response({"detail": "Document type not found"}, status=status.HTTP_400_BAD_REQUEST)
+
+            suggestion_service = get_annotation_suggestion_service()
+            suggestions = suggestion_service.suggest_field(
+                document_id=document_id,
+                document_type=document_type,
+                field_name=str(field_name),
+            )
+
+            from uu_backend.models.annotation import AnnotationSuggestionResponse
+            response = AnnotationSuggestionResponse(suggestions=suggestions, total=len(suggestions))
+            return Response(response.model_dump(mode="json"))
+
+        except Exception as e:
+            logger.error("Error in suggest_field for document %s: %s", document_id, e)
+            import traceback
+            traceback.print_exc()
+            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class ApproveAnnotationView(APIView):
     """Approve an AI suggestion and convert to ground truth."""
 

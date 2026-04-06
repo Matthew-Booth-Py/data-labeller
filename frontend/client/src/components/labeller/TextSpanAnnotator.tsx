@@ -12,6 +12,9 @@ export interface EntityType {
   id: string;
   name: string;
   color: string;
+  /** "table" = array-of-object schema field that accepts a whole-table bbox;
+   *  "leaf" = individual labellable field (default) */
+  fieldKind?: "table" | "leaf";
 }
 
 interface TextSpanAnnotatorProps {

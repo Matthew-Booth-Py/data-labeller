@@ -31,18 +31,6 @@ export default function Dashboard() {
     staleTime: 30000,
   });
 
-  const { data: ingestStatus } = useQuery({
-    queryKey: ["ingest-status"],
-    queryFn: () => api.getIngestStatus(),
-    staleTime: 30000,
-  });
-
-  const { data: documentTypes } = useQuery({
-    queryKey: ["document-types"],
-    queryFn: () => api.listDocumentTypes(),
-    staleTime: 30000,
-  });
-
   const { data: projectsData } = useQuery({
     queryKey: ["projects"],
     queryFn: () => api.listProjects(),
@@ -53,6 +41,23 @@ export default function Dashboard() {
     () => projectsData?.projects || [],
     [projectsData],
   );
+
+  // When there's exactly one project, scope stats to it; otherwise aggregate across all
+  const scopedProjectId = projects.length === 1 ? projects[0].id : undefined;
+
+  const { data: ingestStatus } = useQuery({
+    queryKey: ["ingest-status", scopedProjectId],
+    queryFn: () => api.getIngestStatus(scopedProjectId),
+    staleTime: 30000,
+    enabled: projectsData !== undefined,
+  });
+
+  const { data: documentTypes } = useQuery({
+    queryKey: ["document-types", scopedProjectId],
+    queryFn: () => api.listDocumentTypes(scopedProjectId),
+    staleTime: 30000,
+    enabled: projectsData !== undefined,
+  });
 
   const totalDocs = ingestStatus?.documents || 0;
   const classifiedDocs = ingestStatus?.classified_documents || 0;

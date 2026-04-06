@@ -5,6 +5,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { formatAnnotationValue } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -132,7 +133,7 @@ export function LabelsView({ projectId }: { projectId?: string }) {
       filtered = filtered.filter(
         (ann) =>
           ann.field_name.toLowerCase().includes(query) ||
-          (ann.value && String(ann.value).toLowerCase().includes(query)) ||
+          (ann.value && formatAnnotationValue(ann.value, 0).toLowerCase().includes(query)) ||
           ann.documentName.toLowerCase().includes(query),
       );
     }
@@ -153,7 +154,7 @@ export function LabelsView({ projectId }: { projectId?: string }) {
     const rows = filteredAnnotations.map((ann) => [
       ann.documentName,
       ann.field_name,
-      ann.value || "",
+      formatAnnotationValue(ann.value, 0) || "",
       (ann.annotation_data as any)?.instance_num || "",
       ann.labeled_by || "",
       new Date(ann.created_at).toLocaleString(),
@@ -353,9 +354,9 @@ export function LabelsView({ projectId }: { projectId?: string }) {
                         <TableCell className="max-w-[300px]">
                           <div
                             className="truncate"
-                            title={String(ann.value || "")}
+                            title={formatAnnotationValue(ann.value, 0) || "No value"}
                           >
-                            {ann.value || (
+                            {formatAnnotationValue(ann.value, 200) || (
                               <span className="text-muted-foreground italic">
                                 No value
                               </span>

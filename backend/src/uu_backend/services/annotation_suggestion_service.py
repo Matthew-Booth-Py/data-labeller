@@ -142,6 +142,93 @@ class AnnotationSuggestionService:
             traceback.print_exc()
             return []
 
+    def suggest_field(
+        self, document_id: str, document_type: "DocumentType", field_name: str
+    ) -> list["AnnotationSuggestion"]:
+        """Run retrieval-based extraction for a single retrieval_table field and return suggestions."""
+        from uu_backend.models.taxonomy import ExtractionMethod
+
+        schema_fields = document_type.schema_fields or []
+        field = next((f for f in schema_fields if f.name == field_name), None)
+        if field is None:
+            logger.warning("suggest_field: field '%s' not found in schema", field_name)
+            return []
+
+        if getattr(field, "extraction_method", None) != ExtractionMethod.RETRIEVAL_TABLE:
+            # For non-retrieval_table array fields, run a targeted retrieval search using
+            # the field name as the query and parse the best matching table chunk.
+            field.extraction_method = ExtractionMethod.RETRIEVAL_TABLE
+            if not getattr(field, "retrieval_query", None):
+                field.retrieval_query = field.name.replace("_", " ")
+
+        (
+            extracted_fields,
+            _source_pages,
+            field_evidence_regions,
+            field_page_map,
+        ) = self.extraction_service._extract_retrieval_table_fields(document_id, [field])
+
+        suggestions: list[AnnotationSuggestion] = []
+        for extracted_field in extracted_fields:
+            if extracted_field.field_name != field_name:
+                continue
+            value = extracted_field.value
+            if not value:
+                continue
+
+            regions = field_evidence_regions.get(field_name, [])
+            annotation_data: dict | None = None
+
+            if regions:
+                # Convert raw bbox region to percentage coords
+                from uu_backend.django_data import models as orm
+
+                r = regions[0]
+                bbox = r.get("bbox")
+                page_number = r.get("page_number")
+                page_id = r.get("page_id")
+                if bbox and len(bbox) == 4 and page_number and page_id:
+                    page = orm.RetrievalPageModel.objects.filter(id=page_id).first()
+                    if page and float(page.width) > 0 and float(page.height) > 0:
+                        pw, ph = float(page.width), float(page.height)
+                        x0, y0, x1, y1 = [float(v) for v in bbox]
+                        annotation_data = {
+                            "page": page_number,
+                            "x": (x0 / pw) * 100.0,
+                            "y": (y0 / ph) * 100.0,
+                            "width": ((x1 - x0) / pw) * 100.0,
+                            "height": ((y1 - y0) / ph) * 100.0,
+                        }
+
+            if annotation_data is None and field_name in field_page_map:
+                annotation_data = {
+                    "page": field_page_map[field_name],
+                    "x": 0.0,
+                    "y": 0.0,
+                    "width": 100.0,
+                    "height": 100.0,
+                }
+
+            if annotation_data is None:
+                continue
+
+            row_count = len(value) if isinstance(value, list) else 1
+            suggestions.append(
+                AnnotationSuggestion(
+                    id=str(uuid4()),
+                    document_id=document_id,
+                    field_name=field_name,
+                    value=value,
+                    annotation_type=AnnotationType.BBOX,
+                    annotation_data=annotation_data,
+                    confidence=extracted_field.confidence or 0.95,
+                    text_snippet=f"{row_count} row{'s' if row_count != 1 else ''}",
+                )
+            )
+
+        logger.info("suggest_field '%s': generated %d suggestion(s)", field_name, len(suggestions))
+        return suggestions
+
     def _create_retrieval_table_suggestions(
         self,
         document_id: str,
@@ -713,6 +800,238 @@ class AnnotationSuggestionService:
                 return make_bbox(word), idx
 
         return None, None
+
+    def extract_table_from_region(
+        self,
+        document_id: str,
+        field_name: str,
+        page: int,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        schema_subfields: list[dict] | None = None,
+    ) -> list[AnnotationSuggestion]:
+        """Extract table data from a specific bbox region drawn by the user.
+
+        Uses pdfplumber to pull text from the cropped region, sends it to the
+        LLM structured as a prompt with the sub-field schema, then maps each
+        extracted cell value back to a per-word bbox for the suggestion overlay.
+        """
+        import pdfplumber
+
+        settings = get_settings()
+        doc_repo = get_document_repository()
+        document = doc_repo.get_document(document_id)
+
+        if not document:
+            logger.error("Document not found: %s", document_id)
+            return []
+
+        if document.file_type.lower() != "pdf":
+            logger.warning("extract_table_from_region only supports PDF, got %s", document.file_type)
+            return []
+
+        file_path = Path(f"{settings.file_storage_path}/{document_id}.{document.file_type.lower()}")
+        if not file_path.exists():
+            logger.error("PDF not found at %s", file_path)
+            return []
+
+        try:
+            with pdfplumber.open(str(file_path)) as pdf:
+                zero_idx = page - 1
+                if not (0 <= zero_idx < len(pdf.pages)):
+                    logger.error("Page %d out of range (doc has %d pages)", page, len(pdf.pages))
+                    return []
+
+                page_obj = pdf.pages[zero_idx]
+                page_w = float(page_obj.width)
+                page_h = float(page_obj.height)
+
+                # Convert percentage bbox to pdfplumber coords (x0, top, x1, bottom)
+                x0 = (x / 100.0) * page_w
+                top = (y / 100.0) * page_h
+                x1 = ((x + width) / 100.0) * page_w
+                bottom = ((y + height) / 100.0) * page_h
+
+                cropped = page_obj.within_bbox((x0, top, x1, bottom))
+
+                # Build word-level bboxes for precise cell matching later
+                raw_words = cropped.extract_words(x_tolerance=3, y_tolerance=3)
+
+                # Try pdfplumber's table parser first; fall back to word grouping
+                table_grid = cropped.extract_table(
+                    table_settings={
+                        "vertical_strategy": "lines_strict",
+                        "horizontal_strategy": "lines_strict",
+                        "snap_tolerance": 3,
+                        "join_tolerance": 3,
+                    }
+                )
+                if not table_grid:
+                    table_grid = cropped.extract_table(
+                        table_settings={
+                            "vertical_strategy": "text",
+                            "horizontal_strategy": "text",
+                            "snap_tolerance": 6,
+                        }
+                    )
+
+            # Positioned words in percentage-of-page coords for bbox matching
+            positioned_words = [
+                {
+                    "text": w["text"],
+                    "page": page,
+                    "x": (w["x0"] / page_w) * 100,
+                    "y": (w["top"] / page_h) * 100,
+                    "width": ((w["x1"] - w["x0"]) / page_w) * 100,
+                    "height": ((w["bottom"] - w["top"]) / page_h) * 100,
+                }
+                for w in raw_words
+            ]
+
+            table_text = self._format_table_grid(table_grid) if table_grid else self._words_to_lines(positioned_words)
+
+            if not table_text.strip():
+                logger.warning("No text extracted from region for %s", field_name)
+                return []
+
+            logger.info("[REGION EXTRACT] Extracted %d chars from region of '%s'", len(table_text), field_name)
+
+            rows = self._llm_extract_table(table_text, field_name, schema_subfields or [])
+            if not rows:
+                logger.warning("[REGION EXTRACT] LLM returned no rows for '%s'", field_name)
+                return []
+
+            logger.info("[REGION EXTRACT] LLM returned %d rows for '%s'", len(rows), field_name)
+
+            region_bounds = [{"page": page, "x": x, "y": y, "width": width, "height": height}]
+            suggestions: list[AnnotationSuggestion] = []
+            used_line_indices: set[int] = set()
+
+            for instance_num, row in enumerate(rows, start=1):
+                if not isinstance(row, dict):
+                    continue
+                for sub_field, value in row.items():
+                    if value is None or str(value).strip() in ("", "None", "null"):
+                        continue
+                    full_field = f"{field_name}.{sub_field}"
+                    value_str = str(value).strip()
+
+                    bbox, line_idx = self._find_text_bbox(
+                        value_str,
+                        positioned_words,
+                        used_line_indices,
+                        allowed_regions=region_bounds,
+                    )
+                    if line_idx is not None:
+                        used_line_indices.add(line_idx)
+
+                    if bbox:
+                        annotation_data = {**bbox, "instance_num": instance_num}
+                    else:
+                        # Place approximately within the drawn region
+                        row_height_pct = height / max(len(rows), 1)
+                        annotation_data = {
+                            "page": page,
+                            "x": x,
+                            "y": y + (instance_num - 1) * row_height_pct,
+                            "width": width,
+                            "height": row_height_pct,
+                            "instance_num": instance_num,
+                        }
+
+                    suggestions.append(
+                        AnnotationSuggestion(
+                            id=str(uuid4()),
+                            document_id=document_id,
+                            field_name=full_field,
+                            value=value_str,
+                            annotation_type=AnnotationType.BBOX,
+                            annotation_data=annotation_data,
+                            confidence=0.85,
+                            text_snippet=value_str,
+                        )
+                    )
+
+            logger.info(
+                "[REGION EXTRACT] Created %d suggestions for '%s'", len(suggestions), field_name
+            )
+            return suggestions
+
+        except Exception as e:
+            logger.error("extract_table_from_region failed for %s: %s", document_id, e, exc_info=True)
+            return []
+
+    # ------------------------------------------------------------------
+    # Private helpers for region extraction
+    # ------------------------------------------------------------------
+
+    def _format_table_grid(self, table_grid: list[list[str | None]]) -> str:
+        """Format pdfplumber table grid as tab-separated text for the LLM."""
+        lines = []
+        for row in table_grid:
+            cells = [str(c).strip() if c is not None else "" for c in row]
+            lines.append("\t".join(cells))
+        return "\n".join(lines)
+
+    def _words_to_lines(self, words: list[dict]) -> str:
+        """Group positioned words into approximate text lines."""
+        if not words:
+            return ""
+        by_y: dict[int, list[dict]] = {}
+        for word in words:
+            bucket = round(float(word["y"]))
+            by_y.setdefault(bucket, []).append(word)
+        lines = []
+        for y_bucket in sorted(by_y):
+            row_words = sorted(by_y[y_bucket], key=lambda w: float(w["x"]))
+            lines.append("  ".join(w["text"] for w in row_words))
+        return "\n".join(lines)
+
+    def _llm_extract_table(
+        self,
+        table_text: str,
+        field_name: str,
+        schema_subfields: list[dict],
+    ) -> list[dict]:
+        """Call the LLM to extract structured rows from raw table text."""
+        from uu_backend.llm.openai_client import get_openai_client
+
+        if schema_subfields:
+            field_list = "\n".join(
+                f'  - "{sf["name"]}": {sf.get("description") or sf["name"]}'
+                for sf in schema_subfields
+            )
+            schema_block = (
+                f'Extract each row into an object with these exact keys:\n{field_list}'
+            )
+        else:
+            schema_block = (
+                "Use the first row as column headers (keys) and extract the remaining rows as data."
+            )
+
+        prompt = f"""You are a precise document table extractor.
+
+{schema_block}
+
+TABLE TEXT (tab or space separated):
+{table_text}
+
+Rules:
+- Return a JSON object with a single key "rows" containing an array of objects.
+- Each object is one DATA row (skip pure header rows).
+- Use null for blank cells.
+- Keep values exactly as they appear in the table — do NOT reformat numbers or dates.
+- The field name being extracted is "{field_name}".
+"""
+        try:
+            result = get_openai_client().complete_json(prompt, max_completion_tokens=8000)
+            rows = result.get("rows", [])
+            return rows if isinstance(rows, list) else []
+        except Exception as e:
+            logger.error("[REGION EXTRACT] LLM call failed: %s", e)
+            return []
 
     def _normalize_text(self, text: str) -> str:
         """Normalize text for comparison (remove punctuation, lowercase)."""

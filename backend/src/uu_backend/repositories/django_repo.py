@@ -239,8 +239,52 @@ class DjangoORMRepository:
 
     @transaction.atomic
     def delete_project(self, project_id: str) -> bool:
-        deleted, _ = orm.ProjectModel.objects.filter(id=project_id).delete()
-        return deleted > 0
+        project_row = orm.ProjectModel.objects.filter(id=project_id).first()
+        if not project_row:
+            return False
+
+        # Collect document IDs belonging to this project
+        doc_ids_in_project = set(
+            orm.ProjectDocumentModel.objects.filter(project_id=project_id).values_list(
+                "document_id", flat=True
+            )
+        )
+
+        # Determine which of those documents belong ONLY to this project
+        shared_doc_ids = set(
+            orm.ProjectDocumentModel.objects.filter(document_id__in=doc_ids_in_project)
+            .exclude(project_id=project_id)
+            .values_list("document_id", flat=True)
+        )
+        exclusive_doc_ids = doc_ids_in_project - shared_doc_ids
+
+        # Capture which document types are referenced by the exclusive documents
+        type_ids_referenced = set(
+            orm.ClassificationModel.objects.filter(document_id__in=exclusive_doc_ids).values_list(
+                "document_type_id", flat=True
+            )
+        )
+
+        # Delete the project (cascades to project_documents join rows)
+        project_row.delete()
+
+        # Delete classifications for exclusive documents
+        orm.ClassificationModel.objects.filter(document_id__in=exclusive_doc_ids).delete()
+
+        # Delete exclusive documents
+        orm.DocumentModel.objects.filter(id__in=exclusive_doc_ids).delete()
+
+        # Delete document types that are now completely unreferenced
+        still_used_type_ids = set(
+            orm.ClassificationModel.objects.filter(document_type_id__in=type_ids_referenced).values_list(
+                "document_type_id", flat=True
+            )
+        )
+        orphaned_type_ids = type_ids_referenced - still_used_type_ids
+        if orphaned_type_ids:
+            orm.DocumentTypeModel.objects.filter(id__in=orphaned_type_ids).delete()
+
+        return True
 
     @transaction.atomic
     def add_documents_to_project(self, project_id: str, document_ids: list[str]) -> Project | None:

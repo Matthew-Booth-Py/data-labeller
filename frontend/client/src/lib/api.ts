@@ -218,7 +218,8 @@ export type FieldType =
   | "date"
   | "boolean"
   | "object"
-  | "array";
+  | "array"
+  | "table";
 
 export type VisualContentType =
   | "table"
@@ -818,11 +819,12 @@ class ApiClient {
     return response.json();
   }
 
-  async getIngestStatus(): Promise<{
+  async getIngestStatus(projectId?: string): Promise<{
     documents: number;
     classified_documents?: number;
   }> {
-    return this.request(`${API_PREFIX}/ingest/status`);
+    const params = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+    return this.request(`${API_PREFIX}/ingest/status${params}`);
   }
 
   // Graph integration removed - Neo4j disabled
@@ -903,8 +905,9 @@ class ApiClient {
   // }
 
   // Taxonomy - Document Types
-  async listDocumentTypes(): Promise<{ types: DocumentType[]; total: number }> {
-    return this.request(`${API_PREFIX}/taxonomy/types`);
+  async listDocumentTypes(projectId?: string): Promise<{ types: DocumentType[]; total: number }> {
+    const params = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+    return this.request(`${API_PREFIX}/taxonomy/types${params}`);
   }
 
   async createDocumentType(
@@ -1225,6 +1228,42 @@ class ApiClient {
       `${API_PREFIX}/documents/${documentId}/suggest-annotations`,
       {
         method: "POST",
+      },
+    );
+  }
+
+  async extractTableRegion(
+    documentId: string,
+    request: {
+      field_name: string;
+      page: number;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      schema_subfields?: Array<{ name: string; description?: string }>;
+    },
+  ): Promise<{ suggestions: AnnotationSuggestion[]; total: number }> {
+    return this.request(
+      `${API_PREFIX}/documents/${documentId}/extract-table-region`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      },
+    );
+  }
+
+  async suggestField(
+    documentId: string,
+    fieldName: string,
+  ): Promise<{ suggestions: AnnotationSuggestion[]; total: number }> {
+    return this.request(
+      `${API_PREFIX}/documents/${documentId}/suggest-field`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ field_name: fieldName }),
       },
     );
   }

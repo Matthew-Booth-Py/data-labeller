@@ -60,8 +60,8 @@ type WorkspaceTabId =
   | "deployment";
 
 const WORKSPACE_TABS: WorkspaceTabId[] = [
-  "schema",
   "documents",
+  "schema",
   "extraction",
   "labeller",
   "labels",
@@ -78,8 +78,8 @@ const WORKSPACE_TAB_META: Record<
     className?: string;
   }
 > = {
-  schema: { label: "Schema", icon: Braces },
   documents: { label: "Documents", icon: FileText },
+  schema: { label: "Schema", icon: Braces },
   extraction: { label: "Extraction", icon: Waypoints },
   labeller: { label: "Data Labeller", icon: BookOpenText },
   labels: { label: "Labels", icon: Tags },

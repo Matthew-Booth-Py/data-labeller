@@ -67,11 +67,6 @@ import {
 } from "@/lib/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tag } from "lucide-react";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 
 interface NestedProperty {
   name: string;
@@ -564,7 +559,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
   );
   const [systemPrompt, setSystemPrompt] = useState("");
   const [postProcessing, setPostProcessing] = useState("");
-  const [ocrEngine, setOcrEngine] = useState("native-text");
+
   const [promptOpen, setPromptOpen] = useState(false);
   const [postProcOpen, setPostProcOpen] = useState(false);
 
@@ -676,7 +671,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       ) {
         setSystemPrompt(currentType.system_prompt || "");
         setPostProcessing(currentType.post_processing || "");
-        setOcrEngine(currentType.ocr_engine || "native-text");
         setLastSyncedSchemaVersionId(currentType.schema_version_id || null);
       }
       return;
@@ -692,7 +686,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     const nextType = availableTypes.find((type) => type.id === nextTypeId);
     setSystemPrompt(nextType?.system_prompt || "");
     setPostProcessing(nextType?.post_processing || "");
-    setOcrEngine(nextType?.ocr_engine || "native-text");
     setLastSyncedSchemaVersionId(nextType?.schema_version_id || null);
   }, [
     typesData,
@@ -708,7 +701,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
     if (type) {
       setSystemPrompt(type.system_prompt || "");
       setPostProcessing(type.post_processing || "");
-      setOcrEngine(type.ocr_engine || "native-text");
       setLastSyncedSchemaVersionId(type.schema_version_id || null);
     }
   };
@@ -722,7 +714,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       setSelectedType(result.type.id);
       setSystemPrompt(result.type.system_prompt || "");
       setPostProcessing(result.type.post_processing || "");
-      setOcrEngine(result.type.ocr_engine || "native-text");
       setLastSyncedSchemaVersionId(result.type.schema_version_id || null);
       setIsCreating(false);
       setNewTypeName("");
@@ -751,7 +742,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       if (result.type && result.type.id === selectedTypeId) {
         setSystemPrompt(result.type.system_prompt || "");
         setPostProcessing(result.type.post_processing || "");
-        setOcrEngine(result.type.ocr_engine || "native-text");
         setLastSyncedSchemaVersionId(result.type.schema_version_id || null);
       }
       toast({ title: "Schema saved" });
@@ -884,7 +874,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       data: {
         system_prompt: systemPrompt,
         post_processing: postProcessing,
-        ocr_engine: ocrEngine,
+
       },
     });
   };
@@ -927,7 +917,11 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       `Extract the ${field.name.replace(/_/g, " ")} from the document.`;
     setEditingSchemaFieldName(field.name);
     setNewFieldName(field.name);
-    setNewFieldType(field.type);
+    const isTableField =
+      field.type === "array" &&
+      (field.extraction_method === "retrieval_table" ||
+        field.items?.type === "object");
+    setNewFieldType(isTableField ? "table" : field.type);
     setNewFieldDescription(field.description || "");
     setNewFieldPrompt(prompt);
     setAiFieldInput("");
@@ -941,16 +935,16 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
         schemaPropertiesToNestedProperties(field.properties),
       );
       setNewFieldArrayItemType("string");
+    } else if (isTableField) {
+      setNewFieldArrayItemType("object");
+      setNewFieldObjectProperties(
+        field.items?.properties
+          ? schemaPropertiesToNestedProperties(field.items.properties)
+          : [],
+      );
     } else if (field.type === "array") {
-      if (field.items?.type === "object" && field.items.properties) {
-        setNewFieldArrayItemType("object");
-        setNewFieldObjectProperties(
-          schemaPropertiesToNestedProperties(field.items.properties),
-        );
-      } else {
-        setNewFieldArrayItemType((field.items?.type || "string") as FieldType);
-        setNewFieldObjectProperties([]);
-      }
+      setNewFieldArrayItemType((field.items?.type || "string") as FieldType);
+      setNewFieldObjectProperties([]);
     } else {
       setNewFieldArrayItemType("string");
       setNewFieldObjectProperties([]);
@@ -980,12 +974,15 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       return;
     }
 
+    const isTableType = newFieldType === "table";
+    const effectiveFieldType: FieldType = isTableType ? "array" : newFieldType;
     const isRetrievalTable =
-      newFieldType === "array" && extractionMethod === "retrieval_table";
+      (effectiveFieldType === "array" && extractionMethod === "retrieval_table") ||
+      isTableType;
 
     const newField: SchemaField = {
       name: normalizedFieldName,
-      type: newFieldType,
+      type: effectiveFieldType,
       description: newFieldDescription || undefined,
       extraction_prompt: isRetrievalTable ? undefined : newFieldPrompt.trim() || undefined,
       extraction_method: isRetrievalTable ? "retrieval_table" : undefined,
@@ -995,13 +992,21 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
       visual_features: visualAnalysis?.distinguishing_features,
     };
 
-    if (newFieldType === "object" && newFieldObjectProperties.length > 0) {
+    if (effectiveFieldType === "object" && newFieldObjectProperties.length > 0) {
       newField.properties = nestedPropertiesToSchemaProperties(
         newFieldObjectProperties,
       );
     }
 
-    if (newFieldType === "array") {
+    if (isTableType) {
+      newField.items = {
+        name: "item",
+        type: "object",
+        ...(newFieldObjectProperties.length > 0
+          ? { properties: nestedPropertiesToSchemaProperties(newFieldObjectProperties) }
+          : {}),
+      };
+    } else if (effectiveFieldType === "array") {
       if (
         newFieldArrayItemType === "object" &&
         newFieldObjectProperties.length > 0
@@ -1311,21 +1316,6 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
 
               {selectedType ? (
                 <>
-                  {/* OCR Engine — compact inline row */}
-                  <div className="rounded-lg border bg-[var(--surface-panel)] px-4 py-3 flex items-center justify-between gap-3">
-                    <span className="text-xs font-medium text-muted-foreground whitespace-nowrap flex items-center gap-1.5">
-                      <Settings2 className="h-3.5 w-3.5" /> OCR Engine
-                    </span>
-                    <Select value={ocrEngine} onValueChange={setOcrEngine}>
-                      <SelectTrigger className="h-7 text-xs bg-background w-36">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="native-text">Native Text</SelectItem>
-                        <SelectItem value="aws-textract">AWS Textract</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
 
                   {/* System Prompt — collapsible */}
                   <Collapsible open={promptOpen} onOpenChange={setPromptOpen} className="rounded-lg border bg-[var(--surface-panel)]">
@@ -1397,11 +1387,23 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                 <span className="text-xs font-bold uppercase tracking-widest text-primary">
                   Fields
                 </span>
-                {selectedType && (
-                  <span className="text-xs text-muted-foreground">
-                    {selectedType.schema_fields?.length || 0}
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {selectedType && (
+                    <span className="text-xs text-muted-foreground">
+                      {selectedType.schema_fields?.length || 0}
+                    </span>
+                  )}
+                  {selectedType && (
+                    <button
+                      type="button"
+                      onClick={openNewFieldDialog}
+                      className="flex h-5 w-5 items-center justify-center rounded border border-pink-400 text-pink-400 hover:bg-pink-50 hover:text-pink-500"
+                      title="Add field"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="flex-1 overflow-y-auto no-scrollbar">
@@ -1435,7 +1437,11 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                       variant="outline"
                       className="text-[10px] h-4 px-1.5 font-mono uppercase shrink-0"
                     >
-                      {field.type}
+                      {field.type === "array" &&
+                      (field.extraction_method === "retrieval_table" ||
+                        field.items?.type === "object")
+                        ? "table"
+                        : field.type}
                     </Badge>
                     <Button
                       variant="ghost"
@@ -1676,7 +1682,11 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                     <label className="text-sm font-medium">Type</label>
                     <Select
                       value={newFieldType}
-                      onValueChange={(v) => setNewFieldType(v as FieldType)}
+                      onValueChange={(v) => {
+                        const t = v as FieldType;
+                        setNewFieldType(t);
+                        if (t === "table") setExtractionMethod("retrieval_table");
+                      }}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -1687,6 +1697,7 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                         <SelectItem value="date">Date</SelectItem>
                         <SelectItem value="boolean">Boolean</SelectItem>
                         <SelectItem value="object">Object</SelectItem>
+                        <SelectItem value="table">Table</SelectItem>
                         <SelectItem value="array">Array</SelectItem>
                       </SelectContent>
                     </Select>
@@ -1761,43 +1772,47 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                       onChange={(e) => setNewFieldDescription(e.target.value)}
                     />
                   </div>
-                  {newFieldType === "array" && (
+                  {(newFieldType === "array" || newFieldType === "table") && (
                     <div className="space-y-3 p-3 border rounded-lg bg-muted/20">
-                      <label className="text-sm font-medium">
-                        Extraction Method
-                      </label>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setExtractionMethod("llm")}
-                          className={`flex-1 rounded-md border px-3 py-2 text-sm text-left transition-colors ${
-                            extractionMethod === "llm"
-                              ? "border-primary bg-primary/10 text-primary font-medium"
-                              : "border-[var(--border-subtle)] text-muted-foreground hover:border-primary/50"
-                          }`}
-                        >
-                          <div className="font-medium">LLM Extraction</div>
-                          <div className="text-xs opacity-70 mt-0.5">
-                            Schema-driven, uses vision model
+                      {newFieldType !== "table" && (
+                        <>
+                          <label className="text-sm font-medium">
+                            Extraction Method
+                          </label>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setExtractionMethod("llm")}
+                              className={`flex-1 rounded-md border px-3 py-2 text-sm text-left transition-colors ${
+                                extractionMethod === "llm"
+                                  ? "border-primary bg-primary/10 text-primary font-medium"
+                                  : "border-[var(--border-subtle)] text-muted-foreground hover:border-primary/50"
+                              }`}
+                            >
+                              <div className="font-medium">LLM Extraction</div>
+                              <div className="text-xs opacity-70 mt-0.5">
+                                Schema-driven, uses vision model
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExtractionMethod("retrieval_table")
+                              }
+                              className={`flex-1 rounded-md border px-3 py-2 text-sm text-left transition-colors ${
+                                extractionMethod === "retrieval_table"
+                                  ? "border-primary bg-primary/10 text-primary font-medium"
+                                  : "border-[var(--border-subtle)] text-muted-foreground hover:border-primary/50"
+                              }`}
+                            >
+                              <div className="font-medium">Retrieval Table</div>
+                              <div className="text-xs opacity-70 mt-0.5">
+                                Deterministic — parses raw chunk
+                              </div>
+                            </button>
                           </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExtractionMethod("retrieval_table")
-                          }
-                          className={`flex-1 rounded-md border px-3 py-2 text-sm text-left transition-colors ${
-                            extractionMethod === "retrieval_table"
-                              ? "border-primary bg-primary/10 text-primary font-medium"
-                              : "border-[var(--border-subtle)] text-muted-foreground hover:border-primary/50"
-                          }`}
-                        >
-                          <div className="font-medium">Retrieval Table</div>
-                          <div className="text-xs opacity-70 mt-0.5">
-                            Deterministic — parses raw chunk
-                          </div>
-                        </button>
-                      </div>
+                        </>
+                      )}
                       {extractionMethod === "retrieval_table" && (
                         <div className="space-y-1.5 pt-1">
                           <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -1820,8 +1835,9 @@ export function SchemaViewer({ projectId }: SchemaViewerProps) {
                     </div>
                   )}
 
-                  {(newFieldType !== "array" ||
-                    extractionMethod === "llm") && (
+                  {newFieldType !== "table" &&
+                    (newFieldType !== "array" ||
+                      extractionMethod === "llm") && (
                     <div className="space-y-2">
                       <label className="text-sm font-medium">
                         Extraction Prompt

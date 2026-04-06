@@ -12,16 +12,14 @@ import { api, type ProjectSummary, type SchemaField } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import {
   Cpu,
-  Database,
   Download,
-  ExternalLink,
   Info,
   RefreshCw,
   Upload,
 } from "lucide-react";
 import { useRef, useState, type ChangeEvent } from "react";
 
-type SettingsTab = "llm" | "engines" | "workspace";
+type SettingsTab = "llm" | "workspace";
 
 const SELECTED_PROJECT_KEY = "selected-project";
 const WORKSPACE_BUNDLE_VERSION = 1;
@@ -54,7 +52,7 @@ interface WorkspaceBundleDocumentType {
 interface WorkspaceBundleGlobalField {
   id: string;
   name: string;
-  type: "string" | "number" | "date" | "boolean" | "object" | "array";
+  type: "string" | "number" | "date" | "boolean" | "object" | "array" | "table";
   prompt: string;
   description?: string;
   extraction_model?: string;
@@ -559,14 +557,6 @@ export default function Settings() {
               LLM Configuration
             </Button>
             <Button
-              variant={activeTab === "engines" ? "secondary" : "quiet"}
-              className="w-full justify-start gap-2"
-              onClick={() => setActiveTab("engines")}
-            >
-              <Database className="h-4 w-4" />
-              Extraction Engines
-            </Button>
-            <Button
               variant={activeTab === "workspace" ? "secondary" : "quiet"}
               className="w-full justify-start gap-2"
               onClick={() => setActiveTab("workspace")}
@@ -621,42 +611,6 @@ export default function Settings() {
             </>
           )}
 
-          {activeTab === "engines" && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <CardTitle className="text-xl">
-                      Extraction Engines
-                    </CardTitle>
-                    <CardDescription className="mt-1">
-                      Configure OCR and engine profiles for specialized document
-                      pipelines.
-                    </CardDescription>
-                  </div>
-                  <Badge variant="outline">Not Configured</Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="rounded-lg border border-dashed border-[var(--border-strong)] bg-muted/20 p-8 text-center">
-                  <p className="text-base font-medium">
-                    No engine profiles configured
-                  </p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Backend persistence for custom extraction engines is not
-                    wired yet.
-                  </p>
-                  <Button variant="outline" className="mt-4 gap-2" disabled>
-                    Configure Engine
-                    <ExternalLink className="h-4 w-4" />
-                  </Button>
-                  <p className="mt-2 text-xs text-[var(--text-secondary)]">
-                    Action disabled until backend engine profiles are available.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
           {activeTab === "workspace" && (
             <Card>
